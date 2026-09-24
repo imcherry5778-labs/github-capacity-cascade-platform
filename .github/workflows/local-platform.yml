@@ -1,6 +1,6 @@
 name: local-platform
 
-# P1 Local Forgejo correctness. Runner 안의 disposable k3d cluster만 사용하며 Azure resource를 만들지 않는다.
+# P1 Local Forgejo Correctness. Runner 안의 disposable k3d cluster만 사용하며 Azure resource를 만들지 않는다.
 on:
   pull_request:
     paths:
@@ -37,20 +37,76 @@ jobs:
       - name: Source / static / render validation
         run: make static
 
-      - name: Fresh k3d cluster + PostgreSQL + Forgejo
-        id: up
-        run: make up
-
-      - name: Existing cluster ownership guard
+      - name: Fresh lifecycle (make local) + owned cleanup
         run: |
-          if make local; then
-            echo "make local unexpectedly accepted an existing cluster" >&2
+          make local
+          if .tmp/bin/k3d cluster get capacity-cascade-local >/dev/null 2>&1; then
+            echo "invocation-owned cluster left after make local" >&2
             exit 1
           fi
-          .tmp/bin/k3d cluster get capacity-cascade-local >/dev/null
+          for f in .tmp/kubeconfig .tmp/journey .tmp/rendered .tmp/port-forward.log; do
+            [[ ! -e "$f" ]] || { echo "runtime output left after make local: $f" >&2; exit 1; }
+          done
 
-      - name: Developer E2E + Forgejo/PostgreSQL state continuity
-        run: make verify
+      # 아래 guard는 다른 invocation이 소유한 cluster를 만든 뒤, ownership을 얻지 못한 invocation이
+      # 실패하면서 그 cluster(server container ID)와 kubeconfig를 삭제/변경하지 않는지 확인한다.
+      - name: Guard cluster owned by another invocation
+        id: up
+        run: |
+          make up
+          echo "GUARD_SERVER_ID=$(docker ps -aq --no-trunc --filter label=k3d.cluster=capacity-cascade-local --filter label=k3d.role=server)" >>"$GITHUB_ENV"
+
+      - name: Ownership guard (existing / concurrent create-delete / replaced cluster)
+        run: |
+          expect_refused() { # MESSAGE COMMAND...
+            local out
+            if out="$("${@:2}" 2>&1)"; then
+              printf '%s\n' "$out"
+              echo "unexpected success: ${*:2}" >&2
+              exit 1
+            fi
+            printf '%s\n' "$out"
+            grep -qF "$1" <<<"$out" || { echo "expected refusal: $1" >&2; exit 1; }
+            [[ "$(docker ps -aq --no-trunc --filter label=k3d.cluster=capacity-cascade-local --filter label=k3d.role=server)" == "$GUARD_SERVER_ID" ]] ||
+              { echo "guard cluster was deleted or replaced" >&2; exit 1; }
+            [[ -s .tmp/kubeconfig ]] || { echo "guard cluster kubeconfig was removed" >&2; exit 1; }
+          }
+          # 1. 이미 존재하는 cluster
+          expect_refused "already exists" make local
+          # 2. 다른 invocation이 lock 안에서 부재 확인 → create(또는 delete) 중인 TOCTOU window를 lock 보유로 재현
+          exec 9>"${TMPDIR:-/tmp}/k3d-capacity-cascade-local.lock"
+          flock -n 9
+          expect_refused "create/delete is in progress" scripts/local-run.sh
+          exec 9>&-
+          # 3. 이 invocation이 만든 뒤 다른 invocation이 다시 만든 cluster (ownership marker의 server ID 불일치)
+          marker="$(mktemp)"
+          echo "not-$GUARD_SERVER_ID" >"$marker"
+          expect_refused "was not created by this invocation" env LOCAL_CLUSTER_OWNERSHIP_MARKER="$marker" scripts/local-down.sh
+          rm -f "$marker"
+
+      - name: Cleanup error path (k3d cluster delete failure)
+        run: |
+          # 삭제 실패를 흉내 내는 k3d wrapper로 make down을 실행한다. 실패가 exit code로 드러나고,
+          # cluster가 남아 있어도 kubeconfig/credential/temp output은 제거되어야 한다.
+          mkdir -p .tmp/journey
+          touch .tmp/journey/credentials.env .tmp/port-forward.log
+          mv .tmp/bin/k3d .tmp/bin/k3d.real
+          trap 'mv .tmp/bin/k3d.real .tmp/bin/k3d' EXIT
+          cat >.tmp/bin/k3d <<'EOF'
+          #!/usr/bin/env bash
+          if [[ "${1:-} ${2:-}" == "cluster delete" ]]; then echo "simulated k3d cluster delete failure" >&2; exit 1; fi
+          exec "$0.real" "$@"
+          EOF
+          chmod +x .tmp/bin/k3d
+          if make down; then
+            echo "make down hid the cluster delete failure" >&2
+            exit 1
+          fi
+          for f in .tmp/kubeconfig .tmp/journey .tmp/rendered .tmp/port-forward.log; do
+            [[ ! -e "$f" ]] || { echo "runtime output left after failed delete: $f" >&2; exit 1; }
+          done
+          # 삭제가 실제로 실패해 cluster가 남아 있어야 이 경로를 검증한 것이다.
+          .tmp/bin/k3d.real cluster get capacity-cascade-local >/dev/null
 
       - name: Diagnostics
         if: failure() && steps.up.outcome == 'failure'
