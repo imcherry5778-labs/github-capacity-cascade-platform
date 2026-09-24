@@ -2,8 +2,8 @@
 # Fresh local lifecycle orchestration (make local).
 # Ownership contract: local-up.sh가 create/delete lock 안에서 cluster 부재를 확인하고 create에 성공했을 때만
 # 이 invocation 전용 marker에 server container ID가 기록된다. Marker가 있을 때만 종료 시(성공/실패 모두)
-# 자신이 만든 cluster를 cleanup한다. Lock 획득 실패, 기존 cluster, create 실패처럼 ownership을 얻지 못한
-# invocation은 cluster도 runtime output도 cleanup하지 않는다.
+# 자신이 만든 cluster를 cleanup한다. Lock 획득 실패, 기존 cluster, cluster 조회 실패, create 실패처럼 ownership을
+# 얻지 못한 invocation은 cluster도 runtime output도 cleanup하지 않는다.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

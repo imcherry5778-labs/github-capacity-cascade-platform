@@ -25,9 +25,17 @@ if ! flock -n 9; then
 fi
 
 # Fresh lifecycle만 허용한다. 기존 cluster를 재사용하거나 덮어쓰지 않는다.
-if k3d cluster get "$CLUSTER" >/dev/null 2>&1; then
+# k3d cluster get은 runtime 조회 실패를 부재와 구분하지 않고, k3d cluster create도 같은 판정으로 create를 진행한 뒤
+# 실패하면 같은 이름의 cluster node를 rollback 삭제한다. 따라서 local-down.sh와 같이 k3d cluster list가 부재를
+# 성공적으로 확인한 경우에만 create한다. 조회/parse 실패는 아무것도 만들거나 지우지 않고 실패한다.
+refuse() { echo "$*; not creating or cleaning up" >&2; exit 1; }
+clusters="$(k3d cluster list -o json)" || refuse "cannot inspect k3d clusters"
+exists="$(jq --arg name "$CLUSTER" 'any(.[]; .name == $name)' <<<"$clusters")" || refuse "cannot parse k3d cluster list"
+if [[ "$exists" == true ]]; then
   echo "cluster $CLUSTER already exists; run scripts/local-down.sh first" >&2
   exit 1
+elif [[ "$exists" != false ]]; then
+  refuse "cannot parse k3d cluster list"
 fi
 
 log "creating k3d cluster $CLUSTER ($K3S_IMAGE)"
