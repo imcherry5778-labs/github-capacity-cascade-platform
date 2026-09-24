@@ -169,26 +169,23 @@ P5에서 exact OIDC subject, region/quota, AKS/revision capability, ingress/rout
 
 필수 capability가 managed Istio의 blocked boundary와 충돌할 때만 self-managed Istio fallback ADR을 연다.
 
-### P6 / P7 — Paid Azure
+### Paid Azure boundary — P6–P11
 
-P6/P7 실행 전:
+P6–P11에서 **paid Azure resource를 사용·변경·삭제하는 action**을 시작하기 전에는 해당 milestone/campaign 기준으로 다음을 다시 확인한다.
 
 - exact source commit
+- current environment state/lifetime
 - current price/resource/RBAC/quota
-- external DNS delegation action
-- explicit user approval
+- 필요한 external DNS delegation action
+- explicit user approval와 그 approval이 cover하는 action/scope
 
-이 필요하다.
+이전 milestone 또는 이전 날의 approval을 다음 paid campaign에 자동 승계하지 않는다.
 
-P6와 P7을 같은 approval/session에서 연속 수행할 수 있으면 environment를 재생성하기 위해 중간 destroy하지 않는다.
+P6와 P7을 같은 approval/session에서 연속 수행할 수 있으면 environment를 재생성하기 위해 중간 destroy하지 않는다. 같은 승인 범위에서 P7을 바로 진행하지 않으면 same-day destroy가 기본이고, 24시간 초과 유지에는 새 explicit approval이 필요하다.
 
-같은 승인 범위에서 P7을 바로 진행하지 않으면 same-day destroy가 기본이고, 24시간 초과 유지에는 새 explicit approval이 필요하다.
+P8–P10은 실제 Azure controlled experiment 단계다. 각 milestone 시작 시 existing environment를 이어 쓸지 P5 source에서 재생성할지 위 공통 gate에서 결정한다.
 
-### P8–P11 — Investigation / mitigation / redesign / finalization
-
-P8–P10은 실제 Azure controlled experiment 단계다. 각 milestone 시작 시 current environment가 유지 중인지, P5 source에서 재생성이 필요한지, current cost/quota/RBAC와 approval 범위를 다시 확인한다. 이전 approval을 다음 날/다음 paid campaign에 자동 승계하지 않는다.
-
-P11의 cost-free regression은 Azure 없이 실행 가능해야 한다. Final Azure evidence/finalization이 필요할 때만 별도 current preflight와 explicit approval을 사용한다.
+P11의 cost-free regression은 Azure 없이 실행 가능해야 한다. Final Azure evidence 또는 teardown/finalization action이 필요할 때만 위 공통 paid gate를 적용한다.
 
 Exact scenario matrix, threshold, repetition count와 redesign topology는 이전 milestone evidence를 본 뒤 해당 milestone 진입 시 확정한다.
 
