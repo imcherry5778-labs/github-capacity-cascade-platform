@@ -4,7 +4,7 @@
 
 ## 왜 필요한가
 
-<!-- 해결하려는 문제와 현재 milestone/unit의 목표를 설명한다. -->
+<!-- 해결하려는 문제와 현재 work unit의 목표를 설명한다. -->
 
 ## Scope / non-goals
 
