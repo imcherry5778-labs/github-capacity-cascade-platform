@@ -72,6 +72,19 @@ expect_anonymous_denied() {
   [[ "$status" == 401 ]] || fail "anonymous Git HTTP read of private repository: expected 401, got $status"
 }
 
+# Forgejo는 첫 push의 repository 상태 전환(IsEmpty=false)을 push_update queue에서 비동기로 처리하고,
+# empty repository에는 Pull Request를 허용하지 않는다(CanEnablePulls). Developer operation을 retry하지 않고,
+# 이 platform-side 처리 완료만 bounded wait로 확인한다.
+wait_initial_push_processed() {
+  local _ json
+  for _ in $(seq 1 120); do
+    json="$(request "$DEV_AUTH" GET "/repos/$DEV_USER/$REPO" 200)"
+    if jq -e '.empty == false' >/dev/null <<<"$json"; then return 0; fi
+    sleep 0.5
+  done
+  fail "Forgejo did not finish processing the initial push within 60s (repository still empty)"
+}
+
 read_pull_request() {
   local pr
   pr="$(request "$DEV_AUTH" GET "/repos/$DEV_USER/$REPO/pulls/$PR_NUMBER" 200)"
@@ -90,7 +103,7 @@ create() {
   : "${FORGEJO_ADMIN_USERNAME:?}" "${FORGEJO_ADMIN_PASSWORD:?}"
   rm -rf "$JOURNEY_DIR"
   mkdir -p "$JOURNEY_DIR"
-  local run_id dev_password token_json user_json repo_json pr_json issue_json work clone initial_sha
+  local run_id dev_password token_json user_json repo_json branch_json pr_json issue_json work clone initial_sha
   run_id="$(date -u +%Y%m%d%H%M%S)-$(od -An -N3 -tx1 /dev/urandom | tr -d ' \n')"
   export RUN_ID="$run_id" DEV_USER="dev-$run_id"
   export CLONE_URL="$FORGEJO_URL/$DEV_USER/$REPO.git"
@@ -128,7 +141,11 @@ create() {
   dev_git -C "$work" push -q origin main
   initial_sha="$(git -C "$work" rev-parse HEAD)"
   expect_remote_ref "$work" refs/heads/main "$initial_sha" "initial push"
-  pass "3 initial push main=$initial_sha"
+  wait_initial_push_processed
+  export INITIAL_SHA="$initial_sha"
+  branch_json="$(request "$DEV_AUTH" GET "/repos/$DEV_USER/$REPO/branches/main" 200)"
+  expect_json "$branch_json" '.commit.id == env.INITIAL_SHA' "initial push branch read"
+  pass "3 initial push main=$initial_sha (Forgejo push processing complete)"
 
   # 4. Authenticated clone
   clone="$JOURNEY_DIR/clone"
