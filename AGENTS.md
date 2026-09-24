@@ -44,7 +44,9 @@ Archive/legacy repository는 historical reference일 뿐 current contract가 아
 
 Repository implementation executor. **각 work unit은 fresh session**에서 시작하고 actual Git/GitHub state를 독립 확인한다. Agent는 merge하지 않는다.
 
-Milestone 첫 work unit은 ChatGPT가 확정한 milestone decomposition을 읽고 시작한다. 구현 중 새로운 evidence가 plan을 무효화하면 임의로 다음 unit 구조를 바꾸지 않고 중단/보고한다.
+여기서 **fresh session**은 agent conversation/context를 새로 시작한다는 뜻이다. Git lifecycle 의미의 `FRESH_WORK_UNIT`과는 다르며, 기존 PR을 수정하는 `CONTINUE_EXISTING_PR`도 fresh Local AI Agent session에서 같은 branch/PR을 이어간다.
+
+Milestone 첫 work unit은 ChatGPT가 확정한 milestone decomposition을 읽고 시작한다. 구현 중 새로운 evidence가 plan을 무효화하면 임의로 다음 unit 구조를 바꾸지 않고 중단/보고한다. 같은 intent/acceptance/safety boundary 안의 refinement인지, work-unit 재분해가 필요한 변화인지는 ChatGPT가 판단한다.
 
 ### GitHub
 
@@ -188,7 +190,7 @@ Reliability experiment 전에 관련 normal test가 PASS해야 한다.
 
 ## 14. Session meta-prompt contract
 
-ChatGPT가 Fresh Local AI Agent에 전달하는 work-unit prompt는 **이번 작업에만 필요한 delta**를 담는다. Repository-wide standing rule은 `AGENTS.md`를 다시 길게 복사하지 않고 읽도록 지시한다.
+ChatGPT가 Local AI Agent session에 전달하는 work-unit prompt는 **이번 작업에만 필요한 delta**를 담는다. Repository-wide standing rule은 `AGENTS.md`를 다시 길게 복사하지 않고 읽도록 지시한다.
 
 권장 구조:
 

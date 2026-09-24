@@ -37,6 +37,8 @@ PR body는 한국어 기본이며 최소한 다음을 설명한다.
 
 Solo project이므로 PR을 peer review라고 과장하지 않는다. PR-gated change management와 independent review라고 표현한다.
 
+PR body는 scope, rationale, acceptance, 실제 validation과 limitation을 설명한다. Current PR HEAD/check/merge state처럼 GitHub가 직접 제공하는 동적 상태를 authoritative record처럼 장문 복제하지 않는다. Final/reviewed evidence의 reproducibility에 exact source commit이 필요할 때만 별도로 기록한다.
+
 Main은 squash merge 기본.
 
 ## 4. Naming
@@ -117,5 +119,8 @@ Third-party GitHub Action은 가능한 경우 full commit SHA pin. Final evidenc
 - experiment PASS / FAIL
 - SLO met / violated
 - hypothesis supported / not supported / inconclusive
+- verified / not verified / not applicable
+
+Evidence가 없거나 해당 검증을 실행하지 못한 상태는 PASS로 추정하지 않고 `not verified` 또는 `UNKNOWN`으로 남긴다. Requirement 자체가 적용되지 않을 때만 `not applicable`로 구분한다.
 
 측정하지 않은 결과는 주장하지 않고, negative result도 valid하면 보존한다.
