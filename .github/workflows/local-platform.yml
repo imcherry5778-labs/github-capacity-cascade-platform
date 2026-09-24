@@ -1,0 +1,52 @@
+name: local-platform
+
+# P1 Local Forgejo correctness. Runner 안의 disposable k3d cluster만 사용하며 Azure resource를 만들지 않는다.
+on:
+  pull_request:
+    paths:
+      - .github/workflows/local-platform.yml
+      - Makefile
+      - versions.env
+      - platform/forgejo/**
+      - platform/local/**
+      - scripts/**
+      - tests/e2e/**
+
+permissions:
+  contents: read
+
+concurrency:
+  group: local-platform-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  local-platform:
+    name: static + fresh local lifecycle
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install pinned tools
+        run: make tools
+
+      - name: Source / static / render validation
+        run: make static
+
+      - name: Fresh k3d cluster + PostgreSQL + Forgejo
+        id: up
+        run: make up
+
+      - name: Developer E2E + Forgejo/PostgreSQL state continuity
+        run: make verify
+
+      - name: Diagnostics
+        if: failure() && steps.up.outcome == 'failure'
+        run: scripts/local-verify.sh diagnostics
+
+      - name: Cleanup
+        if: always()
+        run: make down

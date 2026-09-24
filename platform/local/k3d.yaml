@@ -1,0 +1,28 @@
+# P1 disposable local cluster.
+# Default kubeconfig를 수정하지 않는다. scripts는 k3d가 export한 .tmp/kubeconfig만 사용한다.
+apiVersion: k3d.io/v1alpha5
+kind: Simple
+metadata:
+  name: capacity-cascade-local
+servers: 1
+agents: 0
+image: rancher/k3s:v1.36.4-k3s1
+kubeAPI:
+  hostIP: 127.0.0.1
+options:
+  k3d:
+    wait: true
+    timeout: 180s
+    disableLoadbalancer: true
+  k3s:
+    # Ingress/LoadBalancer/metrics는 P1 non-goal이다. local-path storage는 유지한다.
+    extraArgs:
+      - arg: --disable=traefik
+        nodeFilters: [server:*]
+      - arg: --disable=servicelb
+        nodeFilters: [server:*]
+      - arg: --disable=metrics-server
+        nodeFilters: [server:*]
+  kubeconfig:
+    updateDefaultKubeconfig: false
+    switchCurrentContext: false

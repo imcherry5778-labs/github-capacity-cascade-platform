@@ -17,7 +17,7 @@ public RCA
 → reviewed evidence
 ```
 
-현재 단계는 **P0 — Specification & Research Contract**다. P0에서는 실행 가능한 platform/IaC/experiment를 구현하지 않고, 이후 milestone이 따를 architecture·ownership·dependency·safety·acceptance contract를 고정한다.
+현재 단계는 **P1 — Local Forgejo correctness**다. P0에서 고정한 architecture·ownership·dependency·safety·acceptance contract를 기준으로, GitOps·service mesh·reliability fixture·Azure 없이 local Forgejo developer journey와 Pod/state lifetime 분리를 검증한다.
 
 ## Research boundary
 
@@ -117,6 +117,17 @@ docs/         project contract, ADR, incident docs
 이 프로젝트는 production-ready 24/7 service라고 주장하지 않는다. Core는 single region, ephemeral Azure runtime, Forgejo single replica, no Forgejo HA/multi-region, Argo CD Core, small operator model을 의도적으로 허용한다.
 
 Azure는 PAYG다. 실제 Azure `apply` / `destroy` 또는 비용이 발생할 수 있는 action은 사용자의 명시적 승인 없이 실행하지 않는다.
+
+## Local platform (P1)
+
+Docker, `curl`, `jq`, `git`, `shellcheck`가 필요하다. k3d/kubectl/helm은 `versions.env`의 pinned version을 repository-local `.tmp/bin`에 설치해 사용하며, global 환경과 default kubeconfig는 변경하지 않는다.
+
+```bash
+make static   # shell lint, versions.env pin 일치, Helm render/config contract
+make local    # fresh k3d cluster → PostgreSQL + Forgejo → developer E2E → workload replacement continuity → cleanup
+```
+
+단계별 실행은 `make up`, `make verify`, `make down`이다. Local access는 `127.0.0.1:13000` loopback `kubectl port-forward` HTTP이며, Local development exception일 뿐 Azure ingress/TLS contract가 아니다.
 
 ## Documents
 

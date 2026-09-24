@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# Fresh disposable k3d cluster를 만들고 local PostgreSQL + Forgejo를 배포한다.
+# Credential은 실행 시 생성해 cluster Secret으로만 전달하며 Git/source values에 남기지 않는다.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=versions.env
+source "$ROOT/versions.env"
+export PATH="$ROOT/.tmp/bin:$PATH"
+export KUBECONFIG="$ROOT/.tmp/kubeconfig"
+CLUSTER=capacity-cascade-local
+
+log() { printf '[local-up] %s\n' "$*"; }
+
+"$ROOT/scripts/install-tools.sh"
+
+# Fresh lifecycle만 허용한다. 기존 cluster를 재사용하거나 덮어쓰지 않는다.
+if k3d cluster get "$CLUSTER" >/dev/null 2>&1; then
+  echo "cluster $CLUSTER already exists; run scripts/local-down.sh first" >&2
+  exit 1
+fi
+
+log "creating k3d cluster $CLUSTER ($K3S_IMAGE)"
+k3d cluster create --config "$ROOT/platform/local/k3d.yaml"
+( umask 077 && k3d kubeconfig get "$CLUSTER" >"$KUBECONFIG" )
+kubectl wait node --all --for=condition=Ready --timeout=180s
+# k3s는 bundled addon을 cluster 시작 후 비동기로 생성한다.
+kubectl -n kube-system wait deployment/local-path-provisioner --for=create --timeout=180s
+kubectl -n kube-system rollout status deployment/local-path-provisioner --timeout=180s
+
+random_secret() { od -An -N24 -tx1 /dev/urandom | tr -d ' \n'; }
+
+log "creating runtime credentials"
+kubectl create namespace postgres
+kubectl create namespace forgejo
+forgejo_db_password="$(random_secret)"
+kubectl -n postgres create secret generic postgres-credentials \
+  --from-env-file=<(printf 'superuser-password=%s\nforgejo-password=%s\n' "$(random_secret)" "$forgejo_db_password")
+kubectl -n forgejo create secret generic forgejo-db \
+  --from-env-file=<(printf 'password=%s\n' "$forgejo_db_password")
+kubectl -n forgejo create secret generic forgejo-admin \
+  --from-env-file=<(printf 'username=platform-admin\npassword=%s\n' "$(random_secret)")
+unset forgejo_db_password
+
+log "deploying PostgreSQL ($POSTGRES_IMAGE)"
+kubectl apply -f "$ROOT/platform/local/postgres.yaml"
+kubectl -n postgres rollout status statefulset/postgres --timeout=300s
+
+log "deploying Forgejo chart $FORGEJO_CHART_VERSION ($FORGEJO_IMAGE_TAG)"
+helm upgrade --install forgejo "$FORGEJO_CHART" --version "$FORGEJO_CHART_VERSION" \
+  --namespace forgejo \
+  -f "$ROOT/platform/forgejo/values-common.yaml" \
+  -f "$ROOT/platform/forgejo/values-local.yaml" \
+  --wait --timeout 10m
+kubectl -n forgejo rollout status deployment/forgejo --timeout=300s
+
+log "PASS local platform is up (kubeconfig: .tmp/kubeconfig)"
