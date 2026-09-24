@@ -41,6 +41,14 @@ jobs:
         id: up
         run: make up
 
+      - name: Existing cluster ownership guard
+        run: |
+          if make local; then
+            echo "make local unexpectedly accepted an existing cluster" >&2
+            exit 1
+          fi
+          .tmp/bin/k3d cluster get capacity-cascade-local >/dev/null
+
       - name: Developer E2E + Forgejo/PostgreSQL state continuity
         run: make verify
 
