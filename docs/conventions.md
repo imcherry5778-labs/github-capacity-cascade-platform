@@ -30,7 +30,7 @@ Branch 이름은 영어다.
 PR body는 한국어 기본이며 최소한 다음을 설명한다.
 
 - 무엇을/왜 변경했는가
-- 어떤 unit scope/acceptance인가
+- 어떤 work unit scope/acceptance인가
 - 실제 검증 결과
 - 비용/external side effect
 - non-goal / limitation
@@ -87,13 +87,15 @@ Incident claim은 FACT / INFERENCE / LAB_IMPLEMENTATION / UNKNOWN을 구분한�
 - authoritative source/config
 - test/experiment definition
 - human-readable docs
-- reviewed/published evidence
+- reviewed evidence
 
 저장하지 않음:
 
 - state/credential/secret/kubeconfig/local env
 - large raw telemetry
 - temporary/generated runtime files
+- portfolio website source / presentation asset / résumé-facing copy
+- personal learning notes
 
 ## 8. Directory / abstraction
 
@@ -103,7 +105,7 @@ Incident claim은 FACT / INFERENCE / LAB_IMPLEMENTATION / UNKNOWN을 구분한�
 
 ## 9. Version
 
-P0에서 future exact version을 선제 고정하지 않는다. 해당 unit 시작 시 current upstream/compatibility를 확인하고 evidence reproducibility가 필요한 dependency를 exact pin한다.
+미래 milestone의 exact version을 장기간 선제 고정하지 않는다. 해당 work unit 시작 시 current upstream/compatibility를 확인하고 evidence reproducibility가 필요한 dependency를 exact pin한다.
 
 Third-party GitHub Action은 가능한 경우 full commit SHA pin. Final evidence에는 actual runtime version/image digest를 기록한다.
 

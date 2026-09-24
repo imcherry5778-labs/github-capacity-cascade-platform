@@ -83,7 +83,7 @@ Local/static으로 확정 가능한 contract는 Azure 비용 전에 확정한다
 
 - GitHub internal topology/auth structure의 정확한 복제
 - Forgejo HA / multi-region
-- Redis/Valkey
+- Forgejo application-tier Redis/Valkey
 - Backstage
 - Forgejo Actions runner platform
 - Argo CD full UI/HA
@@ -91,6 +91,7 @@ Local/static으로 확정 가능한 contract는 Azure 비용 전에 확정한다
 - complex priority/fair queueing
 - per-user quota
 - always-on public demo
+- portfolio website / presentation packaging / personal learning notes
 - 추가 messaging platform
 
 실제 필요성이 확인되면 별도 architecture decision으로 재검토한다.
