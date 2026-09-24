@@ -1,0 +1,48 @@
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+kubeconfig
+kubeconfig.*
+.secrets/
+
+# Go
+/bin/
+coverage.out
+*.test
+
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Helm / generated manifests
+*.tgz
+.generated/
+rendered/
+
+# Local Kubernetes / tooling
+.kube/
+.k3d/
+.tmp/
+tmp/
+
+# Experiment raw results
+results/raw/
+results/**/raw/
+artifacts/
