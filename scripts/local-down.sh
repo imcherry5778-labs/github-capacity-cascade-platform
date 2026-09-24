@@ -2,7 +2,8 @@
 # P1 local cluster 전체와 runtime output(kubeconfig, journey state/credential)을 제거하고 잔여 resource가 없는지 확인한다.
 #   explicit (make down)                    같은 이름의 cluster를 사용자 권한으로 삭제한다.
 #   owned (LOCAL_CLUSTER_OWNERSHIP_MARKER)  local-run.sh가 만든 cluster와 server container ID가 같을 때만 삭제한다.
-#                                           다른 invocation이 다시 만든 cluster면 cluster와 runtime output을 건드리지 않고 실패한다.
+#                                           cluster 부재가 확인되면 runtime output만 제거한다. ID 불일치, 조회 실패,
+#                                           server ID 없는 cluster처럼 ownership이 모호하면 아무것도 건드리지 않고 실패한다.
 # Cleanup 권한이 확인되면 cluster 삭제 결과와 무관하게 runtime output을 제거하고, 삭제/잔여 실패는 exit code로 드러낸다.
 set -euo pipefail
 
@@ -23,15 +24,21 @@ if ! flock -w 300 9; then
   exit 1
 fi
 
+# Owned mode는 k3d가 cluster 부재를 확인했거나, 존재하는 cluster의 server container ID가 marker와 같을 때만 진행한다.
+# 조회 실패, server ID 없이 존재하는 cluster, ID 불일치처럼 ownership이 모호하면 아무것도 건드리지 않고 실패한다.
+# (k3d cluster get은 부재와 조회 실패를 구분하지 않으므로 존재 여부는 k3d cluster list로 판정한다.)
 if [[ -n "${LOCAL_CLUSTER_OWNERSHIP_MARKER:-}" ]]; then
-  if ! server_id="$(docker ps -aq --no-trunc --filter "label=k3d.cluster=$CLUSTER" --filter label=k3d.role=server)"; then
-    echo "cannot inspect cluster $CLUSTER ownership" >&2
-    rc=1
-    server_id=""
-  fi
-  if [[ -n "$server_id" && "$server_id" != "$(cat "$LOCAL_CLUSTER_OWNERSHIP_MARKER")" ]]; then
-    echo "cluster $CLUSTER (server $server_id) was not created by this invocation; leaving it and runtime output untouched" >&2
-    exit 1
+  refuse() { echo "$*; leaving cluster $CLUSTER and runtime output untouched" >&2; exit 1; }
+  clusters="$(k3d cluster list -o json)" || refuse "cannot inspect k3d clusters"
+  exists="$(jq --arg name "$CLUSTER" 'any(.[]; .name == $name)' <<<"$clusters")" || refuse "cannot parse k3d cluster list"
+  if [[ "$exists" == true ]]; then
+    server_id="$(docker ps -aq --no-trunc --filter "label=k3d.cluster=$CLUSTER" --filter label=k3d.role=server)" ||
+      refuse "cannot inspect cluster ownership"
+    [[ -n "$server_id" ]] || refuse "cluster exists but its server identity is unavailable"
+    [[ "$server_id" == "$(cat "$LOCAL_CLUSTER_OWNERSHIP_MARKER")" ]] ||
+      refuse "cluster (server $server_id) was not created by this invocation"
+  elif [[ "$exists" != false ]]; then
+    refuse "cannot parse k3d cluster list"
   fi
 fi
 
