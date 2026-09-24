@@ -41,6 +41,8 @@ PR body는 scope, rationale, acceptance, 실제 validation과 limitation을 설�
 
 Main은 squash merge 기본.
 
+Merge method, protected branch mutation, merged head branch lifecycle처럼 안정적으로 native enforcement 가능한 invariant는 actual GitHub repository setting/ruleset을 enforcement authority로 사용한다. 문서나 prompt는 동적으로 바뀔 수 있는 setting 값을 authoritative state처럼 복제하지 않고, 필요한 시점에 current GitHub state를 확인한다.
+
 ## 4. Naming
 
 Project-only 평가형 shorthand보다 실제 변경 변수를 우선한다.
