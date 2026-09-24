@@ -72,6 +72,19 @@ ChatGPT는 milestone 시작 전에 다음을 수행한다.
 
 Milestone이 충분히 작으면 milestone 하나가 work unit 하나일 수 있다.
 
+### Work-unit refinement
+
+구현 중 새 evidence가 초기 계획의 세부사항을 무효화해도 **engineering intent, acceptance, safety/external-side-effect boundary가 유지**되면 ChatGPT가 current work-unit contract를 보정하고 같은 branch/PR에서 계속할 수 있다.
+
+다음 중 하나면 기존 work unit을 억지로 확장하지 않고 현재 milestone 안에서 재분해한다.
+
+- engineering intent 또는 capability가 실질적으로 달라진다.
+- 독립적으로 완료 가능한 별도 work가 생긴다.
+- rollback/cleanup/safety/external-side-effect boundary가 달라진다.
+- 기존 acceptance를 유지한 채 설명하기 어려울 정도로 scope가 확장된다.
+
+구현 결과에 맞춰 acceptance를 사후 완화하는 것은 refinement가 아니다.
+
 ## 5. Work-unit specification gate
 
 ChatGPT가 각 work unit 시작 전에 다음을 확정한다.

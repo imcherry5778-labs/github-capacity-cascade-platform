@@ -17,7 +17,7 @@ public RCA
 → reviewed evidence
 ```
 
-현재 단계는 **P0 — Specification & Research Contract**다. P0에서는 실행 가능한 platform/IaC/experiment를 구현하지 않고, 이후 milestone이 따를 architecture·ownership·dependency·safety·acceptance contract를 고정한다.
+P0에서 architecture·ownership·dependency·safety·acceptance contract를 확정했고, 이후 구현은 아래 engineering roadmap과 current GitHub/repository state를 기준으로 진행한다. README에 동적인 현재 milestone/PR 상태를 별도 source of truth로 복제하지 않는다.
 
 ## Research boundary
 
