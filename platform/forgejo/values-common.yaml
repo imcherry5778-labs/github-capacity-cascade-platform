@@ -1,0 +1,61 @@
+# Forgejo Core contract (environment 독립). Environment별 endpoint/DB 연결 값은 values-<env>.yaml에 둔다.
+# Credential은 이 파일에 두지 않는다. 아래 Secret 이름만 contract이며 값은 environment가 runtime에 공급한다.
+#   forgejo-admin: username, password (bootstrap admin)
+#   forgejo-db:    password           (PostgreSQL `forgejo` role)
+image:
+  registry: code.forgejo.org
+  repository: forgejo/forgejo
+  tag: 15.0.9-rootless
+  rootless: true
+
+replicaCount: 1
+strategy:
+  type: Recreate
+
+persistence:
+  enabled: true
+  claimName: forgejo-data
+
+# Chart helm test는 unpinned busybox:latest를 사용하므로 render하지 않는다.
+test:
+  enabled: false
+
+gitea:
+  admin:
+    existingSecret: forgejo-admin
+    email: platform-admin@example.com
+    passwordMode: keepUpdated
+  additionalConfigFromEnvs:
+    - name: FORGEJO__DATABASE__PASSWD
+      valueFrom:
+        secretKeyRef:
+          name: forgejo-db
+          key: password
+  config:
+    database:
+      DB_TYPE: postgres
+      NAME: forgejo
+      USER: forgejo
+    session:
+      PROVIDER: db
+    cache:
+      ADAPTER: twoqueue
+      # twoqueue HOST 정수값은 cache item 수 상한이다.
+      HOST: "50000"
+    queue:
+      # level queue DATADIR 기본값(queues/)은 APP_DATA_PATH(/data, persistent volume) 기준이다.
+      TYPE: level
+    server:
+      # Rootless image chart 기본값은 built-in SSH server 시작이므로 명시적으로 끈다.
+      DISABLE_SSH: true
+      START_SSH_SERVER: false
+    service:
+      DISABLE_REGISTRATION: true
+    repository:
+      DISABLE_MIGRATIONS: true
+    mirror:
+      ENABLED: false
+    packages:
+      ENABLED: false
+    actions:
+      ENABLED: false

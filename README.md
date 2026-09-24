@@ -120,6 +120,19 @@ Portfolio website source, presentation/résumé-facing copy와 personal learning
 
 Azure는 PAYG다. 실제 Azure `apply` / `destroy` 또는 비용이 발생할 수 있는 action은 사용자의 명시적 승인 없이 실행하지 않는다.
 
+## Local platform (P1)
+
+Docker, `curl`, `jq`, `git`, `shellcheck`, `flock`(util-linux)이 필요하다. k3d/kubectl/helm은 `versions.env`의 pinned version을 repository-local `.tmp/bin`에 설치해 사용하며, global 환경과 default kubeconfig는 변경하지 않는다.
+
+```bash
+make static   # shell lint, versions.env pin 일치, Helm render/config contract
+make local    # fresh k3d cluster → PostgreSQL + Forgejo → developer E2E → workload replacement continuity → cleanup
+```
+
+Cluster 이름(`capacity-cascade-local`)은 고정이므로 create/delete는 host-local `flock` 하나로 직렬화된다. `make local`은 lock 안에서 `k3d cluster list` 조회가 성공해 cluster 부재가 확인된 경우에만 create하고, 직접 create한 그 cluster(server container ID로 식별)만 성공/실패와 무관하게 cleanup한다. 기존 cluster, 진행 중인 다른 create/delete, cluster 조회 실패로 부재를 증명하지 못한 경우, create 실패처럼 ownership을 얻지 못하거나, cleanup 시점에 조회 실패·server ID 부재/불일치로 ownership을 증명하지 못하면 아무것도 지우지 않고 실패한다. Cleanup은 cluster 삭제가 실패해도 kubeconfig/credential/temp output을 제거하며 삭제·잔여 실패는 exit code로 드러낸다.
+
+단계별 실행은 `make up`, `make verify`, `make down`이다. `make down`은 명시적 사용자 action으로 같은 이름의 cluster를 삭제한다. Local access는 `127.0.0.1:13000` loopback `kubectl port-forward` HTTP이며, Local development exception일 뿐 Azure ingress/TLS contract가 아니다.
+
 ## Documents
 
 - `docs/charter.md` — 목적, 연구 질문, 범위, 완료 기준

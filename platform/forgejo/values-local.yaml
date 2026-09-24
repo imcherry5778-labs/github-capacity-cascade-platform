@@ -1,0 +1,9 @@
+# Local environment 값. Loopback port-forward HTTP는 Local development exception이며 Azure ingress/TLS contract가 아니다.
+gitea:
+  config:
+    server:
+      DOMAIN: 127.0.0.1
+      ROOT_URL: http://127.0.0.1:13000/
+    database:
+      HOST: postgres.postgres.svc.cluster.local:5432
+      SSL_MODE: disable
