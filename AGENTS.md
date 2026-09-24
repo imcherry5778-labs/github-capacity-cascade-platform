@@ -1,19 +1,29 @@
 # AGENTS.md
 
-이 저장소는 SRE / Platform Engineering case study다. 작업자는 기능 수보다 **합의된 milestone contract의 최소·검증 가능한 변경**을 우선한다.
+이 저장소는 SRE / Platform Engineering case study다. 작업자는 기능 수보다 **합의된 milestone/work-unit contract의 최소·검증 가능한 변경**을 우선한다.
 
 ## 1. Source of truth
 
-**현재 상태와 normative contract를 섞지 않는다.**
+**현재 repository state와 normative contract를 섞지 않는다.**
 
-현재 repository 상태의 authority:
+현재 repository state의 authority:
 
 - GitHub `main`, actual PR/HEAD, CI/check, review state
 
 현재 work unit의 normative contract:
 
-1. ChatGPT가 해당 unit 시작 전에 확정한 scope/non-goals/acceptance
-2. P0 repository documents
+1. ChatGPT가 해당 work unit 시작 전에 확정한 scope/non-goals/acceptance
+2. current `main`의 repository contract documents
+
+Repository contract documents:
+
+- `docs/charter.md`
+- `docs/architecture.md`
+- `docs/roadmap.md`
+- `docs/implementation-plan.md`
+- `docs/conventions.md`
+- `docs/terminology.md`
+- `AGENTS.md`
 
 Current official upstream은 REVALIDATE의 evidence source다. Upstream과 normative contract가 충돌하면 구현자가 조용히 contract를 바꾸지 않고 중단/보고해 specification을 먼저 보정한다.
 
@@ -23,13 +33,18 @@ Archive/legacy repository는 historical reference일 뿐 current contract가 아
 
 ### ChatGPT
 
-Milestone 시작 전에 architecture relevance, scope/non-goals, safety, REVALIDATE result, acceptance/evidence를 정의한다.
-
-Exact-head CI/review 뒤 actual PR/diff/HEAD/check/review thread를 독립 검토하고, 문제가 없을 때 검토한 exact HEAD를 기준으로 squash merge한다.
+- milestone 진입 전에 actual `main`, previous evidence와 current upstream을 딥리서치한다.
+- 현재 milestone만 reviewable work-unit graph로 분해한다.
+- 각 work unit의 architecture relevance, scope/non-goals, safety, REVALIDATE result, acceptance/evidence를 정의한다.
+- architecture/spec correction은 docs-only PR로 제안/정리할 수 있지만 implementation source 수정은 Local AI Agent에 위임한다.
+- exact-head CI/review 뒤 actual PR/diff/HEAD/check/review thread를 독립 검토한다.
+- 문제가 없을 때 검토한 exact HEAD를 기준으로 squash merge한다.
 
 ### Local AI Agent
 
-Repository implementation executor. **각 새 milestone은 새 세션**에서 시작하고 actual Git/GitHub state를 독립 확인한다. Agent는 merge하지 않는다.
+Repository implementation executor. **각 work unit은 fresh session**에서 시작하고 actual Git/GitHub state를 독립 확인한다. Agent는 merge하지 않는다.
+
+Milestone 첫 work unit은 ChatGPT가 확정한 milestone decomposition을 읽고 시작한다. 구현 중 새로운 evidence가 plan을 무효화하면 임의로 다음 unit 구조를 바꾸지 않고 중단/보고한다.
 
 ### GitHub
 
@@ -41,7 +56,7 @@ Remote source of truth, PR change-management boundary, exact-head CI/review surf
 
 P0 specification 자체는 bootstrap 이후 feature branch / PR / exact-head review 경계를 따른다. P0 merge 이후 `main` direct implementation push와 force-push를 금지한다.
 
-## 4. Fresh milestone start
+## 4. Fresh work-unit start
 
 Fresh Local AI Agent는 먼저 확인한다.
 
@@ -52,13 +67,14 @@ Fresh Local AI Agent는 먼저 확인한다.
 - local/remote `main` SHA
 - local/remote branches
 - `git worktree list`
-- 이전 milestone PR state/final head
+- 이전 work unit PR state/final head
+- current milestone/work-unit contract
 
 예상하지 못한 dirty worktree를 임의 reset/stash하지 않는다.
 
-### Previous milestone cleanup
+### Previous work-unit cleanup
 
-이전 milestone이 실제 merge된 경우에만 그 작업의 worktree/local branch/remote branch를 정리한다.
+이전 work unit이 실제 merge된 경우에만 그 작업의 worktree/local branch/remote branch를 정리한다.
 
 Remote branch 삭제 전:
 
@@ -74,7 +90,7 @@ Wildcard/prefix/bulk branch deletion을 금지한다.
 
 Cleanup 뒤 clean/synchronized `main`에서 새 feature branch를 만든다.
 
-1. current upstream preflight
+1. current upstream/runtime preflight
 2. 합의 scope 구현
 3. 직접 영향받는 local/static test
 4. self-review
@@ -82,7 +98,7 @@ Cleanup 뒤 clean/synchronized `main`에서 새 feature branch를 만든다.
 6. push
 7. PR 생성
 
-다음 milestone capability를 선제 구현하지 않는다. 한 PR은 가능한 한 하나의 capability다.
+다음 work unit capability를 선제 구현하지 않는다. 한 PR은 가능한 한 하나의 capability다.
 
 ## 6. Exact-head review / fix
 
@@ -96,36 +112,41 @@ Local AI Agent는 merge하지 않는다.
 
 ChatGPT가 검토한 exact PR HEAD를 기준으로 squash merge하고, merge 후 PR merged state와 새 `main` SHA를 확인한다.
 
-그 SHA가 다음 milestone의 단일 기준점이다.
+그 SHA가 다음 work unit의 단일 repository baseline이다.
 
 방금 merge된 feature branch/worktree cleanup은 다음 **fresh Local AI Agent**가 독립 확인 후 수행한다.
+
+Milestone의 마지막 work unit이 merge되면 ChatGPT가 milestone exit evidence를 확인하고 다음 milestone deep research/decomposition을 수행한다.
 
 ## 8. Overengineering guard
 
 - empty future directory / `.gitkeep` 금지
 - 현재 acceptance에 필요하지 않은 tool/controller/service 선제 도입 금지
 - 실제 중복/독립 lifecycle 전 module/helper 추출 금지
-- Redis/Valkey, Forgejo HA, Backstage, full Argo UI/HA, separate GitOps repo, multi-region 등을 이름값으로 추가하지 않음
+- Forgejo application-tier Redis/Valkey, Forgejo HA, Backstage, full Argo UI/HA, separate GitOps repo, multi-region 등을 이름값으로 추가하지 않음
+- Argo CD Core 등 chosen control plane의 upstream dependency를 Forgejo dependency 금지와 혼동하지 않음
 - implementation 결과에 맞춘 acceptance 사후 완화 금지
 - 같은 standing rule을 `AGENTS.md`, session prompt, 별도 custom-instruction 파일에 중복 작성하지 않음
 - 반복되는 실제 실패 패턴이 확인되기 전에는 custom agent/skill/prompt-file을 추가하지 않음
+- portfolio/presentation/personal-learning artifact를 engineering repo에 섞지 않음
 
 ## 9. Upstream / version
 
-P0의 REVALIDATE/DEFERRED 값을 archive exact 값으로 복원하지 않는다.
+과거 exact 값을 근거 없이 복원하지 않는다.
 
-특히 implementation 직전에 확인:
+특히 필요한 work unit 직전에 확인:
 
 - Forgejo exact LTS patch/chart
-- Argo CD version/commit
+- Argo CD version/commit과 upstream dependency
 - Terraform/AzureRM version
 - GitHub OIDC subject/environment protection
 - AKS version/region/managed Istio revision
 - managed Istio customization/support boundary
+- selected ingress/routing API
 - selected Envoy stat mapping
 - KEDA metric/scaler contract
 
-Final evidence에는 actual version/digest를 기록한다.
+Final/reviewed evidence에는 필요한 actual version/digest를 기록한다.
 
 ## 10. Stable / experiment ownership
 
@@ -138,9 +159,10 @@ Reliability experiment 전에 관련 normal test가 PASS해야 한다.
 - raw run append-only
 - negative result를 성공처럼 수정하지 않음
 - valid run / hypothesis support 구분
-- final evidence exact source commit 기록
+- reviewed/final evidence에 exact source commit 기록
 - secret/private local path/credential 제외
 - 측정하지 않은 결과 claim 금지
+- engineering evidence와 portfolio/presentation copy를 분리
 
 `PASS`, `verified`, `reproduced`, `restored`, `zero residual`은 실제 evidence 확인 후에만 사용한다.
 
@@ -151,6 +173,7 @@ Reliability experiment 전에 관련 normal test가 PASS해야 한다.
 - PR CI에서 Azure resource 자동 생성 금지
 - paid apply 전 current cost/resource/RBAC/quota preflight
 - paid environment same-day destroy 기본
+- P6→P7을 같은 승인 범위에서 연속 수행하는 경우 중간 destroy를 강제하지 않음
 - 24시간 초과 유지에는 새 승인
 - finalization은 DNS delegation, identity/RBAC, state backend, residual resource까지 확인
 
@@ -163,20 +186,19 @@ Reliability experiment 전에 관련 normal test가 PASS해야 한다.
 - PR body: 한국어
 - main: squash merge 기본
 
-
 ## 14. Session meta-prompt contract
 
-ChatGPT가 Fresh Local AI Agent에 전달하는 milestone prompt는 **이번 작업에만 필요한 delta**를 담는다. Repository-wide standing rule은 `AGENTS.md`를 다시 길게 복사하지 않고 읽도록 지시한다.
+ChatGPT가 Fresh Local AI Agent에 전달하는 work-unit prompt는 **이번 작업에만 필요한 delta**를 담는다. Repository-wide standing rule은 `AGENTS.md`를 다시 길게 복사하지 않고 읽도록 지시한다.
 
 권장 구조:
 
-1. **Mission** — 이번 unit에서 최종적으로 무엇이 true여야 하는지 한 문단으로 정의
-2. **Expected baseline** — repository, expected `main` SHA, 이전 merged PR/unit처럼 실행 전 확인할 상태
-3. **Read first** — `AGENTS.md`와 이번 unit에 직접 필요한 문서/path만 지정
+1. **Mission** — 이번 work unit에서 최종적으로 무엇이 true여야 하는지 정의
+2. **Expected baseline** — repository, expected `main`/PR HEAD, 이전 merged work unit처럼 실행 전 확인할 상태
+3. **Read first** — `AGENTS.md`와 이번 work unit에 직접 필요한 문서/path
 4. **Scope / non-goals** — 해야 할 것과 하지 않을 것을 관찰 가능한 단위로 명시
-5. **Decisions / revalidation** — 관련 DECIDED 사항과 이번 세션에서 확인할 REVALIDATE/DEFERRED 항목
-6. **Acceptance / validation** — 완료 조건과 실제 실행할 test/static validation/evidence
-7. **Safety / stop conditions** — dirty worktree, baseline SHA 불일치, upstream/spec 충돌, 예상하지 못한 external side effect처럼 임의 진행하면 안 되는 조건
+5. **Decisions / revalidation** — 관련 DECIDED 사항과 이번 session에서 확인할 REVALIDATE/DEFERRED 항목
+6. **Acceptance / validation** — 완료 조건과 실제 실행할 test/static/runtime validation/evidence
+7. **Safety / stop conditions** — dirty worktree, baseline 불일치, upstream/spec 충돌, destructive/external side effect 등
 8. **Git deliverable / final report** — branch/commit/push/PR 경계와 최종 보고할 SHA, test 결과, 남은 issue
 
 원칙:
@@ -184,7 +206,6 @@ ChatGPT가 Fresh Local AI Agent에 전달하는 milestone prompt는 **이번 작
 - 같은 지시는 한 번만 쓴다.
 - 이미 repository 문서가 정의한 내용을 prompt에 장문 복제하지 않는다.
 - 구현 방법보다 완료 상태와 acceptance를 우선하며, DECIDED architecture만 필요한 수준으로 구체화한다.
-- Step마다 실제 action/output이 무엇인지 모호하지 않게 쓴다.
 - 예상 가능한 실패/분기점에는 fail-closed 행동을 명시한다.
 - Agent는 repository를 먼저 읽고 실제 상태와 prompt가 충돌하면 조용히 재해석하지 말고 중단/보고한다.
 - Scope가 끝날 때까지 작업·검증·self-review를 완료하고, blocker가 있을 때만 부분 상태와 근거를 보고한다.
