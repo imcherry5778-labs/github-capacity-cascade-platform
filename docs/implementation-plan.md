@@ -20,10 +20,10 @@ Hard gates:
 - P4 Local mechanism proof가 P5 Azure source에 반영되어야 한다.
 - P6 actual Azure action은 P5 preflight, P4 mechanism proof, current cost/quota/RBAC와 explicit user approval이 필요하다.
 - P7은 P6 actual platform calibration 뒤에 수행한다.
-- P8은 P7 operations signal path와 P4 mechanism proof가 모두 필요하다.
-- P9는 P8 controlled incident evidence가 필요하다.
-- P10은 P8/P9 evidence를 근거로 redesign한다.
-- P11은 P10까지의 engineering claim/evidence를 regression/finalization한다.
+- P8은 P7 operations signal path와 P4 mechanism proof, current paid-environment preflight, explicit approval이 필요하다.
+- P9는 P8 controlled incident evidence와 explicit approval이 필요하다.
+- P10은 P8/P9 evidence를 근거로 redesign하며 actual Azure action 전에 explicit approval을 다시 확인한다.
+- P11은 P10까지의 engineering claim/evidence를 regression/finalization하며 final Azure action이 있으면 별도 preflight/approval을 거친다.
 
 ## 3. Milestone entry gate
 
@@ -185,6 +185,10 @@ P6와 P7을 같은 approval/session에서 연속 수행할 수 있으면 environ
 같은 승인 범위에서 P7을 바로 진행하지 않으면 same-day destroy가 기본이고, 24시간 초과 유지에는 새 explicit approval이 필요하다.
 
 ### P8–P11 — Investigation / mitigation / redesign / finalization
+
+P8–P10은 실제 Azure controlled experiment 단계다. 각 milestone 시작 시 current environment가 유지 중인지, P5 source에서 재생성이 필요한지, current cost/quota/RBAC와 approval 범위를 다시 확인한다. 이전 approval을 다음 날/다음 paid campaign에 자동 승계하지 않는다.
+
+P11의 cost-free regression은 Azure 없이 실행 가능해야 한다. Final Azure evidence/finalization이 필요할 때만 별도 current preflight와 explicit approval을 사용한다.
 
 Exact scenario matrix, threshold, repetition count와 redesign topology는 이전 milestone evidence를 본 뒤 해당 milestone 진입 시 확정한다.
 
