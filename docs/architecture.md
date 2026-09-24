@@ -123,7 +123,7 @@ DECIDED Core contract:
 - Azure Core는 HTTPS Git 사용
 - Forgejo native authentication/authorization 유지
 - Actions, Packages, mirroring 등 reliability story에 필요하지 않은 feature는 Core에서 제외
-- Redis/Valkey는 실제 필요가 측정되기 전에는 추가하지 않음
+- Forgejo application tier에는 실제 필요가 측정되기 전까지 Redis/Valkey를 별도 dependency로 추가하지 않음. Argo CD Core 같은 control plane의 upstream dependency는 이 금지와 별개다.
 
 Exact v15 patch, Helm chart version과 final image digest는 implementation/evidence 시점에 REVALIDATE한다.
 
@@ -180,7 +180,7 @@ DECIDED boundaries:
 - intentional capacity bottleneck은 `ext-authz-sim` Pod inbound Envoy sidecar의 active-request capacity
 - HAProxy는 별도 queue/admission/rate-limiting layer
 
-`Sidecar.inboundConnectionPool.http.http2MaxRequests` 사용 방향은 유지하지만, selected Istio/Envoy에서 exact admission/runtime behavior를 P5 preflight로 다시 확인한다.
+`Sidecar.inboundConnectionPool.http.http2MaxRequests` 사용 방향은 유지하지만, selected Istio/Envoy에서 exact admission/runtime behavior를 P4 revalidation에서 다시 확인한다.
 
 Exact rejection/overflow counter는 version-independent constant로 P0에 고정하지 않는다. Selected proxy의 실제 stat/config inventory가 evidence authority다.
 
@@ -224,7 +224,7 @@ Foundation/environment는 remote state를 사용한다.
 
 GitHub Actions → Azure는 long-lived client secret 대신 OIDC/workload federation을 사용한다.
 
-새 repository의 exact immutable OIDC subject와 GitHub Environment protection은 P3A-01 구현 직전에 실제 repository 설정을 확인해 고정한다.
+새 repository의 exact immutable OIDC subject와 GitHub Environment protection은 P5 Azure source 구현 직전에 실제 repository 설정을 확인해 고정한다.
 
 ### Resource permission boundary
 
@@ -237,7 +237,7 @@ DECIDED default boundary:
 - environment Resource Group: `Contributor`
 - foundation/environment Resource Group: `Role Based Access Control Administrator`
 
-`Role Based Access Control Administrator`는 privileged role이므로 project-owned Resource Group 밖으로 scope를 넓히지 않는다. Custom role이나 RBAC condition은 실제 필요가 확인되기 전에는 추가하지 않는다. P3A-06에서 실제 principal/role/scope inventory를 다시 확인한다.
+`Role Based Access Control Administrator`는 privileged role이므로 project-owned Resource Group 밖으로 scope를 넓히지 않는다. Custom role이나 RBAC condition은 실제 필요가 확인되기 전에는 추가하지 않는다. P5 paid-run preflight에서 실제 principal/role/scope inventory를 다시 확인한다.
 
 ## 8. AKS managed capability ownership
 
@@ -252,9 +252,15 @@ DECIDED defaults:
 
 Managed Istio의 exact revision은 chosen AKS version/region에서 실제 available/supported revision을 확인해 선택한다.
 
-MeshConfig customization이나 extension provider처럼 AKS에서 사용 가능하지만 support scope가 더 좁을 수 있는 surface는 capability/support-boundary preflight를 통과해야 한다.
+P5 preflight에서는 selected revision의 customization surface를 최소 세 범주로 구분한다.
 
-필수 capability가 managed Istio에서 막히는 경우에만 self-managed Istio fallback ADR을 연다.
+- **supported**: managed support claim 안에서 사용 가능
+- **allowed but support-limited**: project experiment에 필요하면 limitation과 runtime evidence를 명시하고 사용 가능
+- **blocked/unavailable**: required capability라면 managed default를 조용히 우회하지 않고 fallback ADR을 검토
+
+MeshConfig customization, extension provider, proxy stat exposure와 ingress/routing API는 이 boundary를 current official documentation/runtime에서 다시 확인한다. P4 Local fixture에서 동작한 upstream capability가 곧 Azure managed support를 의미하지 않는다.
+
+필수 capability가 managed Istio의 blocked/unavailable boundary에 걸리는 경우에만 self-managed Istio fallback ADR을 연다.
 
 ## 9. GitOps ownership
 
@@ -408,7 +414,7 @@ docs/
 | `operations/` | SLO/alert/dashboard/runbook/cost | deployment ownership 자체 |
 | `tests/` | normal-system verification | intentional failure scenario |
 | `experiments/` | controlled failure/load hypothesis | stable platform desired state |
-| `results/` | reviewed/published evidence | large raw telemetry |
+| `results/` | reviewed evidence | large raw telemetry |
 | `docs/` | human-readable contract/ADR/incident docs | generated manifests |
 
 ## 15. Production-minded boundary
