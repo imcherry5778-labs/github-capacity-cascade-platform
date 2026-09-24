@@ -1,0 +1,131 @@
+# GitHub Capacity Cascade Platform
+
+> A production-minded SRE / Platform Engineering case study that turns a public GitHub capacity incident into a reproducible developer-platform reliability investigation.
+
+GitHub의 2026년 8월 공개 capacity incident에서 확인할 수 있는 **overload-driven cascading failure**의 failure class를 실제 Forgejo developer platform에 축소 적용해 다음 흐름을 검증한다.
+
+```text
+public RCA
+→ working developer platform
+→ healthy baseline
+→ developer impact
+→ investigation / RCA
+→ mitigation
+→ recovery while demand continues
+→ critical / bulk isolation
+→ regression prevention
+→ reviewed evidence
+```
+
+현재 단계는 **P0 — Specification & Research Contract**다. P0에서는 실행 가능한 platform/IaC/experiment를 구현하지 않고, 이후 milestone이 따를 architecture·ownership·dependency·safety·acceptance contract를 고정한다.
+
+## Research boundary
+
+기존 [`github-capacity-cascade-lab`](https://github.com/imcherry5778-labs/github-capacity-cascade-lab)은 capacity/retry mechanism을 작은 단위로 분리해 연구한 foundation이다. Incident source register와 mechanism-level evidence는 Lab의 provenance를 그대로 참조하고 이 repository에서 복제하지 않는다. 이 저장소는 Lab의 구현을 복제하지 않고, 그 knowledge를 실제 developer journey를 가진 platform engineering 문제로 확장한다.
+
+GitHub의 비공개 내부 architecture나 설정은 추정하지 않는다.
+
+- **FACT**: primary source가 직접 뒷받침
+- **INFERENCE**: 공개 자료 또는 project evidence에 대한 해석
+- **LAB_IMPLEMENTATION**: failure effect를 연구하기 위한 프로젝트 구현
+- **UNKNOWN**: 공개되지 않아 확인할 수 없음
+
+## Top-level user signal
+
+Core developer journey:
+
+- Git clone/fetch
+- Git push
+- Pull Request create/read
+- Issue create/read
+
+측정 단위는 구분한다.
+
+```text
+developer operation
+→ operation attempt
+→ HTTP request
+→ authorization check
+→ Envoy upstream request
+→ application request
+```
+
+## Architecture direction
+
+Project-level decisions:
+
+- Forgejo v15 LTS track, single replica, external PostgreSQL, persistent application data
+- Azure AKS runtime
+- Argo CD Core for stable-state reconciliation
+- AKS managed Istio/KEDA/Key Vault CSI 우선
+- Azure Key Vault + Workload Identity
+- Terraform `bootstrap / foundation / environment` lifecycle
+- GitHub Actions → Azure OIDC federation
+- temporary synthetic shared gate for the reliability experiment
+- Azure managed observability
+
+Exact patch/revision/SKU/threshold/metric spelling은 해당 milestone에서 현재 upstream/runtime을 다시 확인한 뒤 고정한다.
+
+## Roadmap
+
+```text
+P0  Specification & Research Contract
+P1  Local Forgejo correctness
+P2  Local GitOps integration
+P3A Azure IaC source/static validation       COST 0
+P4A Local measurement/recovery               COST 0
+P5  Local reliability fixture                COST 0
+P3B Azure calibration                        explicit approval / PAYG
+P4B Azure operations verification
+P6  Cascade investigation
+P7  Mitigation and recovery
+P8  Critical / bulk isolation
+P9  Regression and final evidence
+```
+
+중요한 실행 순서:
+
+```text
+P3A static source
+→ P4A local operations/measurement
+→ P5 local failure fixture
+→ Azure preflight
+→ explicit user approval
+→ short-lived Azure
+```
+
+## Repository responsibility map
+
+아래는 최종 ownership map이다. P0에서 빈 directory를 생성하지 않는다.
+
+```text
+cmd/          project-owned executable
+internal/     executable internal implementation
+infra/        Azure/cloud infrastructure lifecycle
+platform/     stable developer platform source
+operations/   SLO, alerts, dashboards, runbooks, cost
+tests/        normal-system verification
+experiments/  temporary reliability fixtures/scenarios/load
+results/      reviewed/published evidence
+docs/         project contract, ADR, incident docs
+```
+
+`tests/`는 정상 시스템을 검증하고, `experiments/`는 의도한 failure condition을 검증한다.
+
+## Production-minded boundary
+
+이 프로젝트는 production-ready 24/7 service라고 주장하지 않는다. Core는 single region, ephemeral Azure runtime, Forgejo single replica, no Forgejo HA/multi-region, Argo CD Core, small operator model을 의도적으로 허용한다.
+
+Azure는 PAYG다. 실제 Azure `apply` / `destroy` 또는 비용이 발생할 수 있는 action은 사용자의 명시적 승인 없이 실행하지 않는다.
+
+## Documents
+
+- `docs/charter.md` — 목적, 연구 질문, 범위, 완료 기준
+- `docs/architecture.md` — architecture, ownership, decision maturity
+- `docs/roadmap.md` — milestone 흐름과 exit condition
+- `docs/implementation-plan.md` — work-unit dependency와 구현 전 gate
+- `docs/conventions.md` — 문서/Git/naming/evidence 규칙
+- `docs/terminology.md` — claim/measurement 용어
+- `AGENTS.md` — ChatGPT / Local AI Agent / GitHub workflow
+
+사람 대상 문서는 한국어를 기본으로 하고 product/API/metric/CLI/code/path는 공식 영어 표기를 유지한다.
