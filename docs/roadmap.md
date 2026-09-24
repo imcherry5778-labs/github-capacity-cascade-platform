@@ -22,9 +22,9 @@ flowchart TD
     P5["P5 Azure IaC & Platform Source\nCOST 0"]
     P6["P6 Azure Platform Calibration\nexplicit approval / PAYG"]
     P7["P7 Azure Operations Verification\nexplicit approval / PAYG"]
-    P8["P8 Controlled Cascade Investigation"]
-    P9["P9 Mitigation & Recovery"]
-    P10["P10 Critical / Bulk Isolation"]
+    P8["P8 Controlled Cascade Investigation\nexplicit approval / PAYG"]
+    P9["P9 Mitigation & Recovery\nexplicit approval / PAYG"]
+    P10["P10 Critical / Bulk Isolation\nexplicit approval / PAYG"]
     P11["P11 Regression & Final Evidence"]
 
     P0 --> P1 --> P2 --> P3 --> P4 --> P5 --> P6 --> P7 --> P8 --> P9 --> P10 --> P11
@@ -113,6 +113,8 @@ P4 진입 시 current AKS managed Istio 후보와 호환되는 upstream Istio/En
 
 ## P8 — Controlled Cascade Investigation
 
+**Entry:** verified Azure operations path + current paid-environment preflight + explicit approval. Existing approved environment를 이어 쓰거나 P5 source에서 재생성할 수 있지만 자동 carry-over하지 않는다.
+
 **Goal:** Developer impact → failure mechanism을 설명 가능한 controlled incident를 생성하고 incident record를 남긴다.
 
 Progression 예시는 해당 milestone deep research에서 다시 확정하되 최소한 다음을 구분한다.
@@ -130,6 +132,8 @@ Valid run에는 **Developer impact / Failure mechanism / Confounder guard**가 �
 
 ## P9 — Mitigation & Recovery
 
+**Entry:** P8 evidence + current paid-environment state/cost 확인 + explicit approval.
+
 **Goal:** 같은 workload/fault boundary에서 retry/backoff, overload protection, scaling 등의 trade-off를 비교하고 continuing demand 중 recovery를 측정.
 
 같은 Deployment를 HPA와 KEDA가 동시에 제어하지 않는다. Exact mitigation matrix는 P9 진입 시 evidence와 current runtime을 보고 확정한다.
@@ -137,6 +141,8 @@ Valid run에는 **Developer impact / Failure mechanism / Confounder guard**가 �
 **Exit:** mitigation 비교, recovery criterion/time과 postmortem corrective action이 evidence로 연결됨.
 
 ## P10 — Critical / Bulk Isolation
+
+**Entry:** P8/P9 evidence + current paid-environment state/cost 확인 + explicit approval.
 
 **Goal:** interactive developer traffic과 automation/bulk traffic의 capacity/blast radius 분리.
 
@@ -147,6 +153,8 @@ Valid run에는 **Developer impact / Failure mechanism / Confounder guard**가 �
 ## P11 — Regression & Final Evidence
 
 **Goal:** 같은 failure class의 재도입을 잡는 cost-free regression gate와 final controlled engineering evidence를 확정하고 Azure lifecycle을 finalization한다.
+
+Final Azure evidence/finalization action이 필요하면 P11에서도 별도 current preflight와 explicit approval을 받는다.
 
 **Scope:** final source/runtime provenance, selected controlled repetitions, reviewed evidence index, regression verification, final Azure teardown, residual resource/cost inventory.
 
