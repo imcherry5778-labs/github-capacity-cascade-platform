@@ -69,29 +69,29 @@ Exact patch/revision/SKU/threshold/metric spelling은 해당 milestone에서 현
 ## Roadmap
 
 ```text
-P0  Specification & Research Contract
-P1  Local Forgejo correctness
-P2  Local GitOps integration
-P3A Azure IaC source/static validation       COST 0
-P4A Local measurement/recovery               COST 0
-P5  Local reliability fixture                COST 0
-P3B Azure calibration                        explicit approval / PAYG
-P4B Azure operations verification
-P6  Cascade investigation
-P7  Mitigation and recovery
-P8  Critical / bulk isolation
-P9  Regression and final evidence
+P0   Specification & Research Contract
+P1   Local Forgejo Correctness
+P2   Local GitOps Reconciliation
+P3   Local Operations Contract               COST 0
+P4   Local Reliability Fixture               COST 0
+P5   Azure IaC & Platform Source              COST 0
+P6   Azure Platform Calibration               explicit approval / PAYG
+P7   Azure Operations Verification            explicit approval / PAYG
+P8   Controlled Cascade Investigation
+P9   Mitigation & Recovery
+P10  Critical / Bulk Isolation
+P11  Regression & Final Evidence
 ```
 
 중요한 실행 순서:
 
 ```text
-P3A static source
-→ P4A local operations/measurement
-→ P5 local failure fixture
-→ Azure preflight
+local correctness / GitOps / operations / reliability
+→ Azure source + paid-run preflight
 → explicit user approval
-→ short-lived Azure
+→ short-lived Azure calibration / operations verification
+→ controlled investigation / mitigation / redesign
+→ regression / final evidence
 ```
 
 ## Repository responsibility map
@@ -106,11 +106,13 @@ platform/     stable developer platform source
 operations/   SLO, alerts, dashboards, runbooks, cost
 tests/        normal-system verification
 experiments/  temporary reliability fixtures/scenarios/load
-results/      reviewed/published evidence
+results/      reviewed evidence
 docs/         project contract, ADR, incident docs
 ```
 
-`tests/`는 정상 시스템을 검증하고, `experiments/`는 의도한 failure condition을 검증한다.
+tests/`는 정상 시스템을 검증하고, `experiments/`는 의도한 failure condition을 검증한다.
+
+Portfolio website source, presentation/résumé-facing copy와 personal learning note는 이 engineering repository에 저장하지 않는다. Architecture/ADR/runbook/incident/postmortem/reviewed evidence는 engineering artifact로 유지하며 외부 presentation layer가 필요하면 이를 참조한다.
 
 ## Production-minded boundary
 
@@ -123,7 +125,7 @@ Azure는 PAYG다. 실제 Azure `apply` / `destroy` 또는 비용이 발생할 �
 - `docs/charter.md` — 목적, 연구 질문, 범위, 완료 기준
 - `docs/architecture.md` — architecture, ownership, decision maturity
 - `docs/roadmap.md` — milestone 흐름과 exit condition
-- `docs/implementation-plan.md` — work-unit dependency와 구현 전 gate
+- `docs/implementation-plan.md` — milestone 진입 시 work-unit 분해 정책과 구현 전 gate
 - `docs/conventions.md` — 문서/Git/naming/evidence 규칙
 - `docs/terminology.md` — claim/measurement 용어
 - `AGENTS.md` — ChatGPT / Local AI Agent / GitHub workflow
