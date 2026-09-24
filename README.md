@@ -77,10 +77,10 @@ P4   Local Reliability Fixture               COST 0
 P5   Azure IaC & Platform Source              COST 0
 P6   Azure Platform Calibration               explicit approval / PAYG
 P7   Azure Operations Verification            explicit approval / PAYG
-P8   Controlled Cascade Investigation
-P9   Mitigation & Recovery
-P10  Critical / Bulk Isolation
-P11  Regression & Final Evidence
+P8   Controlled Cascade Investigation         explicit approval / PAYG
+P9   Mitigation & Recovery                    explicit approval / PAYG
+P10  Critical / Bulk Isolation                explicit approval / PAYG
+P11  Regression & Final Evidence              final Azure action requires approval
 ```
 
 중요한 실행 순서:
