@@ -8,7 +8,7 @@
 
 현재 repository state의 authority:
 
-- GitHub `main`, actual PR/HEAD, CI/check, review state
+- GitHub `main`, actual PR/HEAD, CI/check, review state, branch state와 relevant repository setting/ruleset
 
 현재 work unit의 normative contract:
 
@@ -76,17 +76,23 @@ Fresh Local AI Agent는 먼저 확인한다.
 
 ### Previous work-unit cleanup
 
-이전 work unit이 실제 merge된 경우에만 그 작업의 worktree/local branch/remote branch를 정리한다.
+이전 work unit이 실제 merge된 경우에만 그 작업의 local worktree/local branch를 정리한다.
 
-Remote branch 삭제 전:
+Remote head branch lifecycle은 actual GitHub repository policy를 따른다.
 
-1. PR `merged` 확인
-2. final PR head SHA 확인
-3. remote branch HEAD 확인
-4. 보존할 unique work 부재 확인
-5. exact branch name 하나만 삭제
+- GitHub native setting이 merged head branch automatic deletion을 소유하면 Local AI Agent는 이를 정상 경로로 중복 삭제하지 않고 `git fetch --all --prune` 뒤 remote-tracking ref가 정리됐는지 확인한다.
+- native cleanup이 적용되지 않았거나 expected cleanup 뒤에도 remote branch가 남은 경우에만 fallback cleanup을 검토한다.
+- fallback remote branch 삭제 전에는 PR `merged`, final PR head SHA, current remote branch HEAD, 보존할 unique work 부재를 확인하고 exact branch name 하나만 삭제한다.
+- Wildcard/prefix/bulk branch deletion을 금지한다.
 
-Wildcard/prefix/bulk branch deletion을 금지한다.
+이전 merged work cleanup 뒤 새 work-unit branch를 만들기 전에:
+
+1. `git switch main`
+2. local `main`이 예상하지 못한 dirty/diverged 상태가 아닌지 확인
+3. `git merge --ff-only origin/main`
+4. local `main` SHA와 `origin/main` SHA가 같은지 확인
+
+동일하지 않거나 fast-forward가 불가능하면 임의 reset/rebase하지 않고 중단/보고한다.
 
 ## 5. Implementation cycle
 
@@ -114,9 +120,11 @@ Local AI Agent는 merge하지 않는다.
 
 ChatGPT가 검토한 exact PR HEAD를 기준으로 squash merge하고, merge 후 PR merged state와 새 `main` SHA를 확인한다.
 
-그 SHA가 다음 work unit의 단일 repository baseline이다.
+Relevant native post-merge repository policy가 있으면 실제 적용 결과도 확인한다. GitHub native policy가 merged remote head branch lifecycle을 소유하는 경우 이를 정상 cleanup 경로로 사용하고, 기대한 cleanup이 일어나지 않으면 policy drift/fallback cleanup으로 취급한다.
 
-방금 merge된 feature branch/worktree cleanup은 다음 **fresh Local AI Agent**가 독립 확인 후 수행한다.
+그 새 `main` SHA가 다음 work unit의 단일 remote baseline이다.
+
+방금 merge된 work의 local worktree/local branch cleanup과 local `main` fast-forward synchronization은 다음 **fresh Local AI Agent**가 독립 확인 후 수행한다.
 
 Milestone의 마지막 work unit이 merge되면 ChatGPT가 milestone exit evidence를 확인하고 다음 milestone deep research/decomposition을 수행한다.
 
@@ -195,7 +203,7 @@ ChatGPT가 Local AI Agent session에 전달하는 work-unit prompt는 **이번 �
 권장 구조:
 
 1. **Mission** — 이번 work unit에서 최종적으로 무엇이 true여야 하는지 정의
-2. **Expected baseline** — repository, expected `main`/PR HEAD, 이전 merged work unit처럼 실행 전 확인할 상태
+2. **Expected baseline** — repository, expected `main`/PR HEAD, 이전 merged work unit과 relevant native repository policy처럼 실행 전 확인할 상태
 3. **Read first** — `AGENTS.md`와 이번 work unit에 직접 필요한 문서/path
 4. **Scope / non-goals** — 해야 할 것과 하지 않을 것을 관찰 가능한 단위로 명시
 5. **Decisions / revalidation** — 관련 DECIDED 사항과 이번 session에서 확인할 REVALIDATE/DEFERRED 항목
