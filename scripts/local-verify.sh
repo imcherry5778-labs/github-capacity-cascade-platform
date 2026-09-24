@@ -139,13 +139,19 @@ stop_port_forward() {
 }
 
 wait_forgejo_healthy() { # LABEL  (/api/healthz는 DB 연결도 확인한다)
-  local _
-  for _ in $(seq 1 90); do
-    if curl -fsS --max-time 5 "$FORGEJO_URL/api/healthz" >/dev/null 2>&1; then
+  local deadline remaining curl_timeout sleep_for
+  deadline=$((SECONDS + 180))
+  while (( SECONDS < deadline )); do
+    remaining=$((deadline - SECONDS))
+    curl_timeout=$((remaining < 5 ? remaining : 5))
+    if curl -fsS --max-time "$curl_timeout" "$FORGEJO_URL/api/healthz" >/dev/null 2>&1; then
       pass "$1: Forgejo /api/healthz"
       return 0
     fi
-    sleep 2
+    remaining=$((deadline - SECONDS))
+    (( remaining > 0 )) || break
+    sleep_for=$((remaining < 2 ? remaining : 2))
+    sleep "$sleep_for"
   done
   fail "$1: Forgejo /api/healthz did not pass within 180s"
 }
