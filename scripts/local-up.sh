@@ -22,6 +22,10 @@ fi
 
 log "creating k3d cluster $CLUSTER ($K3S_IMAGE)"
 k3d cluster create --config "$ROOT/platform/local/k3d.yaml"
+# local-run.sh가 marker path를 전달한 경우, create가 실제 성공한 invocation만 cleanup ownership을 얻는다.
+if [[ -n "${LOCAL_CLUSTER_OWNERSHIP_MARKER:-}" ]]; then
+  ( umask 077 && printf '%s\n' "$CLUSTER" >"$LOCAL_CLUSTER_OWNERSHIP_MARKER" )
+fi
 ( umask 077 && k3d kubeconfig get "$CLUSTER" >"$KUBECONFIG" )
 kubectl wait node --all --for=condition=Ready --timeout=180s
 # k3s는 bundled addon을 cluster 시작 후 비동기로 생성한다.
