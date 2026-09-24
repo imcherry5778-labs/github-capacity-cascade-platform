@@ -59,6 +59,8 @@ if [[ "$("$BIN/helm" version --template '{{.Version}}' 2>/dev/null)" != "$HELM_V
   install -m 0755 "$work/$os-$arch/helm" "$BIN/helm"
 fi
 
-"$BIN/k3d" version | head -n 1
+# k3d는 version 두 줄을 별도 write로 출력하므로 head가 먼저 종료하면 SIGPIPE(141)가 pipefail로 실패가 된다.
+# 입력을 끝까지 읽는 sed로 첫 줄만 출력한다.
+"$BIN/k3d" version | sed -n 1p
 echo "kubectl $("$BIN/kubectl" version --client -o json | jq -r .clientVersion.gitVersion)"
 echo "helm $("$BIN/helm" version --template '{{.Version}}')"
