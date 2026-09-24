@@ -21,4 +21,13 @@ down:
 	scripts/local-down.sh
 
 local: static
-	scripts/local-up.sh && scripts/local-verify.sh runtime; rc=$$?; scripts/local-down.sh && exit $$rc
+	@if .tmp/bin/k3d cluster get capacity-cascade-local >/dev/null 2>&1; then \
+		echo "cluster capacity-cascade-local already exists; run make down explicitly first" >&2; \
+		exit 1; \
+	fi; \
+	rc=0; \
+	scripts/local-up.sh && scripts/local-verify.sh runtime || rc=$?; \
+	down_rc=0; \
+	scripts/local-down.sh || down_rc=$?; \
+	if [ $rc -ne 0 ]; then exit $rc; fi; \
+	exit $down_rc
