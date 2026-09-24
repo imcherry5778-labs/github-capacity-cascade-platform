@@ -48,18 +48,20 @@ jobs:
             [[ ! -e "$f" ]] || { echo "runtime output left after make local: $f" >&2; exit 1; }
           done
 
-      # 아래 guard는 다른 invocation이 소유한 cluster를 만든 뒤, ownership을 얻지 못한 invocation이
-      # 실패하면서 그 cluster(server container ID)와 kubeconfig를 삭제/변경하지 않는지 확인한다.
+      # 아래 guard는 다른 invocation이 소유한 cluster를 만든 뒤, ownership을 얻지 못했거나 증명하지 못한 invocation이
+      # 실패하면서 그 cluster(server container ID)와 runtime output을 삭제/변경하지 않는지 확인한다.
       - name: Guard cluster owned by another invocation
         id: up
         run: |
           make up
           echo "GUARD_SERVER_ID=$(docker ps -aq --no-trunc --filter label=k3d.cluster=capacity-cascade-local --filter label=k3d.role=server)" >>"$GITHUB_ENV"
 
-      - name: Ownership guard (existing / concurrent create-delete / replaced cluster)
+      - name: Ownership guard (existing / concurrent create-delete / replaced / ambiguous cluster)
         run: |
+          mkdir -p .tmp/journey
+          touch .tmp/journey/credentials.env .tmp/port-forward.log
           expect_refused() { # MESSAGE COMMAND...
-            local out
+            local out f
             if out="$("${@:2}" 2>&1)"; then
               printf '%s\n' "$out"
               echo "unexpected success: ${*:2}" >&2
@@ -69,7 +71,9 @@ jobs:
             grep -qF "$1" <<<"$out" || { echo "expected refusal: $1" >&2; exit 1; }
             [[ "$(docker ps -aq --no-trunc --filter label=k3d.cluster=capacity-cascade-local --filter label=k3d.role=server)" == "$GUARD_SERVER_ID" ]] ||
               { echo "guard cluster was deleted or replaced" >&2; exit 1; }
-            [[ -s .tmp/kubeconfig ]] || { echo "guard cluster kubeconfig was removed" >&2; exit 1; }
+            for f in .tmp/kubeconfig .tmp/journey/credentials.env .tmp/port-forward.log; do
+              [[ -e "$f" ]] || { echo "guard runtime output was removed: $f" >&2; exit 1; }
+            done
           }
           # 1. 이미 존재하는 cluster
           expect_refused "already exists" make local
@@ -82,7 +86,26 @@ jobs:
           marker="$(mktemp)"
           echo "not-$GUARD_SERVER_ID" >"$marker"
           expect_refused "was not created by this invocation" env LOCAL_CLUSTER_OWNERSHIP_MARKER="$marker" scripts/local-down.sh
-          rm -f "$marker"
+          # 4-5. Ownership을 증명할 수 없는 모호한 상태. Marker에는 실제 server ID를 넣어, guard가 없으면 삭제가 일어나게 한다.
+          #      Scripts가 PATH 앞에 두는 .tmp/bin에 docker wrapper를 두어 docker ps만 바꾸고(k3d는 Docker API 직접 사용) 나머지는 위임한다.
+          echo "$GUARD_SERVER_ID" >"$marker"
+          trap 'rm -f .tmp/bin/docker' EXIT
+          cat >.tmp/bin/docker <<'EOF'
+          #!/usr/bin/env bash
+          case "${DOCKER_WRAPPER_MODE:-}:${1:-}" in
+            inspect-failure:ps) echo "simulated docker ps failure" >&2; exit 1 ;;
+            empty-server-id:ps) if [[ "$*" == *label=k3d.role=server* ]]; then exit 0; fi ;;
+          esac
+          exec "$REAL_DOCKER" "$@"
+          EOF
+          chmod +x .tmp/bin/docker
+          # 4. Docker ownership inspection 실패
+          expect_refused "cannot inspect cluster ownership" env REAL_DOCKER="$(command -v docker)" DOCKER_WRAPPER_MODE=inspect-failure \
+            LOCAL_CLUSTER_OWNERSHIP_MARKER="$marker" scripts/local-down.sh
+          # 5. k3d에는 cluster가 존재하지만 server identity 조회 결과가 비어 있음
+          expect_refused "server identity is unavailable" env REAL_DOCKER="$(command -v docker)" DOCKER_WRAPPER_MODE=empty-server-id \
+            LOCAL_CLUSTER_OWNERSHIP_MARKER="$marker" scripts/local-down.sh
+          rm -f "$marker" .tmp/bin/docker
 
       - name: Cleanup error path (k3d cluster delete failure)
         run: |
