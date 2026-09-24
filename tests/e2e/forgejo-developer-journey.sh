@@ -76,11 +76,24 @@ expect_anonymous_denied() {
 # empty repository에는 Pull Request를 허용하지 않는다(CanEnablePulls). Developer operation을 retry하지 않고,
 # 이 platform-side 처리 완료만 bounded wait로 확인한다.
 wait_initial_push_processed() {
-  local _ json
-  for _ in $(seq 1 120); do
-    json="$(request "$DEV_AUTH" GET "/repos/$DEV_USER/$REPO" 200)"
-    if jq -e '.empty == false' >/dev/null <<<"$json"; then return 0; fi
-    sleep 0.5
+  local deadline remaining curl_timeout sleep_for json status response
+  response="$JOURNEY_DIR/response.json"
+  deadline=$((SECONDS + 60))
+  while (( SECONDS < deadline )); do
+    remaining=$((deadline - SECONDS))
+    curl_timeout=$((remaining < 5 ? remaining : 5))
+    if status="$(curl -sS --max-time "$curl_timeout" -o "$response" -w '%{http_code}' -X GET \
+      -H 'Accept: application/json' -K <(printf '%s\n' "$DEV_AUTH") "$API/repos/$DEV_USER/$REPO" 2>/dev/null)"; then
+      if [[ "$status" != 200 ]]; then
+        fail "GET /repos/$DEV_USER/$REPO: expected HTTP 200, got $status: $(head -c 300 "$response")"
+      fi
+      json="$(cat "$response")"
+      if jq -e '.empty == false' >/dev/null <<<"$json"; then return 0; fi
+    fi
+    remaining=$((deadline - SECONDS))
+    (( remaining > 0 )) || break
+    sleep_for=$((remaining < 1 ? remaining : 1))
+    sleep "$sleep_for"
   done
   fail "Forgejo did not finish processing the initial push within 60s (repository still empty)"
 }
