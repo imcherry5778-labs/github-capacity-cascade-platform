@@ -110,7 +110,7 @@ results/      reviewed evidence
 docs/         project contract, ADR, incident docs
 ```
 
-tests/`는 정상 시스템을 검증하고, `experiments/`는 의도한 failure condition을 검증한다.
+`tests/`는 정상 시스템을 검증하고, `experiments/`는 의도한 failure condition을 검증한다.
 
 Portfolio website source, presentation/résumé-facing copy와 personal learning note는 이 engineering repository에 저장하지 않는다. Architecture/ADR/runbook/incident/postmortem/reviewed evidence는 engineering artifact로 유지하며 외부 presentation layer가 필요하면 이를 참조한다.
 
