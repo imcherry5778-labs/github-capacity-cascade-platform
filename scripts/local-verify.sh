@@ -157,13 +157,18 @@ wait_forgejo_healthy() { # LABEL  (/api/healthz는 DB 연결도 확인한다)
 }
 
 wait_replacement_pod() { # NAMESPACE POD OLD_UID
-  local _ uid
-  for _ in $(seq 1 120); do
-    uid="$(kubectl -n "$1" get pod "$2" -o jsonpath='{.metadata.uid}' 2>/dev/null || true)"
+  local deadline remaining request_timeout uid
+  deadline=$((SECONDS + 120))
+  while (( SECONDS < deadline )); do
+    remaining=$((deadline - SECONDS))
+    request_timeout=$((remaining < 5 ? remaining : 5))
+    uid="$(kubectl --request-timeout="${request_timeout}s" -n "$1" get pod "$2" -o jsonpath='{.metadata.uid}' 2>/dev/null || true)"
     if [[ -n "$uid" && "$uid" != "$3" ]]; then
       kubectl -n "$1" wait pod "$2" --for=condition=Ready --timeout=300s >/dev/null
       return 0
     fi
+    remaining=$((deadline - SECONDS))
+    (( remaining > 0 )) || break
     sleep 1
   done
   fail "replacement Pod $1/$2 was not created within 120s"
