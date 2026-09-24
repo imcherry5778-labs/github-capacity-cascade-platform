@@ -56,7 +56,7 @@ jobs:
           make up
           echo "GUARD_SERVER_ID=$(docker ps -aq --no-trunc --filter label=k3d.cluster=capacity-cascade-local --filter label=k3d.role=server)" >>"$GITHUB_ENV"
 
-      - name: Ownership guard (existing / concurrent create-delete / replaced / ambiguous cluster)
+      - name: Ownership guard (existing / concurrent create-delete / replaced / ambiguous / uninspectable cluster)
         run: |
           mkdir -p .tmp/journey
           touch .tmp/journey/credentials.env .tmp/port-forward.log
@@ -106,6 +106,19 @@ jobs:
           expect_refused "server identity is unavailable" env REAL_DOCKER="$(command -v docker)" DOCKER_WRAPPER_MODE=empty-server-id \
             LOCAL_CLUSTER_OWNERSHIP_MARKER="$marker" scripts/local-down.sh
           rm -f "$marker" .tmp/bin/docker
+          # 6. Create preflight의 cluster 조회 실패. k3d cluster get/create는 runtime 조회 실패를 부재로 보고 create가 실패하면
+          #    같은 이름 cluster를 rollback 삭제하므로, 부재가 증명되지 않으면 k3d cluster create를 호출하지 않아야 한다.
+          #    도달 불가능한 DOCKER_HOST로 k3d의 실제 조회 실패를 만들고, k3d wrapper는 cluster create 호출만 기록·차단한다.
+          mv .tmp/bin/k3d .tmp/bin/k3d.real
+          trap 'mv .tmp/bin/k3d.real .tmp/bin/k3d' EXIT
+          cat >.tmp/bin/k3d <<'EOF'
+          #!/usr/bin/env bash
+          if [[ "${1:-} ${2:-}" == "cluster create" ]]; then touch "$0.create-invoked"; echo "blocked k3d cluster create" >&2; exit 1; fi
+          exec "$0.real" "$@"
+          EOF
+          chmod +x .tmp/bin/k3d
+          expect_refused "cannot inspect k3d clusters; not creating" env DOCKER_HOST=unix:///nonexistent/docker.sock scripts/local-run.sh
+          [[ ! -e .tmp/bin/k3d.create-invoked ]] || { echo "k3d cluster create ran without proven cluster absence" >&2; exit 1; }
 
       - name: Cleanup error path (k3d cluster delete failure)
         run: |
