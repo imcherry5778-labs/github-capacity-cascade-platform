@@ -4,6 +4,7 @@
 #
 #   create          fixture developer identity를 준비하고 developer operation 1-10을 수행한 뒤 state를 기록한다.
 #   verify [label]  기록된 state가 유지되는지 developer read path(clone/fetch/PR/Issue)로 확인한다.
+#   write           recovery 이후 같은 developer/PAT로 새 Git commit과 Issue를 생성한다.
 #
 # Admin capability는 create의 fixture identity 생성에만 사용한다. 모든 developer operation은
 # 일반(non-admin) developer의 access token으로 수행한다. Developer operation은 Git Smart HTTP
@@ -302,9 +303,12 @@ create() {
   token_json="$(request "user = \"$DEV_USER:$dev_password\"" POST "/users/$DEV_USER/tokens" 201 \
     '{"name":"journey","scopes":["write:repository","write:issue","write:user"]}')"
   DEV_TOKEN="$(jq -r .sha1 <<<"$token_json")"
-  unset dev_password token_json
   DEV_AUTH="header = \"Authorization: token $DEV_TOKEN\""
   printf 'DEV_USER=%q\nDEV_TOKEN=%q\n' "$DEV_USER" "$DEV_TOKEN" >"$JOURNEY_DIR/credentials.env"
+  if [[ "${RECOVERY_FIXTURE:-0}" == 1 ]]; then
+    printf 'DEV_PASSWORD=%q\n' "$dev_password" >>"$JOURNEY_DIR/credentials.env"
+  fi
+  unset dev_password token_json
   user_json="$(request "$DEV_AUTH" GET /user 200)"
   expect_json "$user_json" '.login == env.DEV_USER and .is_admin == false' "developer identity"
   aux_event fixture developer_identity success
@@ -424,7 +428,13 @@ verify() {
   export DEV_USER RUN_ID MAIN_SHA FEATURE_SHA PR_NUMBER PR_TITLE ISSUE_NUMBER ISSUE_TITLE
   export CLONE_URL="$FORGEJO_URL/$DEV_USER/$REPO.git"
   DEV_AUTH="header = \"Authorization: token $DEV_TOKEN\""
-  local clone="$JOURNEY_DIR/clone" fresh json
+  local clone="$JOURNEY_DIR/clone" fresh json expected_main="$MAIN_SHA"
+  if [[ -f "$JOURNEY_DIR/post-write.env" ]]; then
+    # shellcheck source=/dev/null
+    source "$JOURNEY_DIR/post-write.env"
+    export POST_ISSUE_NUMBER POST_ISSUE_TITLE
+    expected_main="$POST_SHA"
+  fi
 
   json="$(request "$DEV_AUTH" GET /user 200)"
   expect_json "$json" '.login == env.DEV_USER and .is_admin == false' "developer identity"
@@ -435,13 +445,14 @@ verify() {
 
   fresh="$(mktemp -d "$JOURNEY_DIR/verify-clone.XXXXXX")"
   dev_git clone -q "$CLONE_URL" "$fresh"
-  [[ "$(git -C "$fresh" rev-parse HEAD)" == "$MAIN_SHA" ]] || fail "clone main mismatch"
+  [[ "$(git -C "$fresh" rev-parse HEAD)" == "$expected_main" ]] || fail "clone main mismatch"
+  git -C "$fresh" merge-base --is-ancestor "$MAIN_SHA" "$expected_main" || fail "original main commit missing"
   [[ "$(git -C "$fresh" rev-parse "origin/$FEATURE_BRANCH")" == "$FEATURE_SHA" ]] || fail "clone feature branch mismatch"
   [[ "$(head -n 1 "$fresh/README.md")" == "# journey $RUN_ID" ]] || fail "repository content mismatch"
-  pass "authenticated clone main=$MAIN_SHA $FEATURE_BRANCH=$FEATURE_SHA content retained"
+  pass "authenticated clone main=$expected_main $FEATURE_BRANCH=$FEATURE_SHA content retained"
 
   dev_git -C "$clone" fetch -q origin
-  [[ "$(git -C "$clone" rev-parse origin/main)" == "$MAIN_SHA" ]] || fail "fetch main mismatch"
+  [[ "$(git -C "$clone" rev-parse origin/main)" == "$expected_main" ]] || fail "fetch main mismatch"
   [[ "$(git -C "$clone" rev-parse "origin/$FEATURE_BRANCH")" == "$FEATURE_SHA" ]] || fail "fetch feature branch mismatch"
   pass "fetch in existing clone"
 
@@ -449,11 +460,43 @@ verify() {
   pass "pull request #$PR_NUMBER retained"
   read_issue
   pass "issue #$ISSUE_NUMBER retained"
+  if [[ -f "$JOURNEY_DIR/post-write.env" ]]; then
+    json="$(request "$DEV_AUTH" GET "/repos/$DEV_USER/$REPO/issues/$POST_ISSUE_NUMBER" 200)"
+    expect_json "$json" '.number == (env.POST_ISSUE_NUMBER | tonumber) and .title == env.POST_ISSUE_TITLE' "post-restore issue"
+    pass "post-restore issue #$POST_ISSUE_NUMBER retained"
+  fi
+}
+
+write_after_restore() {
+  # shellcheck source=/dev/null
+  source "$JOURNEY_DIR/credentials.env"
+  # shellcheck source=/dev/null
+  source "$JOURNEY_DIR/state.env"
+  export DEV_USER RUN_ID MAIN_SHA
+  DEV_AUTH="header = \"Authorization: token $DEV_TOKEN\""
+  local work="$JOURNEY_DIR/work" issue
+  [[ ! -e "$JOURNEY_DIR/post-write.env" ]] || fail "post-restore write already recorded"
+  printf 'restored write %s\n' "$RUN_ID" >"$work/restored.txt"
+  git -C "$work" add restored.txt
+  git -C "$work" commit -q -m "journey: post-restore write"
+  POST_SHA="$(git -C "$work" rev-parse HEAD)"
+  dev_git -C "$work" push -q origin main
+  expect_remote_ref "$work" refs/heads/main "$POST_SHA" "post-restore push"
+  pass "post-restore main push=$POST_SHA"
+  export POST_ISSUE_TITLE="restored issue $RUN_ID"
+  issue="$(request "$DEV_AUTH" POST "/repos/$DEV_USER/$REPO/issues" 201 \
+    "$(jq -nc '{title: env.POST_ISSUE_TITLE, body: "post-restore developer write"}')")"
+  POST_ISSUE_NUMBER="$(jq -r .number <<<"$issue")"
+  [[ "$POST_ISSUE_NUMBER" =~ ^[0-9]+$ ]] || fail "post-restore issue number"
+  printf 'POST_SHA=%q\nPOST_ISSUE_NUMBER=%q\nPOST_ISSUE_TITLE=%q\n' \
+    "$POST_SHA" "$POST_ISSUE_NUMBER" "$POST_ISSUE_TITLE" >"$JOURNEY_DIR/post-write.env"
+  pass "post-restore issue #$POST_ISSUE_NUMBER"
 }
 
 case "$MODE" in
   create) create ;;
   verify) verify ;;
+  write) write_after_restore ;;
   *) fail "unknown mode: $MODE" ;;
 esac
 printf '[journey:%s] PASS %d developer operations/checks\n' "$LABEL" "$operations"

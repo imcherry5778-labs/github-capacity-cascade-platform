@@ -65,6 +65,32 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+      - name: Fresh coordinated backup and restore
+        run: |
+          make recovery
+          if .tmp/bin/k3d cluster get capacity-cascade-local >/dev/null 2>&1; then
+            echo "recovery-owned cluster left after make recovery" >&2
+            exit 1
+          fi
+          result="$(find results/local -path '*/recovery-*/result.json' -print -quit)"
+          [[ -n "$result" ]] || { echo "recovery result missing" >&2; exit 1; }
+          jq -e --arg sha "$(git rev-parse HEAD)" '.source_sha == $sha and .source_dirty == false and .completed == true' "$result" >/dev/null
+
+      - name: Retain sanitized recovery evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: local-recovery-results
+          path: |
+            results/local/recovery-*/checkpoint.json
+            results/local/recovery-*/doctor-source.json
+            results/local/recovery-*/doctor-target.json
+            results/local/recovery-*/phases.jsonl
+            results/local/recovery-*/result.json
+            results/local/recovery-*/target-identity.json
+          if-no-files-found: ignore
+          retention-days: 14
+
       # 아래 guard는 다른 invocation이 소유한 cluster를 만든 뒤, ownership을 얻지 못했거나 증명하지 못한 invocation이
       # 실패하면서 그 cluster(server container ID)와 runtime output을 삭제/변경하지 않는지 확인한다.
       - name: Guard cluster owned by another invocation
