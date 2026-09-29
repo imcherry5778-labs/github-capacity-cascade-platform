@@ -123,6 +123,8 @@ Third-party GitHub Action은 가능한 경우 full commit SHA pin. Final evidenc
 - hypothesis supported / not supported / inconclusive
 - verified / not verified / not applicable
 
+이 판단들은 서로 다른 evidence dimension이다. 예를 들어 `runtime verified`는 검증 수준을 의미할 뿐 `experiment PASS`, `SLO met`, `hypothesis supported`를 함의하지 않는다. 각 판단은 해당 evidence가 있을 때 독립적으로 기록한다.
+
 Evidence가 없거나 해당 검증을 실행하지 못한 상태는 PASS로 추정하지 않고 `not verified` 또는 `UNKNOWN`으로 남긴다. Requirement 자체가 적용되지 않을 때만 `not applicable`로 구분한다.
 
 측정하지 않은 결과는 주장하지 않고, negative result도 valid하면 보존한다.
