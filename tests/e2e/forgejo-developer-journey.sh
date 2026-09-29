@@ -39,7 +39,7 @@ fail() {
 }
 
 mono() { awk '{print $1}' /proc/uptime; }
-elapsed() { awk -v start="$1" -v end="$(mono)" 'BEGIN {printf "%.6f", end-start}'; }
+duration_between() { awk -v start="$1" -v end="$2" 'BEGIN {printf "%.6f", end-start}'; }
 utc() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 emit() { jq -nc "$@" >>"$RESULT_FILE"; }
 
@@ -60,17 +60,20 @@ operation_begin() { # bounded operation type; one client attempt, no retry
   ATTEMPT_ID="$OP_ID-attempt-1"
   OP_TYPE="$1"
   OP_ACTIVE=1 ATTEMPT_ACTIVE=1
-  OP_START="$(mono)"
   OP_TIMESTAMP="$(utc)"
-  rm -f "$RESULT_DIR/http_status" "$RESULT_DIR/error_class" "$RESULT_DIR/command_exit"
+  rm -f "$RESULT_DIR/http_status" "$RESULT_DIR/error_class" "$RESULT_DIR/command_exit" \
+    "$RESULT_DIR/command_start" "$RESULT_DIR/command_end" "$RESULT_DIR/command_timestamp"
   emit --arg run "$RUN_ID" --arg id "$OP_ID" --arg type "$OP_TYPE" --arg ts "$OP_TIMESTAMP" \
     '{record:"operation_start",run_id:$run,operation_id:$id,operation_type:$type,timestamp_utc:$ts}'
 }
 
 attempt_finish() { # command exit code
   [[ -n "${RESULT_FILE:-}" && "$ATTEMPT_ACTIVE" == 1 ]] || return 0
-  local rc="$1" status="" class="none"
-  OP_DURATION="$(elapsed "$OP_START")"
+  # No command_start means no client attempt was observed. Keep the operation open.
+  [[ -f "$RESULT_DIR/command_start" ]] || return 0
+  local rc="$1" status="" class="none" command_end
+  command_end="$(cat "$RESULT_DIR/command_end" 2>/dev/null || mono)"
+  OP_DURATION="$(duration_between "$(cat "$RESULT_DIR/command_start")" "$command_end")"
   [[ ! -f "$RESULT_DIR/http_status" ]] || status="$(cat "$RESULT_DIR/http_status")"
   [[ ! -f "$RESULT_DIR/command_exit" ]] || rc="$(cat "$RESULT_DIR/command_exit")"
   class="$(cat "$RESULT_DIR/error_class" 2>/dev/null || true)"
@@ -80,7 +83,8 @@ attempt_finish() { # command exit code
   else
     class=none
   fi
-  emit --arg run "$RUN_ID" --arg id "$ATTEMPT_ID" --arg op "$OP_ID" --arg ts "$OP_TIMESTAMP" \
+  emit --arg run "$RUN_ID" --arg id "$ATTEMPT_ID" --arg op "$OP_ID" \
+    --arg ts "$(cat "$RESULT_DIR/command_timestamp")" \
     --argjson rc "$rc" --argjson duration "$OP_DURATION" --arg status "$status" --arg class "$class" \
     '{record:"attempt",run_id:$run,attempt_id:$id,operation_id:$op,attempt_index:1,
       timestamp_utc:$ts,duration_seconds:$duration,exit_code:$rc,
@@ -109,8 +113,10 @@ on_result_exit() {
   [[ -n "${RESULT_FILE:-}" && "${RUN_FINISHED:-0}" == 0 ]] || return 0
   if [[ "${OP_ACTIVE:-0}" == 1 ]]; then
     if [[ "${ATTEMPT_ACTIVE:-0}" == 1 ]]; then attempt_finish "$rc"; else aux_event assertion "$OP_TYPE" failed "$OP_ID"; fi
-    operation_finish failed false
-    validity=valid
+    if [[ "${ATTEMPT_ACTIVE:-0}" == 0 ]]; then
+      operation_finish failed false
+      validity=valid
+    fi
   fi
   [[ "$rc" -ne 130 && "$rc" -ne 143 ]] || completion=interrupted
   emit --arg run "$RUN_ID" --arg completion "$completion" --arg validity "$validity" --arg ts "$(utc)" \
@@ -145,23 +151,37 @@ result_finish() {
 }
 
 # request CURL_CONFIG_LINE METHOD PATH EXPECTED_STATUS [JSON_BODY]
-# Credential과 body는 process substitution으로 전달해 process argv에 남기지 않는다.
+# Credential과 body는 mode 0600 파일로 준비해 process argv에 남기지 않는다.
 request() {
-  local auth="$1" method="$2" path="$3" expected="$4" body="${5-}" status rc
-  local response="$JOURNEY_DIR/response.json"
+  local auth="$1" method="$2" path="$3" expected="$4" body="${5-}" status rc command_end
+  local response="$JOURNEY_DIR/response.json" auth_file="$JOURNEY_DIR/request-auth" body_file="$JOURNEY_DIR/request-body"
   local -a args=(-s --retry 0 --max-time 60 -o "$response" -w '%{http_code}' -X "$method" -H 'Accept: application/json')
-  # Process substitution은 fd 수명이 해당 command에 묶이므로 curl command line에서 직접 만든다.
+  printf '%s\n' "$auth" >"$auth_file"
   if [[ -n "$body" ]]; then
-    status="$(curl "${args[@]}" -H 'Content-Type: application/json' --data-binary @<(printf '%s' "$body") \
-      -K <(printf '%s\n' "$auth") "$API$path")" || { rc=$?; [[ -z "${RESULT_FILE:-}" ]] || printf '%s' "$rc" >"$RESULT_DIR/command_exit"; fail "$method $path: curl error" "$(if [[ $rc == 28 ]]; then echo timeout; else echo transport_error; fi)"; }
-  else
-    status="$(curl "${args[@]}" -K <(printf '%s\n' "$auth") "$API$path")" || { rc=$?; [[ -z "${RESULT_FILE:-}" ]] || printf '%s' "$rc" >"$RESULT_DIR/command_exit"; fail "$method $path: curl error" "$(if [[ $rc == 28 ]]; then echo timeout; else echo transport_error; fi)"; }
+    printf '%s' "$body" >"$body_file"
+    args+=(-H 'Content-Type: application/json' --data-binary "@$body_file")
   fi
+  args+=(-K "$auth_file" "$API$path")
   if [[ -n "${RESULT_FILE:-}" && "${OP_ACTIVE:-0}" == 1 && "${ATTEMPT_ACTIVE:-0}" == 1 ]]; then
+    printf '%s' "$(utc)" >"$RESULT_DIR/command_timestamp"
+    printf '%s' "$(mono)" >"$RESULT_DIR/command_start"
+  fi
+  if status="$(curl "${args[@]}")"; then
+    rc=0
+  else
+    rc=$?
+  fi
+  command_end="$(mono)"
+  if [[ -n "${RESULT_FILE:-}" && "${OP_ACTIVE:-0}" == 1 && "${ATTEMPT_ACTIVE:-0}" == 1 ]]; then
+    printf '%s' "$command_end" >"$RESULT_DIR/command_end"
+    printf '%s' "$rc" >"$RESULT_DIR/command_exit"
     printf '%s' "$status" >"$RESULT_DIR/http_status"
   fi
+  if [[ "$rc" -ne 0 ]]; then
+    if [[ "$rc" -eq 28 ]]; then fail "$method $path: curl error" timeout; fi
+    fail "$method $path: curl error" transport_error
+  fi
   if [[ "$status" != "$expected" ]]; then
-    [[ -z "${RESULT_FILE:-}" ]] || printf '0' >"$RESULT_DIR/command_exit"
     fail "$method $path: expected HTTP $expected, got $status" http_status
   fi
   cat "$response"
@@ -172,24 +192,33 @@ expect_json() { # JSON JQ_FILTER DESCRIPTION  (filter는 env.* 로 state를 참�
 }
 
 dev_git() {
-  local basic rc class git_start
+  local basic rc class git_start git_end
   basic="$(printf '%s:%s' "$DEV_USER" "$DEV_TOKEN" | base64 | tr -d '\n')"
+  if [[ -n "${RESULT_FILE:-}" && "${OP_ACTIVE:-0}" == 1 && "${ATTEMPT_ACTIVE:-0}" == 1 ]]; then
+    printf '%s' "$(utc)" >"$RESULT_DIR/command_timestamp"
+  fi
   git_start="$(mono)"
+  if [[ -n "${RESULT_FILE:-}" && "${OP_ACTIVE:-0}" == 1 && "${ATTEMPT_ACTIVE:-0}" == 1 ]]; then
+    printf '%s' "$git_start" >"$RESULT_DIR/command_start"
+  fi
   if GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=http.extraHeader GIT_CONFIG_VALUE_0="Authorization: Basic $basic" \
     GIT_CONFIG_KEY_1=credential.helper GIT_CONFIG_VALUE_1='' \
     timeout --signal=TERM --kill-after="${GIT_KILL_AFTER_SECONDS}s" "${GIT_TIMEOUT_SECONDS}s" git "$@" 2>"$JOURNEY_DIR/git.stderr"; then
-    return 0
+    rc=0
   else
     rc=$?
   fi
+  git_end="$(mono)"
+  if [[ -n "${RESULT_FILE:-}" && "${OP_ACTIVE:-0}" == 1 && "${ATTEMPT_ACTIVE:-0}" == 1 ]]; then
+    printf '%s' "$git_end" >"$RESULT_DIR/command_end"
+    printf '%s' "$rc" >"$RESULT_DIR/command_exit"
+  fi
+  [[ "$rc" -ne 0 ]] || return 0
   class=command_error
   if [[ "$rc" -eq 124 ]] || { [[ "$rc" -eq 137 ]] &&
-    awk -v duration="$(elapsed "$git_start")" -v limit="$GIT_TIMEOUT_SECONDS" \
+    awk -v duration="$(duration_between "$git_start" "$git_end")" -v limit="$GIT_TIMEOUT_SECONDS" \
       'BEGIN {exit !(duration >= limit)}'; }; then
     class=timeout
-  fi
-  if [[ -n "${RESULT_FILE:-}" && "${OP_ACTIVE:-0}" == 1 && "${ATTEMPT_ACTIVE:-0}" == 1 ]]; then
-    printf '%s' "$rc" >"$RESULT_DIR/command_exit"
   fi
   fail "Git command failed (exit $rc)" "$class"
 }

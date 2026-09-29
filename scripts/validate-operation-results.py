@@ -4,7 +4,7 @@
 import json
 import math
 import sys
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
 
 
@@ -113,9 +113,11 @@ def validate(path):
             ended = rec
     complete = ended is not None and all(op["end"] is not None for op in operations.values())
     if ended and ended["completion"] == "success":
-        require(complete and len(operations) == 9 and all(o["end"]["outcome"] == "success" for o in operations.values()), "false success")
+        inventory = Counter(op["start"]["operation_type"] for op in operations.values())
+        require(complete and inventory == Counter({typ: 1 for typ in OP_TYPES}) and
+                all(op["end"]["outcome"] == "success" for op in operations.values()), "false success")
     metrics = defaultdict(lambda: {"count": 0, "duration_sum_seconds": 0.0, "duration_count": 0, "durations_seconds": []})
-    for op_id, op in operations.items():
+    for op in operations.values():
         if op["end"] is None:
             continue
         typ = op["end"]["operation_type"]
@@ -130,7 +132,8 @@ def validate(path):
                 metrics[key]["duration_sum_seconds"] += rec["duration_seconds"]
                 metrics[key]["duration_count"] += 1
                 metrics[key]["durations_seconds"].append(rec["duration_seconds"])
-        attempt = attempts[op_id + "-attempt-1"]
+    for attempt in attempts.values():
+        typ = operations[attempt["operation_id"]]["start"]["operation_type"]
         attempt_outcome = "success" if attempt["exit_code"] == 0 and attempt["error_class"] == "none" else "failed"
         for family in ("developer_operation_attempts_total", "developer_operation_attempt_duration_seconds"):
             key = (family, typ, attempt_outcome)
@@ -204,7 +207,7 @@ def main():
         return 0
     result = validate(sys.argv[2])
     print(json.dumps(result, indent=2, sort_keys=True))
-    return 0 if result["completion"] != "incomplete" else 2
+    return 0 if result["validity"] == "valid" else 2
 
 
 if __name__ == "__main__":
