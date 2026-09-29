@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Forgejo developer journey E2E. Correctness PASS/FAIL만 판정하며 latency/SLO는 측정하지 않는다.
+# shellcheck disable=SC2016 # jq programs intentionally use single quotes and jq variables.
+# Forgejo developer journey E2E. create의 원격 developer command만 선택적으로 측정한다.
 #
 #   create          fixture developer identity를 준비하고 developer operation 1-10을 수행한 뒤 state를 기록한다.
 #   verify [label]  기록된 state가 유지되는지 developer read path(clone/fetch/PR/Issue)로 확인한다.
@@ -25,38 +26,201 @@ umask 077
 export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0
 export GIT_AUTHOR_NAME="Journey Developer" GIT_AUTHOR_EMAIL=journey@example.com
 export GIT_COMMITTER_NAME="$GIT_AUTHOR_NAME" GIT_COMMITTER_EMAIL="$GIT_AUTHOR_EMAIL"
+GIT_TIMEOUT_SECONDS="${JOURNEY_GIT_TIMEOUT_SECONDS:-65}"
+GIT_KILL_AFTER_SECONDS="${JOURNEY_GIT_KILL_AFTER_SECONDS:-5}"
 
 operations=0
 pass() { operations=$((operations + 1)); printf '[journey:%s] PASS %s\n' "$LABEL" "$*"; }
-fail() { printf '[journey:%s] FAIL %s\n' "$LABEL" "$*" >&2; exit 1; }
+fail() {
+  # Message는 고정된 설명만 허용한다. 응답 본문과 credential은 출력하지 않는다.
+  if [[ -n "${RESULT_FILE:-}" ]]; then printf '%s' "${2:-semantic_error}" >"$RESULT_DIR/error_class"; fi
+  printf '[journey:%s] FAIL %s\n' "$LABEL" "$1" >&2
+  exit 1
+}
+
+mono() { awk '{print $1}' /proc/uptime; }
+duration_between() { awk -v start="$1" -v end="$2" 'BEGIN {printf "%.6f", end-start}'; }
+utc() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+emit() { jq -nc "$@" >>"$RESULT_FILE"; }
+
+aux_event() { # kind name outcome [operation_id]
+  [[ -n "${RESULT_FILE:-}" ]] || return 0
+  AUX_INDEX=$((AUX_INDEX + 1))
+  emit --arg run "$RUN_ID" --arg id "$RUN_ID-event-$AUX_INDEX" --arg kind "$1" \
+    --arg name "$2" --arg outcome "$3" --arg op "${4:-}" --arg ts "$(utc)" \
+    '{record:"auxiliary_event",run_id:$run,event_id:$id,kind:$kind,name:$name,outcome:$outcome,
+      operation_id:(if $op == "" then null else $op end),
+      attempt_id:(if $op == "" then null else ($op + "-attempt-1") end),timestamp_utc:$ts}'
+}
+
+operation_begin() { # bounded operation type; one client attempt, no retry
+  [[ -n "${RESULT_FILE:-}" ]] || return 0
+  OP_INDEX=$((OP_INDEX + 1))
+  OP_ID="$RUN_ID-operation-$OP_INDEX"
+  ATTEMPT_ID="$OP_ID-attempt-1"
+  OP_TYPE="$1"
+  OP_ACTIVE=1 ATTEMPT_ACTIVE=1
+  OP_TIMESTAMP="$(utc)"
+  rm -f "$RESULT_DIR/http_status" "$RESULT_DIR/error_class" "$RESULT_DIR/command_exit" \
+    "$RESULT_DIR/command_start" "$RESULT_DIR/command_end" "$RESULT_DIR/command_timestamp"
+  emit --arg run "$RUN_ID" --arg id "$OP_ID" --arg type "$OP_TYPE" --arg ts "$OP_TIMESTAMP" \
+    '{record:"operation_start",run_id:$run,operation_id:$id,operation_type:$type,timestamp_utc:$ts}'
+}
+
+attempt_finish() { # command exit code
+  [[ -n "${RESULT_FILE:-}" && "$ATTEMPT_ACTIVE" == 1 ]] || return 0
+  # No command_start means no client attempt was observed. Keep the operation open.
+  [[ -f "$RESULT_DIR/command_start" ]] || return 0
+  local rc="$1" status="" class="none" command_end
+  command_end="$(cat "$RESULT_DIR/command_end" 2>/dev/null || mono)"
+  OP_DURATION="$(duration_between "$(cat "$RESULT_DIR/command_start")" "$command_end")"
+  [[ ! -f "$RESULT_DIR/http_status" ]] || status="$(cat "$RESULT_DIR/http_status")"
+  [[ ! -f "$RESULT_DIR/command_exit" ]] || rc="$(cat "$RESULT_DIR/command_exit")"
+  class="$(cat "$RESULT_DIR/error_class" 2>/dev/null || true)"
+  if [[ "$rc" -ne 0 || -n "$class" ]]; then
+    [[ -n "$class" ]] || class=command_error
+    [[ "$rc" -ne 124 && "$rc" -ne 28 ]] || class=timeout
+  else
+    class=none
+  fi
+  emit --arg run "$RUN_ID" --arg id "$ATTEMPT_ID" --arg op "$OP_ID" \
+    --arg ts "$(cat "$RESULT_DIR/command_timestamp")" \
+    --argjson rc "$rc" --argjson duration "$OP_DURATION" --arg status "$status" --arg class "$class" \
+    '{record:"attempt",run_id:$run,attempt_id:$id,operation_id:$op,attempt_index:1,
+      timestamp_utc:$ts,duration_seconds:$duration,exit_code:$rc,
+      http_status:(if $status == "" or $status == "000" then null else ($status|tonumber) end),error_class:$class}'
+  ATTEMPT_ACTIVE=0
+}
+
+operation_finish() { # outcome semantic_result
+  [[ -n "${RESULT_FILE:-}" && "$OP_ACTIVE" == 1 ]] || return 0
+  emit --arg run "$RUN_ID" --arg id "$OP_ID" --arg type "$OP_TYPE" --arg outcome "$1" \
+    --argjson duration "$OP_DURATION" --argjson semantic "$2" \
+    '{record:"operation",run_id:$run,operation_id:$id,operation_type:$type,outcome:$outcome,
+      attempt_count:1,duration_seconds:$duration,semantic_result:$semantic}'
+  OP_ACTIVE=0
+}
+
+operation_success() {
+  [[ -n "${RESULT_FILE:-}" ]] || return 0
+  attempt_finish 0
+  aux_event assertion "$OP_TYPE" success "$OP_ID"
+  operation_finish success true
+}
+
+on_result_exit() {
+  local rc="$1" completion=failed validity=invalid
+  [[ -n "${RESULT_FILE:-}" && "${RUN_FINISHED:-0}" == 0 ]] || return 0
+  if [[ "${OP_ACTIVE:-0}" == 1 ]]; then
+    if [[ "${ATTEMPT_ACTIVE:-0}" == 1 ]]; then attempt_finish "$rc"; else aux_event assertion "$OP_TYPE" failed "$OP_ID"; fi
+    if [[ "${ATTEMPT_ACTIVE:-0}" == 0 ]]; then
+      operation_finish failed false
+      validity=valid
+    fi
+  fi
+  [[ "$rc" -ne 130 && "$rc" -ne 143 ]] || completion=interrupted
+  emit --arg run "$RUN_ID" --arg completion "$completion" --arg validity "$validity" --arg ts "$(utc)" \
+    '{record:"run_end",run_id:$run,completion:$completion,validity:$validity,ended_at_utc:$ts}'
+}
+trap 'on_result_exit $?' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+result_start() {
+  [[ -n "${RESULTS_ROOT:-}" ]] || return 0
+  RESULT_DIR="$RESULTS_ROOT/$RUN_ID"
+  mkdir -p "$RESULTS_ROOT"
+  mkdir -m 0700 "$RESULT_DIR" || fail "result directory create failed" command_error
+  RESULT_FILE="$RESULT_DIR/events.jsonl"
+  ( set -o noclobber; : >"$RESULT_FILE" ) || fail "result already exists" command_error
+  OP_INDEX=0 AUX_INDEX=0 OP_ACTIVE=0 ATTEMPT_ACTIVE=0 RUN_FINISHED=0
+  emit --arg run "$RUN_ID" --arg phase "${RESULT_PHASE:-measured}" --arg ts "$(utc)" \
+    --argjson git_timeout "$GIT_TIMEOUT_SECONDS" --argjson kill_after "$GIT_KILL_AFTER_SECONDS" \
+    --slurpfile context "$RESULT_CONTEXT_FILE" \
+    '({record:"run_start",schema_version:1,run_id:$run,phase:$phase,started_at_utc:$ts,
+      scenario:"local_healthy_developer_journey",parameters:{concurrency:1,max_attempts:1,client_retry:false,
+        api_timeout_seconds:60,git_timeout_seconds:$git_timeout,git_kill_after_seconds:$kill_after},
+      measurement_boundary:"loopback kubectl port-forward client command"} + $context[0])'
+}
+
+result_finish() {
+  [[ -n "${RESULT_FILE:-}" ]] || return 0
+  emit --arg run "$RUN_ID" --arg ts "$(utc)" \
+    '{record:"run_end",run_id:$run,completion:"success",validity:"valid",ended_at_utc:$ts}'
+  RUN_FINISHED=1
+}
 
 # request CURL_CONFIG_LINE METHOD PATH EXPECTED_STATUS [JSON_BODY]
-# Credential과 body는 process substitution으로 전달해 process argv에 남기지 않는다.
+# Credential과 body는 mode 0600 파일로 준비해 process argv에 남기지 않는다.
 request() {
-  local auth="$1" method="$2" path="$3" expected="$4" body="${5-}" status
-  local response="$JOURNEY_DIR/response.json"
-  local -a args=(-sS --max-time 60 -o "$response" -w '%{http_code}' -X "$method" -H 'Accept: application/json')
-  # Process substitution은 fd 수명이 해당 command에 묶이므로 curl command line에서 직접 만든다.
+  local auth="$1" method="$2" path="$3" expected="$4" body="${5-}" status rc command_end
+  local response="$JOURNEY_DIR/response.json" auth_file="$JOURNEY_DIR/request-auth" body_file="$JOURNEY_DIR/request-body"
+  local -a args=(-s --retry 0 --max-time 60 -o "$response" -w '%{http_code}' -X "$method" -H 'Accept: application/json')
+  printf '%s\n' "$auth" >"$auth_file"
   if [[ -n "$body" ]]; then
-    status="$(curl "${args[@]}" -H 'Content-Type: application/json' --data-binary @<(printf '%s' "$body") \
-      -K <(printf '%s\n' "$auth") "$API$path")" || fail "$method $path: curl error"
+    printf '%s' "$body" >"$body_file"
+    args+=(-H 'Content-Type: application/json' --data-binary "@$body_file")
+  fi
+  args+=(-K "$auth_file" "$API$path")
+  if [[ -n "${RESULT_FILE:-}" && "${OP_ACTIVE:-0}" == 1 && "${ATTEMPT_ACTIVE:-0}" == 1 ]]; then
+    printf '%s' "$(utc)" >"$RESULT_DIR/command_timestamp"
+    printf '%s' "$(mono)" >"$RESULT_DIR/command_start"
+  fi
+  if status="$(curl "${args[@]}")"; then
+    rc=0
   else
-    status="$(curl "${args[@]}" -K <(printf '%s\n' "$auth") "$API$path")" || fail "$method $path: curl error"
+    rc=$?
+  fi
+  command_end="$(mono)"
+  if [[ -n "${RESULT_FILE:-}" && "${OP_ACTIVE:-0}" == 1 && "${ATTEMPT_ACTIVE:-0}" == 1 ]]; then
+    printf '%s' "$command_end" >"$RESULT_DIR/command_end"
+    printf '%s' "$rc" >"$RESULT_DIR/command_exit"
+    printf '%s' "$status" >"$RESULT_DIR/http_status"
+  fi
+  if [[ "$rc" -ne 0 ]]; then
+    if [[ "$rc" -eq 28 ]]; then fail "$method $path: curl error" timeout; fi
+    fail "$method $path: curl error" transport_error
   fi
   if [[ "$status" != "$expected" ]]; then
-    fail "$method $path: expected HTTP $expected, got $status: $(head -c 300 "$response")"
+    fail "$method $path: expected HTTP $expected, got $status" http_status
   fi
   cat "$response"
 }
 
 expect_json() { # JSON JQ_FILTER DESCRIPTION  (filter는 env.* 로 state를 참조한다)
-  jq -e "$2" >/dev/null <<<"$1" || fail "$3: unexpected response $(jq -c . <<<"$1" | head -c 300)"
+  jq -e "$2" >/dev/null <<<"$1" || fail "$3: unexpected response" semantic_error
 }
 
 dev_git() {
-  local basic
+  local basic rc class git_start git_end
   basic="$(printf '%s:%s' "$DEV_USER" "$DEV_TOKEN" | base64 | tr -d '\n')"
-  GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.extraHeader GIT_CONFIG_VALUE_0="Authorization: Basic $basic" git "$@"
+  if [[ -n "${RESULT_FILE:-}" && "${OP_ACTIVE:-0}" == 1 && "${ATTEMPT_ACTIVE:-0}" == 1 ]]; then
+    printf '%s' "$(utc)" >"$RESULT_DIR/command_timestamp"
+  fi
+  git_start="$(mono)"
+  if [[ -n "${RESULT_FILE:-}" && "${OP_ACTIVE:-0}" == 1 && "${ATTEMPT_ACTIVE:-0}" == 1 ]]; then
+    printf '%s' "$git_start" >"$RESULT_DIR/command_start"
+  fi
+  if GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=http.extraHeader GIT_CONFIG_VALUE_0="Authorization: Basic $basic" \
+    GIT_CONFIG_KEY_1=credential.helper GIT_CONFIG_VALUE_1='' \
+    timeout --signal=TERM --kill-after="${GIT_KILL_AFTER_SECONDS}s" "${GIT_TIMEOUT_SECONDS}s" git "$@" 2>"$JOURNEY_DIR/git.stderr"; then
+    rc=0
+  else
+    rc=$?
+  fi
+  git_end="$(mono)"
+  if [[ -n "${RESULT_FILE:-}" && "${OP_ACTIVE:-0}" == 1 && "${ATTEMPT_ACTIVE:-0}" == 1 ]]; then
+    printf '%s' "$git_end" >"$RESULT_DIR/command_end"
+    printf '%s' "$rc" >"$RESULT_DIR/command_exit"
+  fi
+  [[ "$rc" -ne 0 ]] || return 0
+  class=command_error
+  if [[ "$rc" -eq 124 ]] || { [[ "$rc" -eq 137 ]] &&
+    awk -v duration="$(duration_between "$git_start" "$git_end")" -v limit="$GIT_TIMEOUT_SECONDS" \
+      'BEGIN {exit !(duration >= limit)}'; }; then
+    class=timeout
+  fi
+  fail "Git command failed (exit $rc)" "$class"
 }
 
 expect_remote_ref() { # REPO_DIR REF SHA DESCRIPTION
@@ -85,7 +249,7 @@ wait_initial_push_processed() {
     if status="$(curl -sS --max-time "$curl_timeout" -o "$response" -w '%{http_code}' -X GET \
       -H 'Accept: application/json' -K <(printf '%s\n' "$DEV_AUTH") "$API/repos/$DEV_USER/$REPO" 2>/dev/null)"; then
       if [[ "$status" != 200 ]]; then
-        fail "GET /repos/$DEV_USER/$REPO: expected HTTP 200, got $status: $(head -c 300 "$response")"
+        fail "initial push settle: expected HTTP 200, got $status" http_status
       fi
       json="$(cat "$response")"
       if jq -e '.empty == false' >/dev/null <<<"$json"; then return 0; fi
@@ -100,16 +264,22 @@ wait_initial_push_processed() {
 
 read_pull_request() {
   local pr
+  if [[ "$MODE" == create ]]; then operation_begin pull_request_read; fi
   pr="$(request "$DEV_AUTH" GET "/repos/$DEV_USER/$REPO/pulls/$PR_NUMBER" 200)"
+  if [[ "$MODE" == create ]]; then attempt_finish 0; fi
   expect_json "$pr" '.number == (env.PR_NUMBER | tonumber) and .title == env.PR_TITLE and .state == "open"
     and .base.ref == "main" and .head.ref == env.FEATURE_BRANCH and .head.sha == env.FEATURE_SHA' "pull request read"
+  if [[ "$MODE" == create ]]; then operation_success; fi
 }
 
 read_issue() {
   local issue
+  if [[ "$MODE" == create ]]; then operation_begin issue_read; fi
   issue="$(request "$DEV_AUTH" GET "/repos/$DEV_USER/$REPO/issues/$ISSUE_NUMBER" 200)"
+  if [[ "$MODE" == create ]]; then attempt_finish 0; fi
   expect_json "$issue" '.number == (env.ISSUE_NUMBER | tonumber) and .title == env.ISSUE_TITLE and .state == "open"
     and .pull_request == null' "issue read"
+  if [[ "$MODE" == create ]]; then operation_success; fi
 }
 
 create() {
@@ -120,6 +290,9 @@ create() {
   run_id="$(date -u +%Y%m%d%H%M%S)-$(od -An -N3 -tx1 /dev/urandom | tr -d ' \n')"
   export RUN_ID="$run_id" DEV_USER="dev-$run_id"
   export CLONE_URL="$FORGEJO_URL/$DEV_USER/$REPO.git"
+  result_start
+  aux_event readiness argo_application success
+  aux_event readiness forgejo_health success
 
   # 1. Disposable developer identity (fixture: admin이 계정만 만들고, token은 developer 본인이 발급)
   dev_password="$(od -An -N18 -tx1 /dev/urandom | tr -d ' \n')"
@@ -134,14 +307,18 @@ create() {
   printf 'DEV_USER=%q\nDEV_TOKEN=%q\n' "$DEV_USER" "$DEV_TOKEN" >"$JOURNEY_DIR/credentials.env"
   user_json="$(request "$DEV_AUTH" GET /user 200)"
   expect_json "$user_json" '.login == env.DEV_USER and .is_admin == false' "developer identity"
+  aux_event fixture developer_identity success
   pass "1 developer identity ready ($DEV_USER, non-admin, token auth)"
 
   # 2. Private repository
+  operation_begin private_repository_create
   repo_json="$(request "$DEV_AUTH" POST /user/repos 201 \
     "$(jq -nc '{name: env.REPO, private: true, auto_init: false, default_branch: "main"}')")"
+  attempt_finish 0
   expect_json "$repo_json" '.private == true and .owner.login == env.DEV_USER and .clone_url == env.CLONE_URL' \
     "private repository create"
   expect_anonymous_denied
+  operation_success
   pass "2 private repository ready ($DEV_USER/$REPO, anonymous read denied)"
 
   # 3. Initial Git push
@@ -151,31 +328,43 @@ create() {
   git -C "$work" add README.md
   git -C "$work" commit -q -m "journey: initial commit"
   git -C "$work" remote add origin "$CLONE_URL"
+  aux_event fixture initial_commit success
+  operation_begin git_push_initial
   dev_git -C "$work" push -q origin main
+  attempt_finish 0
   initial_sha="$(git -C "$work" rev-parse HEAD)"
   expect_remote_ref "$work" refs/heads/main "$initial_sha" "initial push"
   wait_initial_push_processed
+  aux_event settle initial_push_processed success "${OP_ID:-}"
   export INITIAL_SHA="$initial_sha"
   branch_json="$(request "$DEV_AUTH" GET "/repos/$DEV_USER/$REPO/branches/main" 200)"
   expect_json "$branch_json" '.commit.id == env.INITIAL_SHA' "initial push branch read"
+  operation_success
   pass "3 initial push main=$initial_sha (Forgejo push processing complete)"
 
   # 4. Authenticated clone
   clone="$JOURNEY_DIR/clone"
+  operation_begin git_clone
   dev_git clone -q "$CLONE_URL" "$clone"
+  attempt_finish 0
   [[ "$(git -C "$clone" rev-parse HEAD)" == "$initial_sha" ]] || fail "clone HEAD mismatch"
   cmp -s "$work/README.md" "$clone/README.md" || fail "clone content mismatch"
+  operation_success
   pass "4 authenticated clone"
 
   # 5. Fetch (다른 working copy가 main에 push한 새 commit을 fetch)
   printf 'second commit %s\n' "$RUN_ID" >>"$work/README.md"
   git -C "$work" commit -q -am "journey: second commit"
   dev_git -C "$work" push -q origin main
+  aux_event seed second_commit_push success
   export MAIN_SHA
   MAIN_SHA="$(git -C "$work" rev-parse HEAD)"
+  operation_begin git_fetch
   dev_git -C "$clone" fetch -q origin
+  attempt_finish 0
   [[ "$(git -C "$clone" rev-parse origin/main)" == "$MAIN_SHA" ]] || fail "fetch did not observe main=$MAIN_SHA"
   git -C "$clone" merge -q --ff-only origin/main
+  operation_success
   pass "5 fetch main=$MAIN_SHA"
 
   # 6. Feature branch push
@@ -183,28 +372,40 @@ create() {
   printf 'feature %s\n' "$RUN_ID" >"$clone/feature.txt"
   git -C "$clone" add feature.txt
   git -C "$clone" commit -q -m "journey: feature change"
+  aux_event fixture feature_commit success
+  operation_begin git_push_feature
   dev_git -C "$clone" push -q origin "$FEATURE_BRANCH"
+  attempt_finish 0
   export FEATURE_SHA
   FEATURE_SHA="$(git -C "$clone" rev-parse HEAD)"
   expect_remote_ref "$clone" "refs/heads/$FEATURE_BRANCH" "$FEATURE_SHA" "feature branch push"
+  operation_success
   pass "6 feature branch push $FEATURE_BRANCH=$FEATURE_SHA"
 
   # 7-8. Pull Request create/read
   export PR_TITLE="journey pull request $RUN_ID"
+  operation_begin pull_request_create
   pr_json="$(request "$DEV_AUTH" POST "/repos/$DEV_USER/$REPO/pulls" 201 \
     "$(jq -nc '{base: "main", head: env.FEATURE_BRANCH, title: env.PR_TITLE, body: "developer journey"}')")"
+  attempt_finish 0
+  expect_json "$pr_json" '.number > 0 and .title == env.PR_TITLE and .state == "open"' "pull request create"
   export PR_NUMBER
   PR_NUMBER="$(jq -r .number <<<"$pr_json")"
+  operation_success
   pass "7 pull request create #$PR_NUMBER"
   read_pull_request
   pass "8 pull request read #$PR_NUMBER"
 
   # 9-10. Issue create/read
   export ISSUE_TITLE="journey issue $RUN_ID"
+  operation_begin issue_create
   issue_json="$(request "$DEV_AUTH" POST "/repos/$DEV_USER/$REPO/issues" 201 \
     "$(jq -nc '{title: env.ISSUE_TITLE, body: "developer journey"}')")"
+  attempt_finish 0
+  expect_json "$issue_json" '.number > 0 and .title == env.ISSUE_TITLE and .state == "open"' "issue create"
   export ISSUE_NUMBER
   ISSUE_NUMBER="$(jq -r .number <<<"$issue_json")"
+  operation_success
   pass "9 issue create #$ISSUE_NUMBER"
   read_issue
   pass "10 issue read #$ISSUE_NUMBER"
@@ -212,6 +413,7 @@ create() {
   printf '%s=%q\n' RUN_ID "$RUN_ID" MAIN_SHA "$MAIN_SHA" FEATURE_SHA "$FEATURE_SHA" \
     PR_NUMBER "$PR_NUMBER" PR_TITLE "$PR_TITLE" ISSUE_NUMBER "$ISSUE_NUMBER" ISSUE_TITLE "$ISSUE_TITLE" \
     >"$JOURNEY_DIR/state.env"
+  result_finish
 }
 
 verify() {

@@ -1,6 +1,6 @@
 name: local-platform
 
-# P2 Local GitOps Reconciliation. Runner 안의 disposable k3d cluster만 사용한다.
+# Local GitOps, structured operation baseline, regression. Runner의 disposable k3d만 사용한다.
 on:
   pull_request:
     paths:
@@ -13,6 +13,7 @@ on:
       - platform/local/**
       - scripts/**
       - tests/e2e/**
+      - docs/local-operations.md
 
 permissions:
   contents: read
@@ -49,6 +50,20 @@ jobs:
           for f in .tmp/kubeconfig .tmp/journey .tmp/rendered .tmp/port-forward.log; do
             [[ ! -e "$f" ]] || { echo "runtime output left after make local: $f" >&2; exit 1; }
           done
+          summary="$(find results/local -name baseline-summary.json -print -quit)"
+          [[ -n "$summary" ]] || { echo "baseline summary missing after owned cleanup" >&2; exit 1; }
+          jq -e --arg sha "$(git rev-parse HEAD)" '.source_sha == $sha and .operation_samples == 45 and .attempt_samples == 45' "$summary" >/dev/null
+
+      - name: Retain sanitized operation results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: local-operation-results
+          path: |
+            results/local/**/events.jsonl
+            results/local/**/baseline-summary.json
+          if-no-files-found: ignore
+          retention-days: 14
 
       # 아래 guard는 다른 invocation이 소유한 cluster를 만든 뒤, ownership을 얻지 못했거나 증명하지 못한 invocation이
       # 실패하면서 그 cluster(server container ID)와 runtime output을 삭제/변경하지 않는지 확인한다.

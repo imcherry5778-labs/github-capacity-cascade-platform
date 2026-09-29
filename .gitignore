@@ -45,4 +45,5 @@ tmp/
 # Experiment raw results
 results/raw/
 results/**/raw/
+results/local/
 artifacts/
