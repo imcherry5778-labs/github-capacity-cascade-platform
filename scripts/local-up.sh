@@ -13,6 +13,13 @@ CLUSTER=capacity-cascade-local
 log() { printf '[local-up] %s\n' "$*"; }
 
 "$ROOT/scripts/install-tools.sh"
+if [[ -n "${LOCAL_RESTORE_SECRETS_FILE:-}" ]]; then
+  [[ -f "$LOCAL_RESTORE_SECRETS_FILE" && "$(stat -c %a "$LOCAL_RESTORE_SECRETS_FILE")" == 600 ]] ||
+    { echo "restore secrets must be a mode 0600 file" >&2; exit 1; }
+  jq -e 'map(.metadata.namespace + "/" + .metadata.name) | sort ==
+    ["forgejo/forgejo-admin","forgejo/forgejo-db","forgejo/forgejo-inline-config","postgres/postgres-credentials"]' \
+    "$LOCAL_RESTORE_SECRETS_FILE" >/dev/null || { echo "restore secret inventory mismatch" >&2; exit 1; }
+fi
 
 # 고정 이름 cluster의 create/delete는 checkout과 무관하게 같은 host의 모든 invocation 사이에서 하나의 lock으로
 # 직렬화한다(local-down.sh와 같은 lock). k3d의 부재 확인과 create는 atomic하지 않고, create 실패 rollback은
@@ -59,14 +66,18 @@ random_secret() { od -An -N24 -tx1 /dev/urandom | tr -d ' \n'; }
 log "creating runtime credentials"
 kubectl create namespace postgres
 kubectl create namespace forgejo
-forgejo_db_password="$(random_secret)"
-kubectl -n postgres create secret generic postgres-credentials \
-  --from-env-file=<(printf 'superuser-password=%s\nforgejo-password=%s\n' "$(random_secret)" "$forgejo_db_password")
-kubectl -n forgejo create secret generic forgejo-db \
-  --from-env-file=<(printf 'password=%s\n' "$forgejo_db_password")
-kubectl -n forgejo create secret generic forgejo-admin \
-  --from-env-file=<(printf 'username=platform-admin\npassword=%s\n' "$(random_secret)")
-unset forgejo_db_password
+if [[ -n "${LOCAL_RESTORE_SECRETS_FILE:-}" ]]; then
+  jq '{apiVersion:"v1",kind:"List",items:.}' "$LOCAL_RESTORE_SECRETS_FILE" | kubectl apply -f - >/dev/null
+else
+  forgejo_db_password="$(random_secret)"
+  kubectl -n postgres create secret generic postgres-credentials \
+    --from-env-file=<(printf 'superuser-password=%s\nforgejo-password=%s\n' "$(random_secret)" "$forgejo_db_password")
+  kubectl -n forgejo create secret generic forgejo-db \
+    --from-env-file=<(printf 'password=%s\n' "$forgejo_db_password")
+  kubectl -n forgejo create secret generic forgejo-admin \
+    --from-env-file=<(printf 'username=platform-admin\npassword=%s\n' "$(random_secret)")
+  unset forgejo_db_password
+fi
 
 log "deploying PostgreSQL ($POSTGRES_IMAGE)"
 kubectl apply -f "$ROOT/platform/local/postgres.yaml"
@@ -81,13 +92,29 @@ curl -fsSL --retry 3 \
 printf '%s  %s\n' "$ARGOCD_CORE_SHA256" "$core_manifest" | sha256sum -c -
 kubectl create namespace argocd
 kubectl -n argocd apply --server-side --force-conflicts -f "$core_manifest"
-kubectl wait --for=condition=Established --timeout=180s crd/applications.argoproj.io crd/appprojects.argoproj.io
+for crd in applications.argoproj.io appprojects.argoproj.io; do
+  established=false
+  for ((i=0;i<90;i++)); do
+    if kubectl get crd "$crd" -o json | jq -e \
+      'any(.status.conditions[]?; .type == "Established" and .status == "True")' >/dev/null; then
+      established=true
+      break
+    fi
+    sleep 2
+  done
+  [[ "$established" == true ]] || { echo "CRD $crd not Established within 180s" >&2; exit 1; }
+done
 for component in argocd-redis argocd-repo-server argocd-applicationset-controller; do
   kubectl -n argocd rollout status "deployment/$component" --timeout=300s
 done
 kubectl -n argocd rollout status statefulset/argocd-application-controller --timeout=300s
 
 log "bootstrapping restricted Forgejo Application"
+if [[ -n "${LOCAL_RESTORE_SECRETS_FILE:-}" ]]; then
+  # Application을 만들면 autosync가 Forgejo를 시작한다. Restore caller만 완료 후 적용한다.
+  log "restore target prepared without Forgejo Application or Pod"
+  exit 0
+fi
 kubectl -n argocd apply -f "$ROOT/platform/argocd/forgejo-local.yaml"
 "$ROOT/scripts/local-verify.sh" gitops-ready
 kubectl -n forgejo rollout status deployment/forgejo --timeout=300s

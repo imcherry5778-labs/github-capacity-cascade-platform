@@ -96,6 +96,7 @@ static() {
   shellcheck -x "${scripts[@]}"
   python3 -c 'import ast,sys; ast.parse(open(sys.argv[1]).read())' "$ROOT/scripts/validate-operation-results.py"
   PYTHONDONTWRITEBYTECODE=1 python3 "$ROOT/tests/e2e/test-operation-results.py"
+  PYTHONDONTWRITEBYTECODE=1 python3 "$ROOT/tests/e2e/test-recovery.py"
   pass "shell syntax + shellcheck ($(shellcheck --version | awk '/^version:/ {print $2}'), ${#scripts[@]} files)"
 
   expect_line platform/local/k3d.yaml "image: $K3S_IMAGE"

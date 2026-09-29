@@ -41,4 +41,6 @@ Command exit가 0이어도 semantic assertion이 틀리면 operation은 `failed`
 
 `results/local/`은 Git에서 제외하되 `.tmp/journey` 및 credential-bearing runtime state와 분리해 `local-down.sh` 이후에도 남긴다. 실패한 run도 덮어쓰지 않는다. CI는 JSONL/summary 파일만 명시적으로 upload하고 `.tmp`, raw response, kubeconfig, credential, diagnostics를 upload하지 않는다. `request` 오류도 raw API body를 출력하지 않는다. 테스트는 API status/timeout, Git failure, incomplete record와 secret exclusion을 검증한다.
 
-P3-W2는 Argo-safe coordinated backup → fresh restore 및 doctor/E2E/continuity, P3-W3는 검토된 v15 upgrade → previous compatible state 기반 rollback이다. 이번 source에는 두 capability의 mutation이 없다.
+P3-W2의 Argo-safe coordinated backup → fresh restore 및 doctor/E2E/continuity는 현재 source에 구현되어 있다. P3-W3의 검토된 v15 upgrade → previous compatible state 기반 rollback은 아직 구현되지 않았다.
+
+P3-W2의 `forgejo doctor` 판정은 현재 runtime에 적용되는 개별 무수정 integrity check와 source에서 확인한 경로 진단의 비교로 한다. `doctor check --all`의 무오류 종료를 보편적인 건강 조건으로 사용하지 않는다. LFS가 꺼진 Core에서 `gc-lfs`는 해당 없음이고, console logging으로 인해 `/data/log`가 없는 `paths` 결과는 source baseline의 명시적 예외다. 복구 target에는 이 예외 외 새 경로 오류가 없어야 한다.
