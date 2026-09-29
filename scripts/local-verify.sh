@@ -2,6 +2,7 @@
 # P2 local platform verification.
 #   static       cluster 없이 shell lint, versions.env pin 일치, Helm render/config contract를 검사한다.
 #   gitops-ready Argo Application의 exact revision, sync, health를 bounded wait한다.
+#   baseline     fresh platform readiness 후 warm-up 1 + measured 5 journey를 기록한다.
 #   runtime      P1 contract/journey/continuity와 Argo self-heal 후 developer journey를 검사한다.
 #   diagnostics  실패 분석용 cluster 상태를 출력한다.
 # Readiness gate만 bounded wait를 사용하고, developer operation 자체는 retry하지 않는다.
@@ -12,7 +13,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT/versions.env"
 export PATH="$ROOT/.tmp/bin:$PATH"
 export KUBECONFIG="$ROOT/.tmp/kubeconfig"
-MODE="${1:?usage: local-verify.sh static|gitops-ready|runtime|diagnostics}"
+MODE="${1:?usage: local-verify.sh static|gitops-ready|baseline|runtime|diagnostics}"
 
 # values-local.yaml ROOT_URL과 같은 loopback endpoint (Local development exception).
 LOCAL_PORT=13000
@@ -93,6 +94,8 @@ static() {
   local f rendered
   for f in "${scripts[@]}"; do bash -n "$f"; done
   shellcheck -x "${scripts[@]}"
+  python3 -c 'import ast,sys; ast.parse(open(sys.argv[1]).read())' "$ROOT/scripts/validate-operation-results.py"
+  PYTHONDONTWRITEBYTECODE=1 python3 "$ROOT/tests/e2e/test-operation-results.py"
   pass "shell syntax + shellcheck ($(shellcheck --version | awk '/^version:/ {print $2}'), ${#scripts[@]} files)"
 
   expect_line platform/local/k3d.yaml "image: $K3S_IMAGE"
@@ -260,6 +263,59 @@ pvc_identity() { kubectl -n "$1" get pvc "$2" -o jsonpath='{.metadata.uid}/{.spe
 secret_value() { kubectl -n "$1" get secret "$2" -o jsonpath="{.data.$3}" | base64 -d; }
 
 journey() { FORGEJO_URL="$FORGEJO_URL" JOURNEY_DIR="$JOURNEY_DIR" "$JOURNEY" "$@"; }
+
+baseline() {
+  "$ROOT/scripts/install-tools.sh" >/dev/null
+  [[ -s "$KUBECONFIG" ]] || fail "missing .tmp/kubeconfig; run scripts/local-up.sh first"
+  trap 'stop_port_forward; rm -f "$ROOT/.tmp/baseline-context.json"' EXIT
+  gitops_ready
+  start_port_forward
+  wait_forgejo_healthy "baseline"
+
+  local baseline_id results_dir context app source_sha dirty phase i pod
+  baseline_id="$(date -u +%Y%m%dT%H%M%SZ)-$(od -An -N3 -tx1 /dev/urandom | tr -d ' \n')"
+  results_dir="$ROOT/results/local/$baseline_id"
+  mkdir -p "$ROOT/results/local"
+  mkdir -m 0700 "$results_dir"
+  context="$ROOT/.tmp/baseline-context.json"
+  app="$(kubectl -n argocd get application forgejo-local -o json)"
+  source_sha="$(git -C "$ROOT" rev-parse HEAD)"
+  dirty=false
+  [[ -z "$(git -C "$ROOT" status --porcelain)" ]] || dirty=true
+  pod="$(forgejo_pod)"
+  jq -n --arg source "$source_sha" --argjson dirty "$dirty" \
+    --arg server "$(kubectl version -o json | jq -r .serverVersion.gitVersion)" \
+    --arg k3s_image "$K3S_IMAGE" --arg argocd_version "$ARGOCD_VERSION" --arg argocd_commit "$ARGOCD_COMMIT" \
+    --arg git "$(git --version)" --arg curl "$(curl --version | sed -n 1p)" \
+    --arg jq_version "$(jq --version)" --arg k3d "$(k3d version | sed -n 1p)" \
+    --arg kubectl "$(kubectl version --client -o json | jq -r .clientVersion.gitVersion)" \
+    --arg helm "$(helm version --template '{{.Version}}')" \
+    --arg forgejo "$(pod_field forgejo "$pod" '{.status.containerStatuses[0].imageID}')" \
+    --arg postgres "$(pod_field postgres postgres-0 '{.status.containerStatuses[0].imageID}')" \
+    --argjson app "$app" \
+    '{source_sha:$source,dirty:$dirty,
+      environment:{kind:"local-k3d",kubernetes_version:$server,k3s_image:$k3s_image,
+        argocd_version:$argocd_version,argocd_commit:$argocd_commit},
+      tool_versions:{git:$git,curl:$curl,jq:$jq_version,k3d:$k3d,kubectl:$kubectl,helm:$helm},
+      argo_values_revision:$app.spec.sources[1].targetRevision,
+      forgejo_chart_version:$app.spec.sources[0].targetRevision,
+      forgejo_chart_digest:$app.status.sync.revisions[0],
+      runtime_images:{forgejo:$forgejo,postgres:$postgres}}' >"$context"
+  pass "baseline plan: fresh healthy local, warm-up=1, measured=5, concurrency=1, max_attempts=1; $results_dir"
+  for i in 0 1 2 3 4 5; do
+    phase=measured
+    [[ "$i" -ne 0 ]] || phase=warmup
+    gitops_ready
+    wait_forgejo_healthy "baseline $phase $i"
+    RESULT_CONTEXT_FILE="$context" RESULTS_ROOT="$results_dir" RESULT_PHASE="$phase" \
+      FORGEJO_ADMIN_USERNAME="$(secret_value forgejo forgejo-admin username)" \
+      FORGEJO_ADMIN_PASSWORD="$(secret_value forgejo forgejo-admin password)" journey create
+    rm -rf "$JOURNEY_DIR"
+  done
+  python3 "$ROOT/scripts/validate-operation-results.py" summarize "$results_dir" >"$results_dir/baseline-summary.json"
+  rm -f "$context"
+  pass "baseline validated; sanitized evidence $results_dir"
+}
 
 # Forgejo가 아니라 외부 PostgreSQL에 developer journey metadata가 있는지 직접 조회한다.
 check_database_state() { # LABEL
@@ -455,6 +511,7 @@ diagnostics() {
 case "$MODE" in
   static) static ;;
   gitops-ready) gitops_ready ;;
+  baseline) baseline ;;
   runtime) runtime ;;
   diagnostics) diagnostics ;;
   *) fail "unknown mode: $MODE" ;;

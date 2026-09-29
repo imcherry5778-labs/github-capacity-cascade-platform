@@ -30,4 +30,5 @@ on_exit() {
 trap 'on_exit $?' EXIT
 
 LOCAL_CLUSTER_OWNERSHIP_MARKER="$marker" "$ROOT/scripts/local-up.sh"
+"$ROOT/scripts/local-verify.sh" baseline
 "$ROOT/scripts/local-verify.sh" runtime
