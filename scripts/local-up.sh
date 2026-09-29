@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Fresh disposable k3d cluster를 만들고 local PostgreSQL + Forgejo를 배포한다.
+# Fresh disposable k3d cluster를 만들고 PostgreSQL + Argo CD Core로 Forgejo를 배포한다.
 # Credential은 실행 시 생성해 cluster Secret으로만 전달하며 Git/source values에 남기지 않는다.
 set -euo pipefail
 
@@ -72,12 +72,24 @@ log "deploying PostgreSQL ($POSTGRES_IMAGE)"
 kubectl apply -f "$ROOT/platform/local/postgres.yaml"
 kubectl -n postgres rollout status statefulset/postgres --timeout=300s
 
-log "deploying Forgejo chart $FORGEJO_CHART_VERSION ($FORGEJO_IMAGE_TAG)"
-helm upgrade --install forgejo "$FORGEJO_CHART" --version "$FORGEJO_CHART_VERSION" \
-  --namespace forgejo \
-  -f "$ROOT/platform/forgejo/values-common.yaml" \
-  -f "$ROOT/platform/forgejo/values-local.yaml" \
-  --wait --timeout 10m
+log "installing Argo CD Core $ARGOCD_VERSION ($ARGOCD_COMMIT)"
+mkdir -p "$ROOT/.tmp/rendered"
+core_manifest="$ROOT/.tmp/rendered/argocd-core.yaml"
+curl -fsSL --retry 3 \
+  "https://raw.githubusercontent.com/argoproj/argo-cd/$ARGOCD_COMMIT/manifests/core-install.yaml" \
+  -o "$core_manifest"
+printf '%s  %s\n' "$ARGOCD_CORE_SHA256" "$core_manifest" | sha256sum -c -
+kubectl create namespace argocd
+kubectl -n argocd apply --server-side --force-conflicts -f "$core_manifest"
+kubectl wait --for=condition=Established --timeout=180s crd/applications.argoproj.io crd/appprojects.argoproj.io
+for component in argocd-redis argocd-repo-server argocd-applicationset-controller; do
+  kubectl -n argocd rollout status "deployment/$component" --timeout=300s
+done
+kubectl -n argocd rollout status statefulset/argocd-application-controller --timeout=300s
+
+log "bootstrapping restricted Forgejo Application"
+kubectl -n argocd apply -f "$ROOT/platform/argocd/forgejo-local.yaml"
+"$ROOT/scripts/local-verify.sh" gitops-ready
 kubectl -n forgejo rollout status deployment/forgejo --timeout=300s
 
 log "PASS local platform is up (kubeconfig: .tmp/kubeconfig)"
