@@ -23,7 +23,18 @@ docs(architecture): experiment ownership 경계 보정
 
 권장 type: `feat`, `fix`, `docs`, `test`, `refactor`, `perf`, `build`, `ci`, `chore`, `revert`.
 
-Branch 이름은 영어다.
+Project work branch는 변경 목적을 나타내는 `<type>/<short-kebab-description>` 형식을 사용한다. `type`은 위 권장 type을 사용하고 description은 영어 kebab-case로 쓴다.
+
+예:
+
+```text
+feat/p3-upgrade-rollback
+fix/recovery-doctor-validation
+docs/branch-naming
+ci/docs-only-followup
+```
+
+실행 도구나 agent 이름은 변경 목적이 아니므로 project work branch prefix로 사용하지 않는다. 예: `codex/`, `claude/`, `chatgpt/`, `agent/`.
 
 ## 3. Pull Request
 
