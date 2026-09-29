@@ -1,0 +1,49 @@
+# Bootstrap-owned Argo resources. Forgejo values are read from an exact Git commit.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: forgejo-local
+  namespace: argocd
+spec:
+  sourceRepos:
+    - oci://code.forgejo.org/forgejo-helm/forgejo
+    - https://github.com/imcherry5778-labs/github-capacity-cascade-platform.git
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: forgejo
+  namespaceResourceWhitelist:
+    - group: ""
+      kind: Secret
+    - group: ""
+      kind: PersistentVolumeClaim
+    - group: ""
+      kind: Service
+    - group: apps
+      kind: Deployment
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: forgejo-local
+  namespace: argocd
+spec:
+  project: forgejo-local
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: forgejo
+  sources:
+    - repoURL: oci://code.forgejo.org/forgejo-helm/forgejo
+      path: .
+      targetRevision: 17.1.7
+      helm:
+        releaseName: forgejo
+        valueFiles:
+          - $values/platform/forgejo/values-common.yaml
+          - $values/platform/forgejo/values-local.yaml
+    - repoURL: https://github.com/imcherry5778-labs/github-capacity-cascade-platform.git
+      targetRevision: 5e7a0d151b457421731b7fd8eca5c2694d98a7f1
+      ref: values
+  syncPolicy:
+    automated:
+      prune: false
+      selfHeal: true

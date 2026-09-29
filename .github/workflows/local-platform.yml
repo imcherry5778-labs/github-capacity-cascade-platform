@@ -1,6 +1,6 @@
 name: local-platform
 
-# P1 Local Forgejo Correctness. Runner 안의 disposable k3d cluster만 사용하며 Azure resource를 만들지 않는다.
+# P2 Local GitOps Reconciliation. Runner 안의 disposable k3d cluster만 사용한다.
 on:
   pull_request:
     paths:
@@ -8,6 +8,7 @@ on:
       - Makefile
       - .gitignore
       - versions.env
+      - platform/argocd/**
       - platform/forgejo/**
       - platform/local/**
       - scripts/**
@@ -24,11 +25,12 @@ jobs:
   local-platform:
     name: static + fresh local lifecycle
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
 
       - name: Install pinned tools

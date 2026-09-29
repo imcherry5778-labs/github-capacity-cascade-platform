@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# P1 local platform verification.
+# P2 local platform verification.
 #   static       cluster 없이 shell lint, versions.env pin 일치, Helm render/config contract를 검사한다.
-#   runtime      실행 중인 local platform의 contract, developer journey, Forgejo/PostgreSQL workload
-#                replacement 후 state continuity를 검사한다. (backup/restore 검증이 아니다)
+#   gitops-ready Argo Application의 exact revision, sync, health를 bounded wait한다.
+#   runtime      P1 contract/journey/continuity와 Argo self-heal 후 developer journey를 검사한다.
 #   diagnostics  실패 분석용 cluster 상태를 출력한다.
 # Readiness gate만 bounded wait를 사용하고, developer operation 자체는 retry하지 않는다.
 set -euo pipefail
@@ -12,7 +12,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT/versions.env"
 export PATH="$ROOT/.tmp/bin:$PATH"
 export KUBECONFIG="$ROOT/.tmp/kubeconfig"
-MODE="${1:?usage: local-verify.sh static|runtime|diagnostics}"
+MODE="${1:?usage: local-verify.sh static|gitops-ready|runtime|diagnostics}"
 
 # values-local.yaml ROOT_URL과 같은 loopback endpoint (Local development exception).
 LOCAL_PORT=13000
@@ -98,8 +98,37 @@ static() {
   expect_line platform/local/k3d.yaml "image: $K3S_IMAGE"
   expect_line platform/local/postgres.yaml "image: $POSTGRES_IMAGE"
   expect_line platform/forgejo/values-common.yaml "tag: $FORGEJO_IMAGE_TAG"
+  expect_line platform/argocd/forgejo-local.yaml "targetRevision: $FORGEJO_CHART_VERSION"
+  expect_line platform/argocd/forgejo-local.yaml "targetRevision: $FORGEJO_VALUES_REVISION"
   [[ "$(grep -c 'image:' "$ROOT/platform/local/postgres.yaml")" == 1 ]] || fail "unexpected extra image in postgres.yaml"
   pass "source pins match versions.env"
+
+  [[ "$ARGOCD_VERSION" == v3.5.3 && "$ARGOCD_COMMIT" =~ ^[0-9a-f]{40}$ ]] || fail "Argo CD release/commit pin"
+  local core_manifest="$ROOT/.tmp/rendered/argocd-core.yaml"
+  mkdir -p "$ROOT/.tmp/rendered"
+  curl -fsSL --retry 3 "https://raw.githubusercontent.com/argoproj/argo-cd/$ARGOCD_COMMIT/manifests/core-install.yaml" -o "$core_manifest"
+  printf '%s  %s\n' "$ARGOCD_CORE_SHA256" "$core_manifest" | sha256sum -c - >/dev/null || fail "Argo CD Core checksum"
+  if grep -Eq '^  name: argocd-server$|^  name: argocd-dex-server$' "$core_manifest"; then
+    fail "Core manifest includes API/UI or Dex server"
+  fi
+  pass "Argo CD Core $ARGOCD_VERSION commit=$ARGOCD_COMMIT sha256=$ARGOCD_CORE_SHA256"
+
+  local policy="$ROOT/platform/argocd/forgejo-local.yaml"
+  [[ "$(grep -c '^kind: AppProject$' "$policy")" == 1 && "$(grep -c '^kind: Application$' "$policy")" == 1 ]] || fail "one AppProject/Application required"
+  grep -qF 'project: forgejo-local' "$policy" || fail "dedicated AppProject"
+  grep -qF 'namespace: forgejo' "$policy" || fail "Forgejo destination"
+  grep -qF 'server: https://kubernetes.default.svc' "$policy" || fail "in-cluster destination"
+  grep -qF 'selfHeal: true' "$policy" || fail "self-heal policy"
+  grep -qF 'prune: false' "$policy" || fail "prune policy"
+  grep -qF 'automated:' "$policy" || fail "automated sync"
+  if grep -Eq "^[[:space:]]+-?\s*(sourceRepos:|namespace:|server:|kind:|group:).*['\"]?\*|^[[:space:]]+- ['\"]?\*" "$policy"; then
+    fail "wildcard Argo project permission"
+  fi
+  [[ "$(grep -c '^      kind:' "$policy")" == 4 ]] || fail "unexpected project resource kinds"
+  for kind in Secret PersistentVolumeClaim Service Deployment; do
+    grep -qF "kind: $kind" "$policy" || fail "project missing $kind"
+  done
+  pass "restricted project, exact Git/chart revisions, automated self-heal, prune off"
 
   mkdir -p "$ROOT/.tmp/rendered"
   rendered="$ROOT/.tmp/rendered/forgejo.yaml"
@@ -120,8 +149,59 @@ static() {
     fail "chart rendered an admin Secret instead of using existingSecret"
   fi
   pass "render: single Deployment, replicas=1, Recreate, image=$FORGEJO_IMAGE, no bundled DB/ingress/admin Secret"
+  [[ "$(awk '/^kind: / {print $2}' "$rendered" | sort -u)" == $'Deployment\nPersistentVolumeClaim\nSecret\nService' ]] ||
+    fail "rendered Forgejo kinds no longer match project whitelist"
 
   check_config "$(inline_config_ini "$rendered")" "rendered"
+}
+
+gitops_contract() {
+  local project app
+  project="$(kubectl -n argocd get appproject forgejo-local -o json)"
+  jq -e --arg git https://github.com/imcherry5778-labs/github-capacity-cascade-platform.git \
+    --arg oci oci://code.forgejo.org/forgejo-helm/forgejo '
+    .spec.sourceRepos == [$oci, $git] and
+    .spec.destinations == [{"server":"https://kubernetes.default.svc","namespace":"forgejo"}] and
+    ([.spec.namespaceResourceWhitelist[] | [.group,.kind]] | sort) ==
+      [["","PersistentVolumeClaim"],["","Secret"],["","Service"],["apps","Deployment"]]
+  ' >/dev/null <<<"$project" || fail "live AppProject restrictions"
+  app="$(kubectl -n argocd get application forgejo-local -o json)"
+  jq -e --arg rev "$FORGEJO_VALUES_REVISION" --arg chart "$FORGEJO_CHART_VERSION" '
+    .spec.project == "forgejo-local" and
+    .spec.destination == {"server":"https://kubernetes.default.svc","namespace":"forgejo"} and
+    .spec.sources[0].repoURL == "oci://code.forgejo.org/forgejo-helm/forgejo" and
+    .spec.sources[0].path == "." and .spec.sources[0].targetRevision == $chart and
+    .spec.sources[0].helm.releaseName == "forgejo" and
+    .spec.sources[0].helm.valueFiles == ["$values/platform/forgejo/values-common.yaml","$values/platform/forgejo/values-local.yaml"] and
+    .spec.sources[1].repoURL == "https://github.com/imcherry5778-labs/github-capacity-cascade-platform.git" and
+    .spec.sources[1].targetRevision == $rev and .spec.sources[1].ref == "values" and
+    .spec.syncPolicy.automated == {"prune":false,"selfHeal":true}
+  ' >/dev/null <<<"$app" || fail "live Application source/policy"
+  pass "live AppProject/Application restrictions and exact Git revision $FORGEJO_VALUES_REVISION"
+}
+
+wait_gitops_ready() { # LABEL
+  local deadline app
+  deadline=$((SECONDS + 600))
+  while (( SECONDS < deadline )); do
+    app="$(kubectl --request-timeout=10s -n argocd get application forgejo-local -o json 2>/dev/null || true)"
+    if jq -e --arg rev "$FORGEJO_VALUES_REVISION" --arg chart "$FORGEJO_CHART_DIGEST" '
+      .status.sync.status == "Synced" and .status.health.status == "Healthy" and
+      .status.sync.revisions == [$chart, $rev] and
+      .status.operationState.phase == "Succeeded"
+    ' >/dev/null 2>&1 <<<"$app"; then
+      pass "$1: Application Synced/Healthy, chart=$FORGEJO_CHART_VERSION digest=$FORGEJO_CHART_DIGEST Git=$FORGEJO_VALUES_REVISION"
+      return 0
+    fi
+    sleep 3
+  done
+  jq -c '{sync:.status.sync,health:.status.health,conditions:.status.conditions,operation:.status.operationState.phase}' <<<"$app" >&2 || true
+  fail "$1: Application did not become Synced/Healthy within 600s"
+}
+
+gitops_ready() {
+  gitops_contract
+  wait_gitops_ready "initial"
 }
 
 PF_PID=""
@@ -217,6 +297,8 @@ runtime() {
 
   local server expected_server pod ini listening pvc pg_pvc old_pod new_pod pg_old pg_new restarts secret f
   local -a secrets
+
+  gitops_ready
 
   # --- Platform contract ---
   server="$(kubectl version -o json | jq -r .serverVersion.gitVersion)"
@@ -325,7 +407,41 @@ runtime() {
   [[ -z "$(git -C "$ROOT" status --porcelain -- .tmp)" ]] || fail "runtime output visible to git status"
   pass "${#secrets[@]} runtime secrets absent from Git-visible files; kubeconfig/credential/temp output gitignored"
 
-  pass "P1 runtime verification complete"
+  # Argo-owned Service selector drift. The initial and changed values are both observed live;
+  # no sync or resource repair is issued by this test.
+  local before after deadline old_sync new_sync
+  before="$(kubectl -n forgejo get service forgejo-http -o json | jq -r '.spec.selector["app.kubernetes.io/instance"]')"
+  [[ "$before" == forgejo ]] || fail "Forgejo HTTP Service desired selector is $before, expected forgejo"
+  old_sync="$(kubectl -n argocd get application forgejo-local -o json | jq -r '.status.operationState.finishedAt // empty')"
+  pass "before drift: Argo-owned service/forgejo-http selector instance=$before sync=$old_sync"
+  kubectl -n forgejo patch service forgejo-http --type=json \
+    -p='[{"op":"replace","path":"/spec/selector/app.kubernetes.io~1instance","value":"drift"}]' >/dev/null
+  after="$(kubectl -n forgejo get service forgejo-http -o json | jq -r '.spec.selector["app.kubernetes.io/instance"]')"
+  [[ "$after" == drift ]] || fail "live Service drift not observed: selector=$after"
+  pass "live drift observed: service/forgejo-http selector instance=$after"
+  deadline=$((SECONDS + 600))
+  while (( SECONDS < deadline )); do
+    after="$(kubectl --request-timeout=10s -n forgejo get service forgejo-http -o json 2>/dev/null |
+      jq -r '.spec.selector["app.kubernetes.io/instance"]' || true)"
+    new_sync="$(kubectl --request-timeout=10s -n argocd get application forgejo-local -o json 2>/dev/null |
+      jq -r '.status.operationState.finishedAt // empty' || true)"
+    if [[ "$after" == forgejo && -n "$new_sync" && "$new_sync" != "$old_sync" ]]; then
+      break
+    fi
+    sleep 3
+  done
+  [[ "$after" == forgejo && -n "$new_sync" && "$new_sync" != "$old_sync" ]] ||
+    fail "Argo did not self-heal Service selector within 600s (selector=$after sync=$new_sync)"
+  pass "self-healed: service/forgejo-http selector instance=$after sync=$new_sync"
+  wait_gitops_ready "after drift"
+  start_port_forward
+  wait_forgejo_healthy "after drift"
+  FORGEJO_ADMIN_USERNAME="$(secret_value forgejo forgejo-admin username)" \
+    FORGEJO_ADMIN_PASSWORD="$(secret_value forgejo forgejo-admin password)" journey create
+  journey verify "after-drift"
+  check_database_state "after drift"
+  check_repository_data "after drift"
+  pass "P2 runtime verification complete"
 }
 
 diagnostics() {
@@ -338,6 +454,7 @@ diagnostics() {
 
 case "$MODE" in
   static) static ;;
+  gitops-ready) gitops_ready ;;
   runtime) runtime ;;
   diagnostics) diagnostics ;;
   *) fail "unknown mode: $MODE" ;;
