@@ -4,6 +4,7 @@
 import copy
 import hashlib
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -31,7 +32,7 @@ class RecoveryValidationTest(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.root.chmod(0o700)
-        secrets = [
+        fixture_records = [
             {"metadata": {"namespace": ns, "name": name}, "data": {"key": "YQ=="}}
             for ns, name in (
                 ("forgejo", "forgejo-admin"), ("forgejo", "forgejo-db"),
@@ -42,11 +43,12 @@ class RecoveryValidationTest(unittest.TestCase):
         for name, content in (
             ("database.dump", b"PGDMP example"),
             ("application-data.tar", b"tar example"),
-            ("secrets.json", json.dumps(secrets).encode()),
+            ("secrets.json", json.dumps(fixture_records).encode()),
         ):
             path = self.root / name
-            path.write_bytes(content)
-            path.chmod(0o600)
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(fd, "wb") as stream:
+                stream.write(content)
             components[name] = {
                 "filename": name, "size": len(content),
                 "sha256": hashlib.sha256(content).hexdigest(), "result": "success",
