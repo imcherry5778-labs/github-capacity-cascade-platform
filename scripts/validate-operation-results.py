@@ -47,7 +47,14 @@ def validate(path):
     require(set(start) == EXPECTED_KEYS["run_start"], "run_start fields differ from sanitized allowlist")
     require(start["phase"] in {"warmup", "measured"}, "invalid phase")
     require(isinstance(start["dirty"], bool) and len(start["source_sha"]) == 40, "source provenance")
-    require(start["parameters"] == {"concurrency": 1, "max_attempts": 1, "client_retry": False}, "parameter drift")
+    parameters = start["parameters"]
+    require(set(parameters) == {"concurrency", "max_attempts", "client_retry", "api_timeout_seconds",
+                                "git_timeout_seconds", "git_kill_after_seconds"}, "parameter fields")
+    require(parameters["concurrency"] == 1 and parameters["max_attempts"] == 1 and
+            parameters["client_retry"] is False and parameters["api_timeout_seconds"] == 60 and
+            duration(parameters["git_timeout_seconds"]) and parameters["git_timeout_seconds"] > 0 and
+            duration(parameters["git_kill_after_seconds"]) and parameters["git_kill_after_seconds"] > 0,
+            "parameter drift")
     require(start["measurement_boundary"] == "loopback kubectl port-forward client command", "measurement boundary")
     require(isinstance(start["environment"], dict) and isinstance(start["tool_versions"], dict), "environment fields")
     require(isinstance(start["runtime_images"], dict), "runtime image identity")
@@ -151,6 +158,9 @@ def summarize(directory):
     require(len(measured) == 5, "five measured runs required")
     require(all(run["completion"] == "success" and run["validity"] == "valid" for run in runs), "unhealthy baseline run")
     require(len({run["source_sha"] for run in runs}) == 1, "mixed source commits")
+    require(all(json.loads(path.read_text().splitlines()[0])["parameters"]["git_timeout_seconds"] == 65 and
+                json.loads(path.read_text().splitlines()[0])["parameters"]["git_kill_after_seconds"] == 5
+                for path in paths), "baseline Git timeout drift")
     metrics = defaultdict(lambda: {"count": 0, "duration_sum_seconds": 0.0, "duration_count": 0, "durations_seconds": []})
     for run in measured:
         for metric in run["metrics"]:
@@ -177,7 +187,8 @@ def summarize(directory):
             starts.append(rows[0]["started_at_utc"])
             ends.append(rows[-1]["ended_at_utc"])
     return {"schema_version": 1, "source_sha": measured[0]["source_sha"],
-            "plan": {"warmup": 1, "measured": 5, "concurrency": 1, "max_attempts": 1},
+            "plan": {"warmup": 1, "measured": 5, "concurrency": 1, "max_attempts": 1,
+                     "api_timeout_seconds": 60, "git_timeout_seconds": 65, "git_kill_after_seconds": 5},
             "measured_window_utc": {"start": min(starts), "end": max(ends)},
             "measured_run_ids": [run["run_id"] for run in measured],
             "operation_samples": sum(run["operation_count"] for run in measured),

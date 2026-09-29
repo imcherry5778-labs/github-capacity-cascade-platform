@@ -26,6 +26,8 @@ umask 077
 export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0
 export GIT_AUTHOR_NAME="Journey Developer" GIT_AUTHOR_EMAIL=journey@example.com
 export GIT_COMMITTER_NAME="$GIT_AUTHOR_NAME" GIT_COMMITTER_EMAIL="$GIT_AUTHOR_EMAIL"
+GIT_TIMEOUT_SECONDS="${JOURNEY_GIT_TIMEOUT_SECONDS:-65}"
+GIT_KILL_AFTER_SECONDS="${JOURNEY_GIT_KILL_AFTER_SECONDS:-5}"
 
 operations=0
 pass() { operations=$((operations + 1)); printf '[journey:%s] PASS %s\n' "$LABEL" "$*"; }
@@ -127,9 +129,11 @@ result_start() {
   ( set -o noclobber; : >"$RESULT_FILE" ) || fail "result already exists" command_error
   OP_INDEX=0 AUX_INDEX=0 OP_ACTIVE=0 ATTEMPT_ACTIVE=0 RUN_FINISHED=0
   emit --arg run "$RUN_ID" --arg phase "${RESULT_PHASE:-measured}" --arg ts "$(utc)" \
+    --argjson git_timeout "$GIT_TIMEOUT_SECONDS" --argjson kill_after "$GIT_KILL_AFTER_SECONDS" \
     --slurpfile context "$RESULT_CONTEXT_FILE" \
     '({record:"run_start",schema_version:1,run_id:$run,phase:$phase,started_at_utc:$ts,
-      scenario:"local_healthy_developer_journey",parameters:{concurrency:1,max_attempts:1,client_retry:false},
+      scenario:"local_healthy_developer_journey",parameters:{concurrency:1,max_attempts:1,client_retry:false,
+        api_timeout_seconds:60,git_timeout_seconds:$git_timeout,git_kill_after_seconds:$kill_after},
       measurement_boundary:"loopback kubectl port-forward client command"} + $context[0])'
 }
 
@@ -168,17 +172,22 @@ expect_json() { # JSON JQ_FILTER DESCRIPTION  (filter는 env.* 로 state를 참�
 }
 
 dev_git() {
-  local basic rc class
+  local basic rc class git_start
   basic="$(printf '%s:%s' "$DEV_USER" "$DEV_TOKEN" | base64 | tr -d '\n')"
+  git_start="$(mono)"
   if GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=http.extraHeader GIT_CONFIG_VALUE_0="Authorization: Basic $basic" \
     GIT_CONFIG_KEY_1=credential.helper GIT_CONFIG_VALUE_1='' \
-    timeout --signal=TERM --kill-after=5s 65s git "$@" 2>"$JOURNEY_DIR/git.stderr"; then
+    timeout --signal=TERM --kill-after="${GIT_KILL_AFTER_SECONDS}s" "${GIT_TIMEOUT_SECONDS}s" git "$@" 2>"$JOURNEY_DIR/git.stderr"; then
     return 0
   else
     rc=$?
   fi
   class=command_error
-  [[ "$rc" -ne 124 ]] || class=timeout
+  if [[ "$rc" -eq 124 ]] || { [[ "$rc" -eq 137 ]] &&
+    awk -v duration="$(elapsed "$git_start")" -v limit="$GIT_TIMEOUT_SECONDS" \
+      'BEGIN {exit !(duration >= limit)}'; }; then
+    class=timeout
+  fi
   if [[ -n "${RESULT_FILE:-}" && "${OP_ACTIVE:-0}" == 1 && "${ATTEMPT_ACTIVE:-0}" == 1 ]]; then
     printf '%s' "$rc" >"$RESULT_DIR/command_exit"
   fi

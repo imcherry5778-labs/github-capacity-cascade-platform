@@ -18,7 +18,7 @@
 | `issue_create` | developer API `POST /issues` | 번호/title/open 상태 |
 | `issue_read` | developer API `GET /issues/{number}` | 번호/title/open 상태, PR 아님 |
 
-`operation_start`는 bounded command 직전에, `attempt`는 command 직후에 기록한다. `operation`은 semantic assertion이 끝나야 성공한다. Operation/attempt의 `duration_seconds`는 같은 단일 command 구간이며 Linux `/proc/uptime`의 monotonic clock을 사용한다(약 10 ms 해상도). Fixture/settle/assertion 시간은 포함하지 않는다. Git Smart HTTP 내부 요청 수는 관측하지 않으므로 기록하거나 attempt로 추정하지 않는다. Git 원격 command는 `timeout 65s`, API command는 curl `--max-time 60 --retry 0`이다. Git credential helper는 비활성화한다.
+`operation_start`는 bounded command 직전에, `attempt`는 command 직후에 기록한다. `operation`은 semantic assertion이 끝나야 성공한다. Operation/attempt의 `duration_seconds`는 같은 단일 command 구간이며 Linux `/proc/uptime`의 monotonic clock을 사용한다(약 10 ms 해상도). Fixture/settle/assertion 시간은 포함하지 않는다. Git Smart HTTP 내부 요청 수는 관측하지 않으므로 기록하거나 attempt로 추정하지 않는다. Git 원격 command는 `timeout 65s`와 TERM 후 5s kill-after, API command는 curl `--max-time 60 --retry 0`이다. Exit 137은 명령이 설정된 timeout 경계를 지난 뒤 강제 종료된 경우에만 `timeout`으로 분류한다. Git credential helper는 비활성화한다.
 
 ## 결과, 지표, correlation
 

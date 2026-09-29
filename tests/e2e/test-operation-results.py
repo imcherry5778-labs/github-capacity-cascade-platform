@@ -49,6 +49,8 @@ GIT_STUB = r'''#!/usr/bin/env bash
 if [[ " ${*} " == *" push "* ]]; then
   echo credential-bearing-response >&2
   if [[ "$TEST_MODE" == git_timeout ]]; then exit 124; fi
+  if [[ "$TEST_MODE" == git_killed_early ]]; then exit 137; fi
+  if [[ "$TEST_MODE" == git_timeout_kill ]]; then trap '' TERM; while :; do sleep 1; done; fi
   exit 128
 fi
 exec "$REAL_GIT" "$@"
@@ -77,6 +79,9 @@ def run_failure(mode):
                    JOURNEY_DIR=str(temp / "journey"), RESULTS_ROOT=str(temp / "results"),
                    RESULT_CONTEXT_FILE=str(context), RESULT_PHASE="measured",
                    FORGEJO_ADMIN_USERNAME="admin", FORGEJO_ADMIN_PASSWORD="secret-admin-password")
+        if mode == "git_timeout_kill":
+            env["JOURNEY_GIT_TIMEOUT_SECONDS"] = "0.2"
+            env["JOURNEY_GIT_KILL_AFTER_SECONDS"] = "0.2"
         proc = subprocess.run(["bash", str(SCRIPT), "create"], env=env, capture_output=True, text=True, timeout=15)
         assert proc.returncode != 0, (mode, proc.stdout, proc.stderr)
         files = list((temp / "results").glob("*/events.jsonl"))
@@ -108,6 +113,12 @@ def run_failure(mode):
         elif mode == "git_timeout":
             assert attempt["http_status"] is None and attempt["exit_code"] == 124
             assert attempt["error_class"] == "timeout"
+        elif mode == "git_timeout_kill":
+            assert attempt["http_status"] is None and attempt["exit_code"] == 137
+            assert attempt["error_class"] == "timeout"
+        elif mode == "git_killed_early":
+            assert attempt["http_status"] is None and attempt["exit_code"] == 137
+            assert attempt["error_class"] == "command_error"
         else:
             assert attempt["http_status"] is None and attempt["exit_code"] == 128
             assert attempt["error_class"] == "command_error"
@@ -138,6 +149,7 @@ def run_failure(mode):
             assert "private repository ready" in legacy.stdout, legacy.stdout
 
 
-for scenario in ("api_failure", "api_timeout", "api_interrupt", "api_semantic_failure", "git_failure", "git_timeout"):
+for scenario in ("api_failure", "api_timeout", "api_interrupt", "api_semantic_failure",
+                 "git_failure", "git_timeout", "git_timeout_kill", "git_killed_early"):
     run_failure(scenario)
-print("PASS deterministic API status/semantic/timeout/interruption, Git failure/timeout, incomplete run and credential hygiene")
+print("PASS deterministic API status/semantic/timeout/interruption, Git failure/timeout/kill-after, incomplete run and credential hygiene")

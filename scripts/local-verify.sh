@@ -308,6 +308,7 @@ baseline() {
     gitops_ready
     wait_forgejo_healthy "baseline $phase $i"
     RESULT_CONTEXT_FILE="$context" RESULTS_ROOT="$results_dir" RESULT_PHASE="$phase" \
+      JOURNEY_GIT_TIMEOUT_SECONDS=65 JOURNEY_GIT_KILL_AFTER_SECONDS=5 \
       FORGEJO_ADMIN_USERNAME="$(secret_value forgejo forgejo-admin username)" \
       FORGEJO_ADMIN_PASSWORD="$(secret_value forgejo forgejo-admin password)" journey create
     rm -rf "$JOURNEY_DIR"
