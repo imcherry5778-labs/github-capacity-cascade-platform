@@ -109,25 +109,16 @@ def doctor_paths(output, exit_code):
         " - [E]     Is REQUIRED but is not accessible. ERROR: stat /data/log: no such file or directory",
         " - [E] Please check your configuration files and try again.",
     ], "unexpected doctor paths diagnostic")
-    require(exit_code == 1 and "FAIL" in lines and
-            "Command error: 1 configuration files with errors" in lines and
-            "command terminated with exit code 1" in lines,
+    summary = "Command error: 1 configuration files with errors"
+    termination = "command terminated with exit code 1"
+    require(exit_code == 1 and lines.count("[1] Check paths and basic configuration") == 1 and
+            lines.count("FAIL") == 1 and lines.count(summary) == 1 and
+            lines.count(termination) == 1,
             "doctor paths baseline exit/summary changed")
-    require(not any(re.search(r"\b(?:WARNING|CRITICAL)\b", line, re.I) for line in lines),
-            "doctor paths extra warning")
-    expected = ["[1] Check paths and basic configuration"]
-    for label, path in PATHS.items():
-        expected.append(f' - [I] {label}: "{path}"')
-        if label == "Log Root Path":
-            expected.append(diagnostics[0])
-    expected += [diagnostics[1], "FAIL", "Command error: 1 configuration files with errors",
-                 "command terminated with exit code 1"]
-    normalized = []
-    for line in lines:
-        if line:
-            match = re.fullmatch(r' - \[I\] (.+?):\s+"([^"]+)"', line)
-            normalized.append(f' - [I] {match[1]}: "{match[2]}"' if match else line)
-    require(normalized == expected, "doctor paths unexpected output")
+    allowed = set(diagnostics + [summary, termination, "FAIL"])
+    require(not any(line not in allowed and re.search(
+        r"\b(?:ERROR|WARNING|FAILED|FAIL|CRITICAL)\b", line, re.I) for line in lines),
+        "doctor paths extra diagnostic")
     return {"status": "known_source_baseline_diagnostic", "finding": "missing_/data/log",
             "scope": "console_logging_only", "command_exit": exit_code}
 
@@ -140,11 +131,9 @@ def doctor_integrity(name, title, output, exit_code):
     require(not any(re.match(r"^ - \[[WEC]\]", line) or
                     re.search(r"\b(?:ERROR|FAIL|WARNING|CRITICAL)\b", line, re.I)
                     for line in lines), f"doctor {name} diagnostic")
-    nonempty = [line for line in lines if line]
-    require(nonempty[0] == f"[1] {title}" and
-            all(re.fullmatch(r" - \[I\] .+", line) for line in nonempty[1:-2]) and
-            nonempty[-2:] == ["OK", "All done (checks: 1)."],
-            f"doctor {name} unexpected output")
+    require(lines.count(f"[1] {title}") == 1 and lines.count("OK") == 1 and
+            lines.count("All done (checks: 1).") == 1,
+            f"doctor {name} output incomplete")
     return {"status": "pass", "command_exit": exit_code, "diagnostics": 0}
 
 

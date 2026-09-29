@@ -92,7 +92,18 @@ curl -fsSL --retry 3 \
 printf '%s  %s\n' "$ARGOCD_CORE_SHA256" "$core_manifest" | sha256sum -c -
 kubectl create namespace argocd
 kubectl -n argocd apply --server-side --force-conflicts -f "$core_manifest"
-kubectl wait --for=condition=Established --timeout=180s crd/applications.argoproj.io crd/appprojects.argoproj.io
+for crd in applications.argoproj.io appprojects.argoproj.io; do
+  established=false
+  for ((i=0;i<90;i++)); do
+    if kubectl get crd "$crd" -o json | jq -e \
+      'any(.status.conditions[]?; .type == "Established" and .status == "True")' >/dev/null; then
+      established=true
+      break
+    fi
+    sleep 2
+  done
+  [[ "$established" == true ]] || { echo "CRD $crd not Established within 180s" >&2; exit 1; }
+done
 for component in argocd-redis argocd-repo-server argocd-applicationset-controller; do
   kubectl -n argocd rollout status "deployment/$component" --timeout=300s
 done

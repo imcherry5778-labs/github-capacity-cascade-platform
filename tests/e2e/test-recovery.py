@@ -241,6 +241,13 @@ class RecoveryValidationTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "unexpected doctor paths diagnostic"):
             validator.validate_doctor(directory)
 
+    def test_unclassified_paths_error_rejected(self):
+        directory = self.doctor_fixture()
+        path = directory / "paths.txt"
+        path.write_text(path.read_text() + "Error: unexpected repository path failure\n")
+        with self.assertRaisesRegex(ValueError, "doctor paths extra diagnostic"):
+            validator.validate_doctor(directory)
+
     def test_credential_substitution(self):
         result = self.result()
         result["pat_identity"] = "reissued"
