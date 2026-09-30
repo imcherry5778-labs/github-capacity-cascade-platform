@@ -474,16 +474,17 @@ write_after_restore() {
   source "$JOURNEY_DIR/state.env"
   export DEV_USER RUN_ID MAIN_SHA
   DEV_AUTH="header = \"Authorization: token $DEV_TOKEN\""
-  local work="$JOURNEY_DIR/work" issue
+  local work="$JOURNEY_DIR/work" issue kind=restored
+  [[ "$LABEL" != b-only ]] || kind=b-only
   [[ ! -e "$JOURNEY_DIR/post-write.env" ]] || fail "post-restore write already recorded"
-  printf 'restored write %s\n' "$RUN_ID" >"$work/restored.txt"
-  git -C "$work" add restored.txt
-  git -C "$work" commit -q -m "journey: post-restore write"
+  printf '%s write %s\n' "$kind" "$RUN_ID" >"$work/$kind.txt"
+  git -C "$work" add "$kind.txt"
+  git -C "$work" commit -q -m "journey: $kind write"
   POST_SHA="$(git -C "$work" rev-parse HEAD)"
   dev_git -C "$work" push -q origin main
   expect_remote_ref "$work" refs/heads/main "$POST_SHA" "post-restore push"
   pass "post-restore main push=$POST_SHA"
-  export POST_ISSUE_TITLE="restored issue $RUN_ID"
+  export POST_ISSUE_TITLE="$kind issue $RUN_ID"
   issue="$(request "$DEV_AUTH" POST "/repos/$DEV_USER/$REPO/issues" 201 \
     "$(jq -nc '{title: env.POST_ISSUE_TITLE, body: "post-restore developer write"}')")"
   POST_ISSUE_NUMBER="$(jq -r .number <<<"$issue")"

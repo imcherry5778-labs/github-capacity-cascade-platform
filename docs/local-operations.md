@@ -41,6 +41,47 @@ Command exit가 0이어도 semantic assertion이 틀리면 operation은 `failed`
 
 `results/local/`은 Git에서 제외하되 `.tmp/journey` 및 credential-bearing runtime state와 분리해 `local-down.sh` 이후에도 남긴다. 실패한 run도 덮어쓰지 않는다. CI는 JSONL/summary 파일만 명시적으로 upload하고 `.tmp`, raw response, kubeconfig, credential, diagnostics를 upload하지 않는다. `request` 오류도 raw API body를 출력하지 않는다. 테스트는 API status/timeout, Git failure, incomplete record와 secret exclusion을 검증한다.
 
-P3-W2의 Argo-safe coordinated backup → fresh restore 및 doctor/E2E/continuity는 현재 source에 구현되어 있다. P3-W3의 검토된 v15 upgrade → previous compatible state 기반 rollback은 아직 구현되지 않았다.
+P3-W2의 Argo-safe coordinated backup → fresh restore와 P3-W3의 v15 patch upgrade → previous compatible state 기반 rollback은 같은 lifecycle에 구현되어 있다. 각 실행의 완료 여부는 sanitized result와 exact-head CI로 별도 확인한다.
 
 P3-W2의 `forgejo doctor` 판정은 현재 runtime에 적용되는 개별 무수정 integrity check와 source에서 확인한 경로 진단의 비교로 한다. `doctor check --all`의 무오류 종료를 보편적인 건강 조건으로 사용하지 않는다. LFS가 꺼진 Core에서 `gc-lfs`는 해당 없음이고, console logging으로 인해 `/data/log`가 없는 `paths` 결과는 source baseline의 명시적 예외다. 복구 target에는 이 예외 외 새 경로 오류가 없어야 한다.
+
+## P3-W3 patch upgrade / state-aware rollback
+
+`make upgrade`는 `scripts/local-recover.sh upgrade`를 사용한다. 기존 W2의 developer fixture, coordinated checkpoint, Secret/DB/full `/data` restore와 doctor validator를 재사용한다. 이번 drill은 linux/amd64에서 `15.0.8-rootless`(A) → stable `15.0.9-rootless`(B) 한 pair만 검증한다. Official OCI index와 amd64 manifest digest는 `versions.env`의 W3 inventory로 구분한다. Kubernetes의 actual imageID와 init/application image도 비교하며, tag만으로 runtime identity를 주장하지 않는다.
+
+Fresh A와 rollback target은 PostgreSQL/Argo만 먼저 준비한다. Application은 autosync를 끈 상태에서 기존 chart/source revision에 `image.tag`와 `image.digest`만 maintenance override하고 bounded manual sync한다. Fresh A의 empty database와 Forgejo PVC 부재를 시작 전에 검사한다. Stable Git values는 계속 B다.
+
+Lifecycle:
+
+```text
+fresh A + pre-upgrade developer/PAT/session
+→ queue flush (2m, outer bound 150s + kill-after 5s)
+→ graceful stop + writer absent
+→ coordinated A checkpoint + component hash/size validation
+→ manual A → B + health/doctor/original state/same credential
+→ B-only Git commit + Issue + API/DB/filesystem persistence
+→ B graceful stop + owned cluster cleanup
+→ new server/PVC/PV target + complete A checkpoint restore before startup
+→ paused exact A + original state/credential
+→ B-only Issue API/DB absence + original main + Git object inventory absence
+→ new rollback Git/Issue write + API/DB/filesystem persistence + doctor
+→ maintenance A retained until disposable target cleanup
+```
+
+하나의 pre-upgrade credential file과 cookie file hash를 각 stage에서 비교한다. Session login은 source에서 한 번만 수행하며 이후 protected page 요청은 원래 cookie를 읽기만 한다. B-only Issue absence는 새 rollback Issue보다 먼저 확인한다. 번호가 재사용되어도 `b-only`/`restored` title과 commit identity로 state를 구분한다. B에서 변경된 DB/data에 old binary를 실행하거나 migration metadata를 수정하는 경로는 없다.
+
+DB authority는 2026-09-30 official v15 source와 실제 fresh A PostgreSQL catalog에서 먼저 확인했다. `version`과 `forgejo_version`의 단일 `id=1` version 값뿐 아니라 `forgejo_migration`의 applied ID 목록을 함께 read-only로 관측한다. 세 authority가 같으면 `no schema-version change observed`, 다르면 `migration observed`로 기록한다. Application version 변경만으로 DB migration을 주장하지 않는다. Restored A의 authority는 checkpoint A와 같아야 한다.
+
+Doctor inventory와 selected `check-db-version`, `check-db-consistency`, `check-user-type`, `synchronize-repo-heads`는 A/B/rollback/post-write에서 유지한다. 모든 selected check는 diagnostic 없이 성공해야 한다. `paths`는 console logging의 exact `missing_/data/log` baseline diagnostic으로만 분류하며 PASS로 바꾸지 않는다. `gc-lfs` N/A는 effective LFS disabled일 때만 허용한다. `--fix`는 실행하지 않는다.
+
+### Official upstream preflight (2026-09-30)
+
+[15.0.8 release notes](https://codeberg.org/forgejo/forgejo/src/branch/forgejo/release-notes-published/15.0.8.md), [15.0.9 release notes](https://codeberg.org/forgejo/forgejo/src/branch/forgejo/release-notes-published/15.0.9.md), [v15 upgrade guide](https://forgejo.org/docs/v15.0/admin/upgrade/)를 확인했다. 당시 official v15 LTS는 15.0.9였다. 두 release note에는 이 pair의 manual migration, Core config 변경, rootless 특이사항 또는 PAT/native session 재발급 요구가 명시되지 않았다. 이것은 runtime continuity를 대신하는 보장이 아니다.
+
+15.0.8은 repository template 초기화와 API authorization reducer 등의 보안 수정을, 15.0.9는 ApplyDiffPatch/OpenID CSRF 보안 수정과 push mirror 수정 등을 포함한다. Core에서 OpenID와 mirror는 이번 fixture가 사용하지 않는 기능이다. A는 disposable loopback drill에서만 사용하는 이전 patch다. Guide의 queue backward compatibility 주의, pre-upgrade full backup, old binary/newer database 금지 요구를 적용한다. 매 실행은 실제로 읽은 official raw release-note hash를 재확인하고 변경/접근 실패 시 중단한다. [v15 migration README](https://codeberg.org/forgejo/forgejo/src/tag/v15.0.8/models/forgejo_migrations/README.md)는 세 DB authority의 근거다.
+
+### Regression / evidence
+
+W3는 같은 source의 P1/P2 runtime regression, P3-W1 baseline, W2 recovery를 먼저 성공시켜야 한다. CI는 앞선 lifecycle/recovery step의 explicit result path를 전달해 중복 실행을 피하고, local standalone invocation은 해당 regression을 직접 실행한다. 기존 CI 45분 bound는 실제 full job 실행으로 확인한다.
+
+`results/local/upgrade-<id>/`에는 checkpoint component hash/size, upstream hash/reference, stage별 runtime/DB authority/storage/credential hash, doctor 분류, B marker/absence/new write, regression과 append-only phase만 남긴다. Raw dump, tar, Secrets, password, PAT, cookie, config/env와 응답은 mode 0700 temporary directory에 두고 성공/실패 모두 제거한다. CI artifact는 sanitized filename allowlist만 사용한다. Validator는 lifecycle 순서, freshness, credential continuity, doctor와 marker proof 누락/모순을 거부한다. Dirty development run은 exploratory이며 final `validate-upgrade.py result`는 clean exact-head source를 요구한다.

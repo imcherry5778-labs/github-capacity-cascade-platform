@@ -195,6 +195,20 @@ class RecoveryValidationTest(unittest.TestCase):
         self.assertEqual(snapshot["not_applicable"]["gc-lfs"], "LFS_START_SERVER=false")
         self.assertEqual(snapshot["paths"]["status"], "known_source_baseline_diagnostic")
 
+    def test_upgrade_pair_keeps_checks_and_w2_version_guard(self):
+        directory = self.doctor_fixture()
+        meta = {"forgejo_version": "15.0.8+gitea-1.22.0", "forgejo_image_id": "sha256:a"}
+        (directory / "metadata.json").write_text(json.dumps(meta))
+        with self.assertRaisesRegex(ValueError, "doctor runtime version/image"):
+            validator.validate_doctor(directory)
+        baseline = validator.validate_doctor(directory, upgrade=True)
+        meta.update(forgejo_version="15.0.9+gitea-1.22.0", forgejo_image_id="sha256:b")
+        (directory / "metadata.json").write_text(json.dumps(meta))
+        validator.validate_doctor(directory, baseline, upgrade=True)
+        (directory / "check-db-consistency.exit").write_text("1\n")
+        with self.assertRaisesRegex(ValueError, "doctor check-db-consistency failed"):
+            validator.validate_doctor(directory, baseline, upgrade=True)
+
     def test_gc_lfs_na_only_when_disabled(self):
         directory = self.doctor_fixture()
         (directory / "app.ini").write_text(
