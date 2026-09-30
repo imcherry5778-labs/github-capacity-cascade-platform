@@ -1,0 +1,6 @@
+{
+  "max_requests": 2,
+  "hold_ms": 1000,
+  "logical_operations": 24,
+  "concurrency": 12
+}

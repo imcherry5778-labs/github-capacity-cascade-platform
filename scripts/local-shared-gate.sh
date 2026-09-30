@@ -127,6 +127,18 @@ journey gated "$GATED"
 phase gated
 python3 "$validator" capture "$out" >"$out/path.json"
 
+# W1 healthy evidence is already captured. W2 reads the same private Issue;
+# its raw measurements and experiment verdict have a separate schema.
+(
+  # shellcheck source=/dev/null
+  source "$ROOT/.tmp/journey/credentials.env"
+  # shellcheck source=/dev/null
+  source "$ROOT/.tmp/journey/state.env"
+  export DEV_TOKEN DEV_USER ISSUE_NUMBER ISSUE_TITLE
+  python3 "$ROOT/scripts/shared-gate-saturation.py" run "$out"
+)
+phase saturation
+
 # Prove identity before deleting exact manifests. Never use blanket Istio purge.
 owned_cluster
 kubectl get -f "$work/control-plane.yaml" -f "$work/resources.yaml" -o json |
@@ -162,4 +174,5 @@ phase post-removal
 args=()
 [[ "$dirty" != true ]] || args+=(--exploratory)
 python3 "$validator" result "$out" "${args[@]}" >"$out/result.json"
+python3 "$ROOT/scripts/shared-gate-saturation.py" result "$out" "${args[@]}" >"$out/saturation/result.json"
 echo "[shared-gate] completed healthy fixture and same-cluster removal; source_dirty=$dirty; evidence=$out"

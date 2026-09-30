@@ -1,5 +1,6 @@
 """Credential/body exclusion and fail-closed configuration checks."""
 import contextlib
+import concurrent.futures
 import http.client
 import importlib.util
 import io
@@ -23,6 +24,36 @@ evidence = load("evidence", "scripts/validate-shared-gate.py")
 
 
 class CheckTests(unittest.TestCase):
+    def test_concurrent_checks_keep_json_lines_separate(self):
+        server = app.ThreadingHTTPServer(("127.0.0.1", 0), app.CheckHandler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        output = io.StringIO()
+
+        def send(index):
+            connection = http.client.HTTPConnection(*server.server_address, timeout=3)
+            try:
+                connection.request("GET", "/", headers={"x-shared-gate-hop": "haproxy",
+                                   "Authorization": "p4-check-without-credentials", "x-operation-id": f"op-{index}"})
+                response = connection.getresponse()
+                response.read()
+                return response.status
+            finally:
+                connection.close()
+
+        with contextlib.redirect_stdout(output):
+            thread.start()
+            try:
+                with concurrent.futures.ThreadPoolExecutor(max_workers=4) as clients:
+                    self.assertEqual(list(clients.map(send, range(16))), [200] * 16)
+            finally:
+                server.shutdown()
+                thread.join()
+                server.server_close()
+        checks = [json.loads(line) for line in output.getvalue().splitlines()]
+        evidence.validate_checks(checks)
+        self.assertEqual(len(checks), 16)
+        self.assertEqual(len({c["operation_id"] for c in checks}), 16)
+
     def check(self, headers=None, body=None):
         server = app.ThreadingHTTPServer(("127.0.0.1", 0), app.CheckHandler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)

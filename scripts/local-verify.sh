@@ -99,6 +99,7 @@ static() {
   PYTHONDONTWRITEBYTECODE=1 python3 "$ROOT/tests/e2e/test-recovery.py"
   PYTHONDONTWRITEBYTECODE=1 python3 "$ROOT/tests/e2e/test-upgrade.py"
   PYTHONDONTWRITEBYTECODE=1 python3 "$ROOT/tests/e2e/test-shared-gate.py"
+  PYTHONDONTWRITEBYTECODE=1 python3 "$ROOT/tests/e2e/test-saturation.py"
   "$ROOT/scripts/install-shared-gate.sh"
   python3 "$ROOT/scripts/validate-shared-gate.py" render "$ROOT/.tmp/rendered/shared-gate"
   "$ROOT/.tmp/p4-tools/istio-$ISTIO_VERSION/bin/istioctl" manifest generate \

@@ -77,11 +77,11 @@ def auth_filter(listeners):
             "authorization_check_value": "p4-check-without-credentials"}
 
 
-def target_cluster(clusters):
+def target_cluster(clusters, max_requests=1024):
     targets = [c for c in clusters if c.get("name", "").startswith("inbound|8080||")]
     require(len(targets) == 1, "target inbound cluster absent/ambiguous")
     cluster = targets[0]
-    require(any(t.get("maxRequests") == 1024 for t in cluster["circuitBreakers"]["thresholds"]), "inbound maxRequests differs")
+    require(any(t.get("maxRequests") == max_requests for t in cluster["circuitBreakers"]["thresholds"]), "inbound maxRequests differs")
     return {key: cluster[key] for key in ("name", "type", "circuitBreakers")} | {"altStatName": cluster.get("altStatName")}
 
 
@@ -248,7 +248,8 @@ def result(directory, exploratory=False):
                             "argo_synced_healthy", "same_owned_cluster"} and all(v is True for v in removal.values()),
             "fixture removal proof failed")
     phases = [json.loads(line)["phase"] for line in (out / "phases.jsonl").read_text().splitlines()]
-    require(phases == ["start", "direct-baseline", "install", "configuration", "deny", "gated", "remove", "post-removal"], "lifecycle order differs")
+    healthy_phases = ["start", "direct-baseline", "install", "configuration", "deny", "gated", "remove", "post-removal"]
+    require(phases in (healthy_phases, healthy_phases[:6] + ["saturation"] + healthy_phases[6:]), "lifecycle order differs")
     return {"source_sha": source["sha"], "source_dirty": source["dirty"], "completed": True,
             "acceptance": "verified" if not source["dirty"] else "not verified",
             "authorization_checks": len(checks), "attempt_check_counts": correlation_counts,

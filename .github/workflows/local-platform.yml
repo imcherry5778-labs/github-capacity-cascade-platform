@@ -139,7 +139,9 @@ jobs:
         with:
           name: local-operation-results
           path: |
-            results/local/**/events.jsonl
+            results/local/*/*/events.jsonl
+            results/local/shared-gate-*/gated/*/events.jsonl
+            results/local/shared-gate-*/post-removal/*/events.jsonl
             results/local/**/baseline-summary.json
           if-no-files-found: ignore
           retention-days: 14
@@ -147,9 +149,17 @@ jobs:
       - name: Verify same-cluster healthy gate and removal evidence
         if: steps.changes.outputs.runtime_changed == 'true'
         run: |
-          result="$(find results/local -path '*/shared-gate-*/result.json' -print -quit)"
+          result="$(find results/local -maxdepth 2 -path '*/shared-gate-*/result.json' -print -quit)"
           [[ -n "$result" ]] || { echo "shared gate result missing" >&2; exit 1; }
           python3 scripts/validate-shared-gate.py result "$(dirname "$result")"
+          jq -e --arg sha "$(git rev-parse HEAD)" '.source_sha == $sha and .source_dirty == false and .completed == true' "$result" >/dev/null
+
+      - name: Verify frozen saturation and bounded retry evidence
+        if: steps.changes.outputs.runtime_changed == 'true'
+        run: |
+          result="$(find results/local -path '*/shared-gate-*/saturation/result.json' -print -quit)"
+          [[ -n "$result" ]] || { echo "saturation result missing" >&2; exit 1; }
+          python3 scripts/shared-gate-saturation.py result "$(dirname "$(dirname "$result")")"
           jq -e --arg sha "$(git rev-parse HEAD)" '.source_sha == $sha and .source_dirty == false and .completed == true' "$result" >/dev/null
 
       - name: Retain sanitized shared gate evidence
@@ -171,6 +181,27 @@ jobs:
             results/local/shared-gate-*/removal.json
             results/local/shared-gate-*/phases.jsonl
             results/local/shared-gate-*/result.json
+            results/local/shared-gate-*/saturation/calibration-plan.json
+            results/local/shared-gate-*/saturation/frozen.json
+            results/local/shared-gate-*/saturation/result.json
+            results/local/shared-gate-*/saturation/calibration/events.jsonl
+            results/local/shared-gate-*/saturation/calibration/configuration.json
+            results/local/shared-gate-*/saturation/calibration/before.json
+            results/local/shared-gate-*/saturation/calibration/after.json
+            results/local/shared-gate-*/saturation/calibration/path.json
+            results/local/shared-gate-*/saturation/calibration/summary.json
+            results/local/shared-gate-*/saturation/no-retry/events.jsonl
+            results/local/shared-gate-*/saturation/no-retry/configuration.json
+            results/local/shared-gate-*/saturation/no-retry/before.json
+            results/local/shared-gate-*/saturation/no-retry/after.json
+            results/local/shared-gate-*/saturation/no-retry/path.json
+            results/local/shared-gate-*/saturation/no-retry/summary.json
+            results/local/shared-gate-*/saturation/retry/events.jsonl
+            results/local/shared-gate-*/saturation/retry/configuration.json
+            results/local/shared-gate-*/saturation/retry/before.json
+            results/local/shared-gate-*/saturation/retry/after.json
+            results/local/shared-gate-*/saturation/retry/path.json
+            results/local/shared-gate-*/saturation/retry/summary.json
           if-no-files-found: ignore
           retention-days: 14
 
