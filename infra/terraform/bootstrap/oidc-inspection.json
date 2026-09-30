@@ -1,0 +1,46 @@
+{
+  "inspected_at_utc": "2026-09-30T18:30:08.761522+00:00",
+  "source_baseline_sha": "ad49023bda68605cec0b3e55c96256ede8df6cf3",
+  "repository_api": "GET /repos/imcherry5778-labs/github-capacity-cascade-platform",
+  "repository": {
+    "full_name": "imcherry5778-labs/github-capacity-cascade-platform",
+    "id": 1384941385,
+    "created_at": "2026-09-24T07:23:10Z",
+    "default_branch": "main",
+    "delete_branch_on_merge": true,
+    "allow_squash_merge": true,
+    "allow_merge_commit": false,
+    "allow_rebase_merge": false
+  },
+  "owner": {
+    "login": "imcherry5778-labs",
+    "id": 273613742
+  },
+  "oidc_api": "GET /repos/imcherry5778-labs/github-capacity-cascade-platform/actions/oidc/customization/sub",
+  "oidc_configuration": {
+    "use_default": true,
+    "use_immutable_subject": true,
+    "sub_claim_prefix": "repo:imcherry5778-labs@273613742/github-capacity-cascade-platform@1384941385"
+  },
+  "main_ruleset_api": "GET /repos/imcherry5778-labs/github-capacity-cascade-platform/rulesets/24163252",
+  "main_ruleset": {
+    "id": 24163252,
+    "enforcement": "active",
+    "conditions": {
+      "ref_name": {
+        "exclude": [],
+        "include": [
+          "~DEFAULT_BRANCH"
+        ]
+      }
+    },
+    "bypass_actors": []
+  },
+  "main_rule_types": [
+    "deletion",
+    "non_fast_forward",
+    "pull_request"
+  ],
+  "derived_main_subject": "repo:imcherry5778-labs@273613742/github-capacity-cascade-platform@1384941385:ref:refs/heads/main",
+  "token_exchange": "not verified"
+}
