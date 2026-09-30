@@ -1,6 +1,7 @@
 {
-  "inspected_at_utc": "2026-09-30T18:30:08.761522+00:00",
+  "inspected_at_utc": "2026-09-30T20:02:49.412048+00:00",
   "source_baseline_sha": "ad49023bda68605cec0b3e55c96256ede8df6cf3",
+  "inspected_source_sha": "03438f6305010e5ab39228e3a0d7234735b5f807",
   "repository_api": "GET /repos/imcherry5778-labs/github-capacity-cascade-platform",
   "repository": {
     "full_name": "imcherry5778-labs/github-capacity-cascade-platform",
@@ -41,6 +42,56 @@
     "non_fast_forward",
     "pull_request"
   ],
-  "derived_main_subject": "repo:imcherry5778-labs@273613742/github-capacity-cascade-platform@1384941385:ref:refs/heads/main",
+  "environment_inventory_api": "GET /repos/imcherry5778-labs/github-capacity-cascade-platform/environments?per_page=100",
+  "environment_inventory": {
+    "total_count": 1,
+    "environments": [
+      {
+        "id": 23146404372,
+        "name": "azure"
+      }
+    ]
+  },
+  "environment_api": "GET /repos/imcherry5778-labs/github-capacity-cascade-platform/environments/azure",
+  "environment": {
+    "id": 23146404372,
+    "name": "azure",
+    "created_at": "2026-09-30T19:54:38Z",
+    "updated_at": "2026-09-30T19:54:38Z",
+    "can_admins_bypass": true,
+    "protection_rules": [
+      {
+        "id": 67256114,
+        "node_id": "GA_kwDOUoyHSc4EAj8y",
+        "type": "branch_policy"
+      }
+    ],
+    "deployment_branch_policy": {
+      "protected_branches": false,
+      "custom_branch_policies": true
+    }
+  },
+  "deployment_branch_policies_api": "GET /repos/imcherry5778-labs/github-capacity-cascade-platform/environments/azure/deployment-branch-policies?per_page=100",
+  "deployment_branch_policies": {
+    "total_count": 1,
+    "branch_policies": [
+      {
+        "id": 61568668,
+        "node_id": "MDE2OkdhdGVCcmFuY2hQb2xpY3k2MTU2ODY2OA==",
+        "name": "main",
+        "type": "branch"
+      }
+    ]
+  },
+  "deployment_protection_rules_api": "GET /repos/imcherry5778-labs/github-capacity-cascade-platform/environments/azure/deployment_protection_rules",
+  "deployment_protection_rules": {
+    "total_count": 0,
+    "custom_deployment_protection_rules": []
+  },
+  "derived_environment_subject": "repo:imcherry5778-labs@273613742/github-capacity-cascade-platform@1384941385:environment:azure",
+  "subject_semantics_sources": [
+    "https://docs.github.com/en/actions/reference/security/oidc#immutable-subject-claims",
+    "https://docs.github.com/en/actions/reference/security/oidc#filtering-for-a-specific-environment"
+  ],
   "token_exchange": "not verified"
 }

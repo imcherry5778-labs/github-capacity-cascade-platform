@@ -17,7 +17,7 @@ output "ci_identity" {
     id           = azurerm_user_assigned_identity.ci.id
     client_id    = azurerm_user_assigned_identity.ci.client_id
     principal_id = azurerm_user_assigned_identity.ci.principal_id
-    subject      = azurerm_federated_identity_credential.main.subject
+    subject      = azurerm_federated_identity_credential.azure.subject
   }
 }
 

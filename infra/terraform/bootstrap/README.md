@@ -44,25 +44,41 @@ Container 문서의 Shared Key 관련 설명을 runtime 검증 결과로 해석�
 ## Inspected GitHub trust
 
 2026-10-01 authenticated read-only API snapshot은 [`oidc-inspection.json`](oidc-inspection.json)에 있다.
-Repository/owner ID, 생성일, 실제 OIDC 설정 및 active `main` ruleset의 관련 항목을 보존한다.
+Repository/owner ID, 생성일, 실제 OIDC 설정, active `main` ruleset 및 `azure` Environment 설정을 보존한다.
 OIDC 설정은 `use_default=true`, `use_immutable_subject=true`이며 별도 custom claim keys는 반환되지 않았다.
-API가 반환한 `sub_claim_prefix`에 default branch context를 붙여 다음 exact subject를 도출했다.
+Environment 조회와 deployment branch/custom protection API에서 다음을 확인했다.
+
+- Environment: `azure` (ID `23146404372`)
+- `deployment_branch_policy`: `protected_branches=false`, `custom_branch_policies=true`
+- 허용 policy: `name=main`, `type=branch` 하나. Tag policy 없음.
+- Protection rule: `branch_policy`만 존재. Required reviewer, wait timer, custom protection rule 없음.
+- API의 `can_admins_bypass=true`도 실제 설정으로 기록했다. 이번 source correction에서 GitHub 설정을 변경하지 않았다.
+
+GitHub 문서는 job이 Environment를 참조하면 subject가 Environment context를 사용한다고 정의한다.
+실제 `sub_claim_prefix`와 `azure` Environment 이름을 조합해 다음 exact immutable subject를 도출했다.
 
 ```text
-repo:imcherry5778-labs@273613742/github-capacity-cascade-platform@1384941385:ref:refs/heads/main
+repo:imcherry5778-labs@273613742/github-capacity-cascade-platform@1384941385:environment:azure
 ```
 
 - Issuer: `https://token.actions.githubusercontent.com`
 - Audience: `api://AzureADTokenExchange`
 - [GitHub immutable subject/reference](https://docs.github.com/en/actions/reference/security/oidc#immutable-subject-claims)
+- [GitHub Environment subject rule](https://docs.github.com/en/actions/reference/security/oidc#filtering-for-a-specific-environment)
 - [GitHub Azure audience contract](https://docs.github.com/en/actions/how-tos/secure-your-work/security-harden-deployments/oidc-in-azure)
 
-이 subject는 protected `main`의 branch context이며 PR context나 GitHub Environment context에 대한 trust가 아니다.
+향후 Azure job은 `environment: azure`를 참조해야 한다. Azure trust는 Environment context를 검사하고,
+허용 ref는 GitHub Environment의 `main` branch policy가 제한한다. Environment를 참조하지 않는 branch-only job은 이 subject와 일치하지 않는다.
+이번 work unit에는 Azure deployment workflow나 OIDC token 발급 권한을 추가하지 않는다.
 실제 Actions OIDC token 발급/Azure token exchange는 실행하지 않았다(**not verified**).
-Rename/transfer/OIDC template 또는 `main` protection 변경 시 다음 read-only 조회와 공식 subject contract를 다시 대조한다.
+Rename/transfer/OIDC template 또는 Environment/protection/branch policy 변경 시 다음 read-only 조회와 공식 subject contract를 다시 대조한다.
 현재 snapshot은 영구적인 setting authority가 아니다.
 
 ```sh
+gh api repos/imcherry5778-labs/github-capacity-cascade-platform/environments
+gh api repos/imcherry5778-labs/github-capacity-cascade-platform/environments/azure
+gh api repos/imcherry5778-labs/github-capacity-cascade-platform/environments/azure/deployment-branch-policies
+gh api repos/imcherry5778-labs/github-capacity-cascade-platform/environments/azure/deployment_protection_rules
 gh api repos/imcherry5778-labs/github-capacity-cascade-platform/actions/oidc/customization/sub
 gh api repos/imcherry5778-labs/github-capacity-cascade-platform
 gh api repos/imcherry5778-labs/github-capacity-cascade-platform/rulesets/24163252
@@ -86,4 +102,6 @@ Terraform 검증은 fresh temp directory에 source/tests/lockfile만 복사하�
 모든 test는 [mock provider](https://developer.hashicorp.com/terraform/language/tests/mocking)와 `command=plan`이며 Azure API를 호출하지 않는다.
 Exact subject/issuer/audience, 단일 CI principal, container/RG role scope 5개, Entra ID backend contract,
 case-insensitive RG boundary collapse 거부를 검사한다. Source inventory/local-state 및 mock-only guard도 실행한다.
+Environment/OIDC guard는 snapshot의 `azure` protection/main-only policy와 source subject를 대조하며,
+이전 branch-only subject로 되돌아가면 실패한다. Snapshot 검증은 live GitHub 설정을 재조회한 결과를 대신하지 않는다.
 Init의 registry/release download에는 인터넷이 필요하다. PR CI에는 Azure login, OIDC token 권한, 실제 plan/apply/destroy가 없다.

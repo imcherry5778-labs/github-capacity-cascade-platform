@@ -1,7 +1,7 @@
 locals {
-  # 2026-10-01 authenticated GitHub GET: use_default=true, use_immutable_subject=true.
+  # 2026-10-01 authenticated GitHub GET: immutable subject, azure Environment, main-only branch policy.
   # provenance와 재확인 절차는 README.md 참조. Trust identity는 operator input으로 확장하지 않는다.
-  github_main_subject = "repo:imcherry5778-labs@273613742/github-capacity-cascade-platform@1384941385:ref:refs/heads/main"
+  github_environment_subject = "repo:imcherry5778-labs@273613742/github-capacity-cascade-platform@1384941385:environment:azure"
 
   ci_resource_groups = {
     foundation  = azurerm_resource_group.boundary["foundation"].id
@@ -43,12 +43,12 @@ resource "azurerm_user_assigned_identity" "ci" {
   location            = azurerm_resource_group.boundary["bootstrap"].location
 }
 
-resource "azurerm_federated_identity_credential" "main" {
-  name                      = "github-main"
+resource "azurerm_federated_identity_credential" "azure" {
+  name                      = "github-azure"
   user_assigned_identity_id = azurerm_user_assigned_identity.ci.id
   issuer                    = "https://token.actions.githubusercontent.com"
   audience                  = ["api://AzureADTokenExchange"]
-  subject                   = local.github_main_subject
+  subject                   = local.github_environment_subject
 }
 
 resource "azurerm_role_assignment" "state" {

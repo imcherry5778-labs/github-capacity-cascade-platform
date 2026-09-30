@@ -72,12 +72,13 @@ run "trust_and_permission_boundary" {
 
   assert {
     condition = (
-      azurerm_federated_identity_credential.main.subject == "repo:imcherry5778-labs@273613742/github-capacity-cascade-platform@1384941385:ref:refs/heads/main" &&
-      azurerm_federated_identity_credential.main.issuer == "https://token.actions.githubusercontent.com" &&
-      toset(azurerm_federated_identity_credential.main.audience) == toset(["api://AzureADTokenExchange"]) &&
-      azurerm_federated_identity_credential.main.user_assigned_identity_id == azurerm_user_assigned_identity.ci.id
+      azurerm_federated_identity_credential.azure.subject == "repo:imcherry5778-labs@273613742/github-capacity-cascade-platform@1384941385:environment:azure" &&
+      azurerm_federated_identity_credential.azure.name == "github-azure" &&
+      azurerm_federated_identity_credential.azure.issuer == "https://token.actions.githubusercontent.com" &&
+      toset(azurerm_federated_identity_credential.azure.audience) == toset(["api://AzureADTokenExchange"]) &&
+      azurerm_federated_identity_credential.azure.user_assigned_identity_id == azurerm_user_assigned_identity.ci.id
     )
-    error_message = "Federation은 검증한 immutable protected-main subject/issuer/audience와 단일 CI identity를 사용해야 한다."
+    error_message = "Federation은 검증한 immutable azure Environment subject/issuer/audience와 단일 CI identity를 사용해야 한다."
   }
 
   assert {
