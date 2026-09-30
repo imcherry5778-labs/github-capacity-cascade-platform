@@ -129,6 +129,7 @@ jobs:
           summary="$(find results/local -name baseline-summary.json -print -quit)"
           [[ -n "$summary" ]] || { echo "baseline summary missing after owned cleanup" >&2; exit 1; }
           jq -e --arg sha "$(git rev-parse HEAD)" '.source_sha == $sha and .operation_samples == 45 and .attempt_samples == 45' "$summary" >/dev/null
+          echo "UPGRADE_BASELINE_RESULT=$summary" >>"$GITHUB_ENV"
 
       - name: Retain sanitized operation results
         if: ${{ always() && steps.changes.outputs.runtime_changed == 'true' }}
@@ -152,6 +153,7 @@ jobs:
           result="$(find results/local -path '*/recovery-*/result.json' -print -quit)"
           [[ -n "$result" ]] || { echo "recovery result missing" >&2; exit 1; }
           jq -e --arg sha "$(git rev-parse HEAD)" '.source_sha == $sha and .source_dirty == false and .completed == true' "$result" >/dev/null
+          echo "UPGRADE_RECOVERY_RESULT=$result" >>"$GITHUB_ENV"
 
       - name: Retain sanitized recovery evidence
         if: ${{ always() && steps.changes.outputs.runtime_changed == 'true' }}
@@ -165,6 +167,41 @@ jobs:
             results/local/recovery-*/phases.jsonl
             results/local/recovery-*/result.json
             results/local/recovery-*/target-identity.json
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Forgejo patch upgrade and fresh state-aware rollback
+        if: steps.changes.outputs.runtime_changed == 'true'
+        run: |
+          make upgrade
+          result="$(find results/local -path '*/upgrade-*/result.json' -print -quit)"
+          [[ -n "$result" ]] || { echo "upgrade result missing" >&2; exit 1; }
+          python3 scripts/validate-upgrade.py result "$result"
+          jq -e --arg sha "$(git rev-parse HEAD)" '.source_sha == $sha and .source_dirty == false and .completed == true' "$result" >/dev/null
+
+      - name: Retain sanitized upgrade evidence
+        if: ${{ always() && steps.changes.outputs.runtime_changed == 'true' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: local-upgrade-results
+          path: |
+            results/local/upgrade-*/checkpoint.json
+            results/local/upgrade-*/doctor-source.json
+            results/local/upgrade-*/doctor-upgraded.json
+            results/local/upgrade-*/doctor-target.json
+            results/local/upgrade-*/doctor-post-write.json
+            results/local/upgrade-*/phases.jsonl
+            results/local/upgrade-*/upstream.jsonl
+            results/local/upgrade-*/runtime-a.json
+            results/local/upgrade-*/runtime-b.json
+            results/local/upgrade-*/runtime-rollback.json
+            results/local/upgrade-*/b-marker.json
+            results/local/upgrade-*/marker-absence.json
+            results/local/upgrade-*/post-write.json
+            results/local/upgrade-*/target-identity.json
+            results/local/upgrade-*/result.json
+            results/local/upgrade-*/regression-baseline.json
+            results/local/upgrade-*/regression-recovery.json
           if-no-files-found: ignore
           retention-days: 14
 

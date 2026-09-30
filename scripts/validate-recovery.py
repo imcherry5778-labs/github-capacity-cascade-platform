@@ -42,7 +42,7 @@ def load(path):
         return json.load(stream)
 
 
-def doctor_config(directory):
+def doctor_config(directory, patch="15.0.9"):
     # The pinned v15.0.9 binary defaults these absent keys to false/console/workdir/log.
     section = ""
     keys = {}
@@ -72,9 +72,9 @@ def doctor_config(directory):
     require(lfs == "false", "gc-lfs N/A requires disabled LFS")
     return {"lfs_start_server": False, "ssh_disabled": True,
             "log_mode": mode, "log_root_path": root,
-            "lfs_setting": "explicit" if ("server", "LFS_START_SERVER") in keys else "v15.0.9_default",
-            "log_mode_setting": "explicit" if ("log", "MODE") in keys else "v15.0.9_default",
-            "log_root_setting": "explicit" if ("log", "ROOT_PATH") in keys else "v15.0.9_workdir_default"}
+            "lfs_setting": "explicit" if ("server", "LFS_START_SERVER") in keys else f"v{patch}_default",
+            "log_mode_setting": "explicit" if ("log", "MODE") in keys else f"v{patch}_default",
+            "log_root_setting": "explicit" if ("log", "ROOT_PATH") in keys else f"v{patch}_workdir_default"}
 
 
 def doctor_inventory(output):
@@ -137,12 +137,14 @@ def doctor_integrity(name, title, output, exit_code):
     return {"status": "pass", "command_exit": exit_code, "diagnostics": 0}
 
 
-def validate_doctor(directory, source=None):
+def validate_doctor(directory, source=None, upgrade=False):
     directory = Path(directory)
     meta = load(directory / "metadata.json")
-    require(meta.get("forgejo_version", "").startswith("15.0.9+") and
+    patch = meta.get("forgejo_version", "").split("+", 1)[0]
+    require(patch in ({"15.0.8", "15.0.9"} if upgrade else {"15.0.9"}) and
+            meta.get("forgejo_version", "").startswith(patch + "+") and
             meta.get("forgejo_image_id"), "doctor runtime version/image")
-    config = doctor_config(directory)
+    config = doctor_config(directory, patch)
     inventory = doctor_inventory((directory / "inventory.txt").read_text())
     paths = doctor_paths((directory / "paths.txt").read_text(),
                          int((directory / "paths.exit").read_text()))
@@ -162,6 +164,14 @@ def validate_doctor(directory, source=None):
     if source is not None:
         for key in ("forgejo_version", "forgejo_image_id", "effective_config", "inventory",
                     "selected", "paths", "not_applicable"):
+            if upgrade and key in {"forgejo_version", "forgejo_image_id"}:
+                continue  # Exact pair/image identity is checked by validate-upgrade.py.
+            if upgrade and key == "effective_config":
+                # Default provenance reflects the binary; effective values must still match.
+                effective = {k: v for k, v in result[key].items() if not k.endswith("_setting")}
+                baseline = {k: v for k, v in source.get(key, {}).items() if not k.endswith("_setting")}
+                require(effective == baseline, "target doctor effective_config differs from source")
+                continue
             require(result[key] == source.get(key), f"target doctor {key} differs from source")
     return result
 
@@ -206,7 +216,10 @@ def validate_bundle(directory):
 
 
 def validate_result(path):
-    result = load(path)
+    return validate_result_data(load(path))
+
+
+def validate_result_data(result):
     require(result.get("schema_version") == 1 and result.get("completed") is True, "result incomplete")
     require(result.get("source_server_id") != result.get("target_server_id"), "source server reused")
     require(result.get("source_server_id") and result.get("target_server_id"), "cluster identity absent")
@@ -245,9 +258,9 @@ def validate_result(path):
 
 
 def main():
-    if len(sys.argv) == 5 and sys.argv[1] == "doctor":
+    if len(sys.argv) == 5 and sys.argv[1] in {"doctor", "doctor-upgrade"}:
         source = load(sys.argv[3]) if sys.argv[3] != "-" else None
-        result = validate_doctor(sys.argv[2], source)
+        result = validate_doctor(sys.argv[2], source, upgrade=sys.argv[1] == "doctor-upgrade")
         Path(sys.argv[4]).write_text(json.dumps(result, indent=2) + "\n")
         print("valid applicable doctor checks and bounded paths baseline")
         return

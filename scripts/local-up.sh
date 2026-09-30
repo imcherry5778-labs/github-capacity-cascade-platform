@@ -110,9 +110,9 @@ done
 kubectl -n argocd rollout status statefulset/argocd-application-controller --timeout=300s
 
 log "bootstrapping restricted Forgejo Application"
-if [[ -n "${LOCAL_RESTORE_SECRETS_FILE:-}" ]]; then
-  # Application을 만들면 autosync가 Forgejo를 시작한다. Restore caller만 완료 후 적용한다.
-  log "restore target prepared without Forgejo Application or Pod"
+if [[ -n "${LOCAL_RESTORE_SECRETS_FILE:-}" || "${LOCAL_DEFER_FORGEJO_START:-0}" == 1 ]]; then
+  # Application을 만들면 autosync가 Forgejo를 시작한다. Maintenance caller가 준비 완료 후 적용한다.
+  log "maintenance target prepared without Forgejo Application or Pod"
   exit 0
 fi
 kubectl -n argocd apply -f "$ROOT/platform/argocd/forgejo-local.yaml"

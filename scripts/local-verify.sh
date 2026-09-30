@@ -97,6 +97,7 @@ static() {
   python3 -c 'import ast,sys; ast.parse(open(sys.argv[1]).read())' "$ROOT/scripts/validate-operation-results.py"
   PYTHONDONTWRITEBYTECODE=1 python3 "$ROOT/tests/e2e/test-operation-results.py"
   PYTHONDONTWRITEBYTECODE=1 python3 "$ROOT/tests/e2e/test-recovery.py"
+  PYTHONDONTWRITEBYTECODE=1 python3 "$ROOT/tests/e2e/test-upgrade.py"
   pass "shell syntax + shellcheck ($(shellcheck --version | awk '/^version:/ {print $2}'), ${#scripts[@]} files)"
 
   expect_line platform/local/k3d.yaml "image: $K3S_IMAGE"
@@ -157,6 +158,23 @@ static() {
     fail "rendered Forgejo kinds no longer match project whitelist"
 
   check_config "$(inline_config_ini "$rendered")" "rendered"
+
+  # W3 maintenance A override must preserve the Core render apart from images/version metadata.
+  local from_render="$ROOT/.tmp/rendered/forgejo-upgrade-from.yaml"
+  helm template forgejo "$FORGEJO_CHART" --version "$FORGEJO_CHART_VERSION" --namespace forgejo \
+    -f "$ROOT/platform/forgejo/values-common.yaml" -f "$ROOT/platform/forgejo/values-local.yaml" \
+    --set-string "image.tag=$FORGEJO_UPGRADE_FROM_IMAGE_TAG" \
+    --set-string "image.digest=$FORGEJO_UPGRADE_FROM_IMAGE_DIGEST" >"$from_render"
+  python3 - "$rendered" "$from_render" "$FORGEJO_IMAGE_TAG" "$FORGEJO_UPGRADE_FROM_IMAGE_TAG" \
+    "$FORGEJO_UPGRADE_FROM_IMAGE_DIGEST" <<'PY'
+from pathlib import Path
+import re, sys
+stable, previous = (Path(p).read_text() for p in sys.argv[1:3])
+previous = previous.replace(sys.argv[4] + "@" + sys.argv[5], sys.argv[3]).replace(sys.argv[4], sys.argv[3])
+normalize = lambda text: re.sub(r"checksum/config: [0-9a-f]{64}", "checksum/config: derived", text)
+assert normalize(stable) == normalize(previous), "maintenance A override changes Core render"
+PY
+  pass "maintenance A override preserves chart/Core render"
 }
 
 gitops_contract() {
