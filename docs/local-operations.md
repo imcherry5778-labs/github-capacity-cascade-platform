@@ -75,6 +75,30 @@ Removal은 현재 server ID와 installed object UID/owner를 다시 확인한 �
 
 W1의 stat inventory는 actual version에서 관측한 이름/값만 기록한다. `upstream_rq_active_overflow`의 존재 여부는 기록하되 saturation/rejection signal 검증으로 승격하지 않는다. W1은 Linux/amd64 Local HTTP proof이며 saturation/load calibration/retry amplification/P5 Azure source는 포함하지 않는다.
 
+## P4-W2 active-request saturation / bounded retry
+
+`make local`은 W1 healthy journey와 credential/body exclusion을 먼저 확인한 뒤 같은 fixture에서 `scripts/shared-gate-saturation.py`를 실행한다. W1의 기본 `maxRequests=1024`, hold `0`은 유지한다. Target Pod의 `proxy.istio.io/config` `ProxyStatsMatcher`에는 `upstream_rq_active`, `upstream_rq_active_overflow`, `upstream_rq_total`, `upstream_rq_pending_active`, `upstream_rq_pending_overflow` suffix만 추가한다. Mesh 전체 stat enablement나 `EnvoyFilter`는 사용하지 않는다. Actual bootstrap matcher와 target cluster의 실제 stat 이름을 별도로 보존한다.
+
+### Official upstream revalidation (2026-10-01)
+
+[Sidecar inbound connection pool](https://istio.io/latest/docs/reference/config/networking/sidecar/)과 selected [1.30.5 mapping source](https://github.com/istio/istio/blob/1.30.5/pilot/pkg/networking/core/cluster_traffic_policy.go)는 `http2MaxRequests`를 Envoy `maxRequests`로 변환한다. [Envoy 1.38 변경 기록](https://www.envoyproxy.io/docs/envoy/latest/version_history/v1.38/v1.38.0)은 exhausted `max_requests`의 authoritative rejection signal을 `upstream_rq_active_overflow`로 구분한다. Selected [connection-pool source](https://github.com/envoyproxy/envoy/blob/a3357a295443d008c6aec4c3d508745d9b002f40/source/common/conn_pool/conn_pool_base.cc)와 [runtime guard source](https://github.com/envoyproxy/envoy/blob/a3357a295443d008c6aec4c3d508745d9b002f40/source/common/runtime/runtime_features.cc)도 확인했다. `envoy.reloadable_features.skip_pending_overflow_count_on_active_rq`를 수정하지 않고 admin의 해당 entry와 실제 active/pending overflow delta를 기록한다. Entry가 없는 경우 default source와 측정한 effective behavior를 구분한다.
+
+[Istio stat 설정](https://istio.io/latest/docs/ops/configuration/telemetry/envoy-stats/)은 workload annotation으로 `ProxyStatsMatcher`를 적용할 수 있음을 명시한다. [ext_authz API](https://www.envoyproxy.io/docs/envoy/latest/api-v3/extensions/filters/http/ext_authz/v3/ext_authz.proto)는 `failure_mode_allow=false`의 check error/5xx가 downstream rejection으로 전달됨을 설명한다. Client status를 mechanism counter로 대신 사용하지 않는다. 실제 status/detail은 각 run에서 기록하고 판정한다.
+
+### Calibration / frozen measurement
+
+Experiment ConfigMap의 hold 파일은 허용된 check에만 non-CPU-spin delay를 적용한다. Request header/query로 duration을 선택하지 않으며, app이 `0..2000 ms` 범위 밖 값을 거부한다. Source `experiments/fixtures/shared-gate/saturation.json`의 단일 bounded 후보는 `max_requests=2`, `hold_ms=1000`, logical operations `24`, concurrency `12`다. Calibration이 actual capacity, non-zero active overflow, client impact, direct sentinel, confounder guard를 모두 만족하면 **값을 바꾸지 않고** `frozen.json`을 exclusive-create한다. 실패하면 추가 tuning/acceptance 완화 없이 중단한다. Calibration은 final proof가 아니다.
+
+Measured load는 W1 healthy developer fixture의 기존 private Issue를 읽는 authenticated `GET` 하나다. No-retry와 retry는 같은 frozen demand/runtime/hold/capacity/concurrency를 사용하고 client `max_attempts`만 `1 → 2`로 바꾼다. 실패한 operation에 즉시 최대 한 번 retry하며 HAProxy/Forgejo route retry는 계속 `0`이다. P3의 9-operation schema는 변경하지 않는다. Experiment JSONL은 operation/attempt ID, HTTP status, semantic read outcome, monotonic timing을 기록한다. Body/credential/path는 보존하지 않는다.
+
+`authorization_checks`는 HAProxy backend가 target에 전달하고 응답받은 HTTP check 수이며 **inbound에서 거절된 check도 포함**한다. `admitted_app_checks`는 실제 app의 ALLOW 기록 수다. Target inbound access-log 수, target active overflow, app/target upstream total, ingress `ext_authz_error`와 client failure 수를 같은 격리된 run window에서 대조한다. App correlation은 operation/attempt ID로 확인한다. 이 좁은 HTTP read의 dispatch count가 client attempt와 맞는지 검사할 뿐, 일반 Git operation의 HTTP 수를 1:1로 가정하지 않는다.
+
+Direct-path의 같은 authenticated Issue read와 `/api/healthz`를 부하 중 반복해 모든 응답과 gated failure의 시간 overlap을 확인한다. 전/중/후 Pod Ready/UID/restart, node Ready/pressure, PostgreSQL read-only query와 connections/max/reserved/state inventory를 검사한다. HAProxy queue/error/retry/response counters를 기록하고 competing limit/error가 있으면 invalid로 중단한다. CPU/memory metrics API가 있으면 관측값을 기록하며 기존 Local cluster가 metrics-server를 끈 상태이면 unavailable로 남긴다. 임의 latency/SLO threshold를 추가하지 않는다.
+
+`results/local/shared-gate-<id>/saturation/`은 calibration plan, frozen config/provenance, 각 run의 append-only events와 immutable configuration/before/after/path/summary, final result를 보존한다. Validator는 dirty source, 불완전 run, capacity/demand drift, missing/competing overflow, failed/non-overlapping sentinel, restart/pressure/DB exhaustion/HAProxy queue, count mismatch를 거부한다. Final result는 W1 건강 검증과 같은 cluster의 fixture removal/post-removal direct journey도 재검사한다. CI는 기존 45분 job과 P1/P2/P3 recovery/upgrade 경로를 유지하며 filename allowlist만 upload한다.
+
+Retry amplification은 같은 logical demand의 attempt/check/shared-path request 증가로 판정한다. Overflow 증가나 reliability 개선/악화는 amplification의 필수 조건이 아니다. 이 증거는 Local Linux/amd64 loopback mechanism proof이며 Azure managed support, Azure SLO, HPA/KEDA/mitigation 또는 P5 구현을 주장하지 않는다.
+
 ## P3-W3 patch upgrade / state-aware rollback
 
 `make upgrade`는 `scripts/local-recover.sh upgrade`를 사용한다. 기존 W2의 developer fixture, coordinated checkpoint, Secret/DB/full `/data` restore와 doctor validator를 재사용한다. 이번 drill은 linux/amd64에서 `15.0.8-rootless`(A) → stable `15.0.9-rootless`(B) 한 pair만 검증한다. Official OCI index와 amd64 manifest digest는 `versions.env`의 W3 inventory로 구분한다. Kubernetes의 actual imageID와 init/application image도 비교하며, tag만으로 runtime identity를 주장하지 않는다.

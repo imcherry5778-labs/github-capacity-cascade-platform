@@ -67,6 +67,14 @@ spec:
   selector: {app: haproxy}
   ports: [{name: http-check, port: 8080, targetPort: 8080}]
 ---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ext-authz-hold
+  namespace: shared-gate
+data:
+  hold-ms: "0"
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -81,12 +89,22 @@ spec:
       labels: {app: ext-authz-sim}
       annotations:
         sidecar.istio.io/inject: "true"
+        proxy.istio.io/config: |
+          proxyStatsMatcher:
+            inclusionSuffixes:
+              - upstream_rq_active
+              - upstream_rq_active_overflow
+              - upstream_rq_total
+              - upstream_rq_pending_active
+              - upstream_rq_pending_overflow
     spec:
       securityContext: {runAsUser: 10001, runAsGroup: 10001, fsGroup: 10001}
       containers:
         - name: app
           image: "@EXT_AUTHZ_IMAGE@"
           imagePullPolicy: Never
+          env: [{name: CHECK_HOLD_FILE, value: /config/hold-ms}]
+          volumeMounts: [{name: hold, mountPath: /config, readOnly: true}]
           ports: [{containerPort: 8080}]
           readinessProbe:
             tcpSocket: {port: 8080}
@@ -95,6 +113,9 @@ spec:
           securityContext:
             readOnlyRootFilesystem: true
             allowPrivilegeEscalation: false
+      volumes:
+        - name: hold
+          configMap: {name: ext-authz-hold}
 ---
 apiVersion: v1
 kind: Service

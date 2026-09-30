@@ -1,13 +1,28 @@
 """Local HTTP ext_authz fixture. Never retain header values, path or body."""
 import json
+import os
+from pathlib import Path
 import re
+import threading
+import time
 import uuid
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+LOG_LOCK = threading.Lock()
+
 
 def correlation(value):
     return value if re.fullmatch(r"[a-zA-Z0-9-]{1,128}", value or "") else None
+
+
+def hold_ms():
+    # Fixed experiment configuration, never a request header/query parameter.
+    path = os.environ.get("CHECK_HOLD_FILE")
+    value = int(Path(path).read_text()) if path else 0
+    if not 0 <= value <= 2000:
+        raise ValueError("fixture hold must be between 0 and 2000 ms")
+    return value
 
 
 class CheckHandler(BaseHTTPRequestHandler):
@@ -27,6 +42,8 @@ class CheckHandler(BaseHTTPRequestHandler):
         hop = self.headers.get("x-shared-gate-hop") == "haproxy"
         deny = self.headers.get("x-gate-test-deny") == "true"
         allowed = body_absent and credentials_absent and hop and not deny
+        if allowed:
+            time.sleep(hold_ms() / 1000)
         record = {
             "record": "authorization_check", "check_id": str(uuid.uuid4()),
             "timestamp_utc": datetime.now(timezone.utc).isoformat(),
@@ -36,7 +53,10 @@ class CheckHandler(BaseHTTPRequestHandler):
             "credential_values_absent": credentials_absent, "body_absent": body_absent,
             "haproxy_hop": hop, "controlled_deny": deny,
         }
-        print(json.dumps(record, separators=(",", ":")), flush=True)
+        # A JSON line and its newline must remain one serialized record even
+        # when held requests finish together on different handler threads.
+        with LOG_LOCK:
+            print(json.dumps(record, separators=(",", ":")), flush=True)
         self.send_response(200 if allowed else 403)
         self.send_header("Content-Length", "0")
         self.send_header("x-gate-decision", record["decision"])
