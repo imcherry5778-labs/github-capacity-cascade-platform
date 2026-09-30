@@ -1,0 +1,55 @@
+# Local P4-W1 only. Tokens are rendered from versions.env, never from shell expansion.
+apiVersion: install.istio.io/v1alpha1
+kind: IstioOperator
+spec:
+  profile: minimal
+  hub: docker.io/istio
+  tag: "@ISTIO_VERSION@"
+  meshConfig:
+    accessLogFile: /dev/stdout
+    accessLogEncoding: JSON
+    # No path, request body, credentials, arbitrary request header values, or local file paths.
+    accessLogFormat: |
+      {"record":"proxy_request","status":"%RESPONSE_CODE%","details":"%RESPONSE_CODE_DETAILS%","upstream_cluster":"%UPSTREAM_CLUSTER%","upstream_host":"%UPSTREAM_HOST%"}
+    extensionProviders:
+      - name: shared-gate
+        envoyExtAuthzHttp:
+          service: haproxy.shared-gate.svc.cluster.local
+          port: 8080
+          timeout: 5s
+          failOpen: false
+          includeRequestHeadersInCheck: [x-operation-id, x-attempt-id, x-gate-test-deny]
+          # Selected Envoy always includes Authorization in HTTP checks. Replace its
+          # value in the check copy before dispatch; leave the original request intact.
+          includeAdditionalHeadersInCheck:
+            authorization: p4-check-without-credentials
+          headersToDownstreamOnDeny: [x-gate-decision]
+  values:
+    pilot:
+      image: "@ISTIO_PILOT_IMAGE@"
+      autoscaleEnabled: false
+    gateways:
+      istio-ingressgateway:
+        autoscaleEnabled: false
+    global:
+      proxy:
+        image: "@ISTIO_PROXY_IMAGE@"
+      proxy_init:
+        image: "@ISTIO_PROXY_IMAGE@"
+  components:
+    ingressGateways:
+      - name: p4-ingress
+        namespace: shared-gate
+        enabled: true
+        label:
+          istio: p4-ingress
+        k8s:
+          service:
+            type: ClusterIP
+            ports:
+              - name: status-port
+                port: 15021
+                targetPort: 15021
+              - name: http
+                port: 8080
+                targetPort: 8080

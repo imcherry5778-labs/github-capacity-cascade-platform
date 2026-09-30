@@ -22,6 +22,7 @@ on_exit() {
     echo "[local-run] this invocation did not create $CLUSTER; no automatic cleanup" >&2
   fi
   rm -f "$marker"
+  rm -f "$marker.baseline"
   if [[ "$rc" -eq 0 && "$cleanup_rc" -ne 0 ]]; then
     rc=$cleanup_rc
   fi
@@ -30,5 +31,7 @@ on_exit() {
 trap 'on_exit $?' EXIT
 
 LOCAL_CLUSTER_OWNERSHIP_MARKER="$marker" "$ROOT/scripts/local-up.sh"
-"$ROOT/scripts/local-verify.sh" baseline
+BASELINE_RESULT_PATH_FILE="$marker.baseline" "$ROOT/scripts/local-verify.sh" baseline
 "$ROOT/scripts/local-verify.sh" runtime
+LOCAL_CLUSTER_OWNERSHIP_MARKER="$marker" \
+  SHARED_GATE_BASELINE_RESULT="$(cat "$marker.baseline")" "$ROOT/scripts/local-shared-gate.sh"

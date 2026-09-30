@@ -19,7 +19,9 @@ set -euo pipefail
 MODE="${1:?usage: forgejo-developer-journey.sh create|verify [label]}"
 LABEL="${2:-$MODE}"
 : "${FORGEJO_URL:?}" "${JOURNEY_DIR:?}"
-API="$FORGEJO_URL/api/v1"
+# Keep Forgejo's advertised URL assertion; optionally send requests through a Local gate.
+ENDPOINT="${JOURNEY_ENDPOINT_URL:-$FORGEJO_URL}"
+API="$ENDPOINT/api/v1"
 export REPO=journey FEATURE_BRANCH=feature/journey
 umask 077
 
@@ -157,6 +159,9 @@ request() {
   local auth="$1" method="$2" path="$3" expected="$4" body="${5-}" status rc command_end
   local response="$JOURNEY_DIR/response.json" auth_file="$JOURNEY_DIR/request-auth" body_file="$JOURNEY_DIR/request-body"
   local -a args=(-s --retry 0 --max-time 60 -o "$response" -w '%{http_code}' -X "$method" -H 'Accept: application/json')
+  if [[ "${JOURNEY_GATE_CORRELATION:-0}" == 1 && "${OP_ACTIVE:-0}" == 1 && "${ATTEMPT_ACTIVE:-0}" == 1 ]]; then
+    args+=(-H "x-operation-id: $OP_ID" -H "x-attempt-id: $ATTEMPT_ID")
+  fi
   printf '%s\n' "$auth" >"$auth_file"
   if [[ -n "$body" ]]; then
     printf '%s' "$body" >"$body_file"
@@ -194,7 +199,17 @@ expect_json() { # JSON JQ_FILTER DESCRIPTION  (filter는 env.* 로 state를 참�
 
 dev_git() {
   local basic rc class git_start git_end
+  local -a endpoint_config=()
+  if [[ "$ENDPOINT" != "$FORGEJO_URL" ]]; then endpoint_config=(-c http.followRedirects=false); fi
+  local -x GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=http.extraHeader GIT_CONFIG_VALUE_0
+  local -x GIT_CONFIG_KEY_1=credential.helper GIT_CONFIG_VALUE_1=''
   basic="$(printf '%s:%s' "$DEV_USER" "$DEV_TOKEN" | base64 | tr -d '\n')"
+  GIT_CONFIG_VALUE_0="Authorization: Basic $basic"
+  if [[ "${JOURNEY_GATE_CORRELATION:-0}" == 1 && "${OP_ACTIVE:-0}" == 1 && "${ATTEMPT_ACTIVE:-0}" == 1 ]]; then
+    GIT_CONFIG_COUNT=4
+    local -x GIT_CONFIG_KEY_2=http.extraHeader GIT_CONFIG_VALUE_2="x-operation-id: $OP_ID"
+    local -x GIT_CONFIG_KEY_3=http.extraHeader GIT_CONFIG_VALUE_3="x-attempt-id: $ATTEMPT_ID"
+  fi
   if [[ -n "${RESULT_FILE:-}" && "${OP_ACTIVE:-0}" == 1 && "${ATTEMPT_ACTIVE:-0}" == 1 ]]; then
     printf '%s' "$(utc)" >"$RESULT_DIR/command_timestamp"
   fi
@@ -202,9 +217,7 @@ dev_git() {
   if [[ -n "${RESULT_FILE:-}" && "${OP_ACTIVE:-0}" == 1 && "${ATTEMPT_ACTIVE:-0}" == 1 ]]; then
     printf '%s' "$git_start" >"$RESULT_DIR/command_start"
   fi
-  if GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=http.extraHeader GIT_CONFIG_VALUE_0="Authorization: Basic $basic" \
-    GIT_CONFIG_KEY_1=credential.helper GIT_CONFIG_VALUE_1='' \
-    timeout --signal=TERM --kill-after="${GIT_KILL_AFTER_SECONDS}s" "${GIT_TIMEOUT_SECONDS}s" git "$@" 2>"$JOURNEY_DIR/git.stderr"; then
+  if timeout --signal=TERM --kill-after="${GIT_KILL_AFTER_SECONDS}s" "${GIT_TIMEOUT_SECONDS}s" git "${endpoint_config[@]}" "$@" 2>"$JOURNEY_DIR/git.stderr"; then
     rc=0
   else
     rc=$?
@@ -233,7 +246,7 @@ expect_remote_ref() { # REPO_DIR REF SHA DESCRIPTION
 expect_anonymous_denied() {
   local status
   request "" GET "/repos/$DEV_USER/$REPO" 404 >/dev/null
-  status="$(curl -sS --max-time 60 -o /dev/null -w '%{http_code}' "$CLONE_URL/info/refs?service=git-upload-pack")"
+  status="$(curl -sS --max-time 60 -o /dev/null -w '%{http_code}' "$TRANSPORT_CLONE_URL/info/refs?service=git-upload-pack")"
   [[ "$status" == 401 ]] || fail "anonymous Git HTTP read of private repository: expected 401, got $status"
 }
 
@@ -291,6 +304,7 @@ create() {
   run_id="$(date -u +%Y%m%d%H%M%S)-$(od -An -N3 -tx1 /dev/urandom | tr -d ' \n')"
   export RUN_ID="$run_id" DEV_USER="dev-$run_id"
   export CLONE_URL="$FORGEJO_URL/$DEV_USER/$REPO.git"
+  export TRANSPORT_CLONE_URL="$ENDPOINT/$DEV_USER/$REPO.git"
   result_start
   aux_event readiness argo_application success
   aux_event readiness forgejo_health success
@@ -331,7 +345,7 @@ create() {
   printf '# journey %s\n' "$RUN_ID" >"$work/README.md"
   git -C "$work" add README.md
   git -C "$work" commit -q -m "journey: initial commit"
-  git -C "$work" remote add origin "$CLONE_URL"
+  git -C "$work" remote add origin "$TRANSPORT_CLONE_URL"
   aux_event fixture initial_commit success
   operation_begin git_push_initial
   dev_git -C "$work" push -q origin main
@@ -349,7 +363,7 @@ create() {
   # 4. Authenticated clone
   clone="$JOURNEY_DIR/clone"
   operation_begin git_clone
-  dev_git clone -q "$CLONE_URL" "$clone"
+  dev_git clone -q "$TRANSPORT_CLONE_URL" "$clone"
   attempt_finish 0
   [[ "$(git -C "$clone" rev-parse HEAD)" == "$initial_sha" ]] || fail "clone HEAD mismatch"
   cmp -s "$work/README.md" "$clone/README.md" || fail "clone content mismatch"
@@ -427,6 +441,7 @@ verify() {
   source "$JOURNEY_DIR/state.env"
   export DEV_USER RUN_ID MAIN_SHA FEATURE_SHA PR_NUMBER PR_TITLE ISSUE_NUMBER ISSUE_TITLE
   export CLONE_URL="$FORGEJO_URL/$DEV_USER/$REPO.git"
+  export TRANSPORT_CLONE_URL="$ENDPOINT/$DEV_USER/$REPO.git"
   DEV_AUTH="header = \"Authorization: token $DEV_TOKEN\""
   local clone="$JOURNEY_DIR/clone" fresh json expected_main="$MAIN_SHA"
   if [[ -f "$JOURNEY_DIR/post-write.env" ]]; then
@@ -444,7 +459,7 @@ verify() {
   pass "developer token and private repository retained (anonymous read denied)"
 
   fresh="$(mktemp -d "$JOURNEY_DIR/verify-clone.XXXXXX")"
-  dev_git clone -q "$CLONE_URL" "$fresh"
+  dev_git clone -q "$TRANSPORT_CLONE_URL" "$fresh"
   [[ "$(git -C "$fresh" rev-parse HEAD)" == "$expected_main" ]] || fail "clone main mismatch"
   git -C "$fresh" merge-base --is-ancestor "$MAIN_SHA" "$expected_main" || fail "original main commit missing"
   [[ "$(git -C "$fresh" rev-parse "origin/$FEATURE_BRANCH")" == "$FEATURE_SHA" ]] || fail "clone feature branch mismatch"
