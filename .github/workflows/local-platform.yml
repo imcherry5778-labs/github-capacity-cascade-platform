@@ -13,6 +13,8 @@ on:
       - platform/local/**
       - scripts/**
       - tests/e2e/**
+      - cmd/ext-authz-sim/**
+      - experiments/fixtures/shared-gate/**
       - docs/local-operations.md
 
 permissions:
@@ -139,6 +141,36 @@ jobs:
           path: |
             results/local/**/events.jsonl
             results/local/**/baseline-summary.json
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Verify same-cluster healthy gate and removal evidence
+        if: steps.changes.outputs.runtime_changed == 'true'
+        run: |
+          result="$(find results/local -path '*/shared-gate-*/result.json' -print -quit)"
+          [[ -n "$result" ]] || { echo "shared gate result missing" >&2; exit 1; }
+          python3 scripts/validate-shared-gate.py result "$(dirname "$result")"
+          jq -e --arg sha "$(git rev-parse HEAD)" '.source_sha == $sha and .source_dirty == false and .completed == true' "$result" >/dev/null
+
+      - name: Retain sanitized shared gate evidence
+        if: ${{ always() && steps.changes.outputs.runtime_changed == 'true' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: local-shared-gate-results
+          path: |
+            results/local/shared-gate-*/source.json
+            results/local/shared-gate-*/direct-baseline.json
+            results/local/shared-gate-*/app-image.json
+            results/local/shared-gate-*/istio-source.yaml
+            results/local/shared-gate-*/fixture-source.yaml
+            results/local/shared-gate-*/owned-resources.json
+            results/local/shared-gate-*/runtime.json
+            results/local/shared-gate-*/deny.json
+            results/local/shared-gate-*/checks.jsonl
+            results/local/shared-gate-*/path.json
+            results/local/shared-gate-*/removal.json
+            results/local/shared-gate-*/phases.jsonl
+            results/local/shared-gate-*/result.json
           if-no-files-found: ignore
           retention-days: 14
 

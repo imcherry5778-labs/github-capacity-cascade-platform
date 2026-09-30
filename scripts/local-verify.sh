@@ -98,6 +98,14 @@ static() {
   PYTHONDONTWRITEBYTECODE=1 python3 "$ROOT/tests/e2e/test-operation-results.py"
   PYTHONDONTWRITEBYTECODE=1 python3 "$ROOT/tests/e2e/test-recovery.py"
   PYTHONDONTWRITEBYTECODE=1 python3 "$ROOT/tests/e2e/test-upgrade.py"
+  PYTHONDONTWRITEBYTECODE=1 python3 "$ROOT/tests/e2e/test-shared-gate.py"
+  "$ROOT/scripts/install-shared-gate.sh"
+  python3 "$ROOT/scripts/validate-shared-gate.py" render "$ROOT/.tmp/rendered/shared-gate"
+  "$ROOT/.tmp/p4-tools/istio-$ISTIO_VERSION/bin/istioctl" manifest generate \
+    -f "$ROOT/.tmp/rendered/shared-gate/istio.yaml" >"$ROOT/.tmp/rendered/shared-gate/control-plane.yaml"
+  if grep -Eq '^kind: (HorizontalPodAutoscaler|EnvoyFilter|GatewayClass|HTTPRoute)$' "$ROOT/.tmp/rendered/shared-gate/control-plane.yaml"; then
+    fail 'P4 fixture introduces an unapproved control surface'
+  fi
   pass "shell syntax + shellcheck ($(shellcheck --version | awk '/^version:/ {print $2}'), ${#scripts[@]} files)"
 
   expect_line platform/local/k3d.yaml "image: $K3S_IMAGE"
@@ -335,6 +343,9 @@ baseline() {
   python3 "$ROOT/scripts/validate-operation-results.py" summarize "$results_dir" >"$results_dir/baseline-summary.json"
   rm -f "$context"
   pass "baseline validated; sanitized evidence $results_dir"
+  if [[ -n "${BASELINE_RESULT_PATH_FILE:-}" ]]; then
+    printf '%s\n' "$results_dir/baseline-summary.json" >"$BASELINE_RESULT_PATH_FILE"
+  fi
 }
 
 # Forgejo가 아니라 외부 PostgreSQL에 developer journey metadata가 있는지 직접 조회한다.

@@ -1,0 +1,156 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: shared-gate
+  labels:
+    istio-injection: enabled
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: haproxy
+  namespace: shared-gate
+data:
+  haproxy.cfg: |
+    defaults
+      mode http
+      timeout connect 5s
+      timeout client 10s
+      timeout server 10s
+      retries 0
+    frontend check
+      bind :8080
+      http-request set-header x-shared-gate-hop haproxy
+      default_backend ext_authz
+    backend ext_authz
+      server app ext-authz-sim.shared-gate.svc.cluster.local:8080
+    listen local_stats
+      bind 127.0.0.1:8404
+      stats enable
+      stats uri /stats
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: haproxy
+  namespace: shared-gate
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: haproxy}
+  template:
+    metadata:
+      labels: {app: haproxy}
+      annotations:
+        sidecar.istio.io/inject: "false"
+    spec:
+      containers:
+        - name: haproxy
+          image: "@HAPROXY_IMAGE@"
+          args: [-W, -db, -f, /config/haproxy.cfg]
+          ports: [{containerPort: 8080}]
+          readinessProbe:
+            tcpSocket: {port: 8080}
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+          volumeMounts: [{name: config, mountPath: /config, readOnly: true}]
+      volumes:
+        - name: config
+          configMap: {name: haproxy}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: haproxy
+  namespace: shared-gate
+spec:
+  selector: {app: haproxy}
+  ports: [{name: http-check, port: 8080, targetPort: 8080}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ext-authz-sim
+  namespace: shared-gate
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: ext-authz-sim}
+  template:
+    metadata:
+      labels: {app: ext-authz-sim}
+      annotations:
+        sidecar.istio.io/inject: "true"
+    spec:
+      securityContext: {runAsUser: 10001, runAsGroup: 10001, fsGroup: 10001}
+      containers:
+        - name: app
+          image: "@EXT_AUTHZ_IMAGE@"
+          imagePullPolicy: Never
+          ports: [{containerPort: 8080}]
+          readinessProbe:
+            tcpSocket: {port: 8080}
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ext-authz-sim
+  namespace: shared-gate
+spec:
+  selector: {app: ext-authz-sim}
+  ports: [{name: http-check, port: 8080, targetPort: 8080}]
+---
+apiVersion: networking.istio.io/v1
+kind: Sidecar
+metadata:
+  name: ext-authz-sim
+  namespace: shared-gate
+spec:
+  workloadSelector:
+    labels: {app: ext-authz-sim}
+  inboundConnectionPool:
+    http:
+      http2MaxRequests: 1024
+---
+apiVersion: networking.istio.io/v1
+kind: Gateway
+metadata:
+  name: shared-gate
+  namespace: shared-gate
+spec:
+  selector: {istio: p4-ingress}
+  servers:
+    - port: {number: 8080, name: http, protocol: HTTP}
+      hosts: ["*"]
+---
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: forgejo-gated
+  namespace: shared-gate
+spec:
+  hosts: ["*"]
+  gateways: [shared-gate]
+  http:
+    - retries: {attempts: 0}
+      route:
+        - destination:
+            host: forgejo-http.forgejo.svc.cluster.local
+            port: {number: 3000}
+---
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: shared-gate
+  namespace: shared-gate
+spec:
+  selector:
+    matchLabels: {istio: p4-ingress}
+  action: CUSTOM
+  provider: {name: shared-gate}
+  rules: [{}]

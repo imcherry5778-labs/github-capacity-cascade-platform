@@ -45,6 +45,36 @@ P3-W2의 Argo-safe coordinated backup → fresh restore와 P3-W3의 v15 patch up
 
 P3-W2의 `forgejo doctor` 판정은 현재 runtime에 적용되는 개별 무수정 integrity check와 source에서 확인한 경로 진단의 비교로 한다. `doctor check --all`의 무오류 종료를 보편적인 건강 조건으로 사용하지 않는다. LFS가 꺼진 Core에서 `gc-lfs`는 해당 없음이고, console logging으로 인해 `/data/log`가 없는 `paths` 결과는 source baseline의 명시적 예외다. 복구 target에는 이 예외 외 새 경로 오류가 없어야 한다.
 
+## P4-W1 healthy shared gate
+
+`make local`은 기존 direct baseline과 P1/P2 regression이 성공한 **같은 invocation-owned cluster**에서 temporary shared gate를 설치하고 제거까지 검사한다. `scripts/local-shared-gate.sh`는 독립 cluster 재사용 entrypoint가 아니다. 기존 create/delete ownership guard와 최종 cluster cleanup은 `local-run.sh` / `local-down.sh`가 계속 소유한다. W2 recovery와 W3 upgrade regression은 기존 CI 단계로 유지한다.
+
+Request path는 loopback `18080` port-forward → dedicated `p4-ingress` Envoy → HTTP `ext_authz` → HAProxy → `ext-authz-sim` Service → 해당 Pod의 inbound Envoy → Python stdlib app → ALLOW → original Forgejo request다. 기존 direct endpoint `13000`과 stable Forgejo `ROOT_URL`/Git values/Argo source는 유지한다. `JOURNEY_ENDPOINT_URL`은 실제 transport endpoint만 선택하고, Forgejo가 광고하는 clone URL assertion은 계속 direct canonical URL에 적용한다. Forgejo native auth/anonymous-denial assertion도 유지한다.
+
+Local routing은 classic `networking.istio.io/v1` `Gateway` / `VirtualService`다. W1에는 Kubernetes Gateway API CRD나 automated gateway lifecycle이 필요하지 않다. 이는 Local scope 결정이며 AKS 지원 판정이 아니다. Microsoft의 [Gateway API 문서](https://learn.microsoft.com/en-us/azure/aks/istio-gateway-api), [일반 overview](https://learn.microsoft.com/en-us/azure/aks/istio-about), [classic ingress 문서](https://learn.microsoft.com/en-us/azure/aks/istio-deploy-ingress) 사이의 Gateway API 지원 설명은 milestone-entry에서 불일치했으므로 Azure API 선택은 P5 `REVALIDATE`로 남긴다.
+
+### Official upstream preflight (2026-09-30)
+
+[Istio 1.30.5 release](https://istio.io/latest/news/releases/1.30.x/announcing-1.30.5/)와 [1.30 Kubernetes compatibility](https://istio.io/latest/news/releases/1.30.x/announcing-1.30/)를 확인했다. Existing Kubernetes 1.36은 이 branch의 documented 범위다. [HAProxy official release inventory](https://www.haproxy.org/)에서 3.4.6을 확인했다. `versions.env`는 Istio distribution checksum, pilot/proxy/HAProxy OCI index digest와 Python base digest를 pin한다. Built app image와 Kubernetes actual imageID는 매 invocation별 별도 evidence다.
+
+Selected [Istio 1.30.5 source의 header/body 설정](https://github.com/istio/istio/blob/1.30.5/pilot/pkg/security/authz/builder/extauthz.go)과 [connection-pool mapping](https://github.com/istio/istio/blob/1.30.5/pilot/pkg/networking/core/cluster_traffic_policy.go)을 확인했다. `Sidecar.inboundConnectionPool.http.http2MaxRequests: 1024`의 healthy 값은 generated `inbound|8080||` prefix의 실제 cluster `circuitBreakers.thresholds.maxRequests`에서 확인한다. HAProxy에는 별도 admission/rate/queue 정책이나 sidecar를 추가하지 않는다. Upstream control-plane/gateway autoscaling도 꺼 두며 W1에는 HPA/EnvoyFilter/observability controller를 추가하지 않는다.
+
+[Istio release dependency](https://github.com/istio/istio/blob/1.30.5/istio.deps)의 proxy build commit `3bf722f59561ef9747835e543c0b648eb4ab1237`과 해당 [build recipe](https://github.com/istio/proxy/blob/3bf722f59561ef9747835e543c0b648eb4ab1237/WORKSPACE)의 Envoy source commit `a3357a295443d008c6aec4c3d508745d9b002f40`을 구분한다. [Selected Envoy HTTP client source](https://github.com/envoyproxy/envoy/blob/a3357a295443d008c6aec4c3d508745d9b002f40/source/extensions/filters/common/ext_authz/ext_authz_http_impl.cc)는 fixed check header를 `OVERWRITE_IF_EXISTS_OR_ADD`로 적용한 후 check message를 전송한다. Runtime build/version string, native sidecar inventory, cluster name/`altStatName`와 stat inventory는 실제 proxy에서 별도로 기록한다. Recipe commit을 binary version string이라고 부르지 않는다.
+
+### Evidence / removal contract
+
+Gated journey는 P3의 9개 operation, single command attempt, retry 없음, fixture/assertion 밖 latency boundary를 그대로 사용한다. Measured API/Git command를 준비할 때 `x-operation-id`, `x-attempt-id`를 넣는다. Assertion/seed 요청에는 measured attempt ID를 넣지 않는다. 하나의 Git attempt에서 복수 HTTP check가 생길 수 있으므로 validator는 attempt별 **한 개 이상** ALLOW check를 요구하고 실제 개수를 기록한다.
+
+Gated Git transport에는 `http.followRedirects=false`를 적용해 canonical direct endpoint로 redirect되면 성공으로 처리하지 않는다. curl API command도 redirect를 따라가지 않는다. 기존 direct Git transport 설정은 유지한다.
+
+Provider header allowlist에는 correlation과 `x-gate-test-deny`만 넣고 body buffering을 사용하지 않는다. Selected Envoy HTTP check는 `Authorization`을 기본 포함하므로 allowlist만으로 credential value를 제외할 수 없었다. Supported `includeAdditionalHeadersInCheck`로 check copy의 `authorization`을 비밀이 아닌 고정 값 `p4-check-without-credentials`로 덮어쓴다. Original Forgejo request의 credential은 유지한다. App은 header **이름**, credential-values-absent/body-absent boolean, safe bounded correlation ID, fixed HAProxy-hop 판정과 decision만 기록한다. Authorization의 모든 duplicate 값이 고정 값 하나와 일치하지 않거나 Cookie/Proxy-Authorization/body가 check에 도달하거나 HAProxy hop이 없으면 fail closed한다. Path/query와 header value 및 body는 기록하지 않는다. Proxy access log도 status/detail/upstream-cluster/upstream-host만 남긴다. Non-mutating `GET /api/v1/version`에 sentinel Authorization/Cookie/body와 controlled deny header를 보내 403/DENY, 빈 body와 ingress `ext_authz_denied`/upstream 미호출을 검사한다. 이 probe의 실제 check exclusion 검사가 성공하기 전에는 developer credential을 gated endpoint에 보내지 않는다.
+
+`results/local/shared-gate-<id>/`는 source SHA/dirty, direct baseline, image identity, rendered experiment source, owned resource UID, selected proxy config/version/stat inventory, check JSONL, narrow HAProxy/proxy path evidence, DENY와 removal/result를 보존한다. Journey `events.jsonl`은 기존 operation artifact allowlist가 보존한다. Full config dump, certificates, raw HTTP response, kubeconfig/credentials/temp directory는 artifact에 넣지 않는다. Check log와 phase log는 append-only이고 실패 phase도 보존한다. Dirty run은 exploratory로만 분류하며 final validator는 clean source를 요구한다.
+
+Removal은 현재 server ID와 installed object UID/owner를 다시 확인한 뒤 exact experiment manifests만 삭제한다. 같은 cluster에서 experiment namespaces/CRDs/cluster-scoped inventory 부재, reliability endpoint 부재, stable Forgejo spec/UID 유지, Argo exact revision의 `Synced/Healthy`, direct developer journey를 검사한 후 invocation-owned cluster cleanup으로 진행한다. 전체 cluster 삭제만으로 fixture 제거를 주장하지 않는다.
+
+W1의 stat inventory는 actual version에서 관측한 이름/값만 기록한다. `upstream_rq_active_overflow`의 존재 여부는 기록하되 saturation/rejection signal 검증으로 승격하지 않는다. W1은 Linux/amd64 Local HTTP proof이며 saturation/load calibration/retry amplification/P5 Azure source는 포함하지 않는다.
+
 ## P3-W3 patch upgrade / state-aware rollback
 
 `make upgrade`는 `scripts/local-recover.sh upgrade`를 사용한다. 기존 W2의 developer fixture, coordinated checkpoint, Secret/DB/full `/data` restore와 doctor validator를 재사용한다. 이번 drill은 linux/amd64에서 `15.0.8-rootless`(A) → stable `15.0.9-rootless`(B) 한 pair만 검증한다. Official OCI index와 amd64 manifest digest는 `versions.env`의 W3 inventory로 구분한다. Kubernetes의 actual imageID와 init/application image도 비교하며, tag만으로 runtime identity를 주장하지 않는다.
