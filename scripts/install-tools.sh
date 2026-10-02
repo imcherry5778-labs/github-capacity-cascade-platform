@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# versions.env의 pinned k3d/kubectl/helm을 repository-local .tmp/bin에 설치한다.
+# versions.env의 pinned tools를 repository-local .tmp/bin에 설치한다.
 # Global developer environment는 변경하지 않으며, upstream이 publish한 SHA-256으로 검증한다.
 set -euo pipefail
 
@@ -42,6 +42,20 @@ if [[ "$("$BIN/k3d" version 2>/dev/null | awk '/^k3d version/ {print $3}')" != "
   install -m 0755 "$work/k3d" "$BIN/k3d"
 fi
 
+if [[ "$("$BIN/terraform" version -json 2>/dev/null | jq -r .terraform_version)" != "$TERRAFORM_VERSION" ]]; then
+  archive="terraform_${TERRAFORM_VERSION}_${os}_${arch}.zip"
+  base="https://releases.hashicorp.com/terraform/$TERRAFORM_VERSION"
+  fetch "$base/$archive" "$work/$archive"
+  fetch "$base/terraform_${TERRAFORM_VERSION}_SHA256SUMS" "$work/terraform.checksums"
+  verify_sha256 "$work/$archive" "$(awk -v f="$archive" '$2 == f {print $1}' "$work/terraform.checksums")"
+  python3 - "$work/$archive" "$work" <<'PY'
+import sys, zipfile
+with zipfile.ZipFile(sys.argv[1]) as archive:
+    archive.extract("terraform", sys.argv[2])
+PY
+  install -m 0755 "$work/terraform" "$BIN/terraform"
+fi
+
 if [[ "$("$BIN/kubectl" version --client -o json 2>/dev/null | jq -r .clientVersion.gitVersion)" != "$KUBECTL_VERSION" ]]; then
   base="https://dl.k8s.io/release/$KUBECTL_VERSION/bin/$os/$arch"
   fetch "$base/kubectl" "$work/kubectl"
@@ -64,3 +78,4 @@ fi
 "$BIN/k3d" version | sed -n 1p
 echo "kubectl $("$BIN/kubectl" version --client -o json | jq -r .clientVersion.gitVersion)"
 echo "helm $("$BIN/helm" version --template '{{.Version}}')"
+echo "terraform $("$BIN/terraform" version -json | jq -r .terraform_version)"

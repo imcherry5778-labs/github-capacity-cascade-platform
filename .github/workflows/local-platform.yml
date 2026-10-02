@@ -8,6 +8,7 @@ on:
       - Makefile
       - .gitignore
       - versions.env
+      - infra/terraform/**
       - platform/argocd/**
       - platform/forgejo/**
       - platform/local/**
