@@ -7,7 +7,7 @@ Architecture의 lifecycle/RBAC contract는 [`docs/architecture.md`](../../../doc
 ## Lifecycle / inputs
 
 `bootstrap local state → foundation remote state → environment remote state` 순서다.
-bootstrap은 backend block이 없는 유일한 local-state stack이다. 후속 stack source는 아직 없다.
+bootstrap은 backend block이 없는 유일한 local-state stack이다. foundation source는 [`../foundation`](../foundation/README.md)에 있다.
 foundation/environment는 bootstrap의 `backend_config` output을 소비하고 서로 다른 blob `key`를 사용한다.
 `use_oidc=true`, `use_azuread_auth=true`, `lookup_blob_endpoint=false`이므로 state container의 data-plane 역할만 사용하며 account-key lookup을 요구하지 않는다.
 이는 [HashiCorp azurerm backend contract](https://developer.hashicorp.com/terraform/language/backend/azurerm)에 따른다.
