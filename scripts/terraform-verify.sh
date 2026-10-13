@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
-# P5-W1: clean source copy, empty CLI config/environment, mock-only plan. Azure API를 호출하지 않는다.
+# P5 bootstrap/foundation: clean source copy, empty CLI config/environment, mock-only plan. Azure API를 호출하지 않는다.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=versions.env
 source "$ROOT/versions.env"
 TF="$ROOT/.tmp/bin/terraform"
-STACK="$ROOT/infra/terraform/bootstrap"
 [[ "$("$TF" version -json | jq -r .terraform_version)" == "$TERRAFORM_VERSION" ]]
 
 python3 - "$ROOT" "$TERRAFORM_VERSION" "$AZURERM_VERSION" <<'PY'
@@ -13,7 +12,7 @@ from pathlib import Path
 import json, re, sys
 root, terraform, azurerm = Path(sys.argv[1]), *sys.argv[2:]
 base = root / "infra/terraform"
-assert {p.name for p in base.iterdir()} == {"bootstrap"}, "P5-W1 only implements bootstrap"
+assert {p.name for p in base.iterdir()} == {"bootstrap", "foundation"}, "P5-W2 implements bootstrap/foundation only"
 stack = base / "bootstrap"
 source = "\n".join(p.read_text() for p in stack.glob("*.tf"))
 assert not list(stack.glob("*.tf.json")), "unexpected alternative Terraform source"
@@ -54,17 +53,79 @@ assert not re.search(r'\b(provider|module)\s*("|{)|\bproviders\s*=', test), "rea
 commands = re.findall(r'\bcommand\s*=\s*(\w+)', test)
 assert commands and all(command == "plan" for command in commands), "mock plan only"
 print("[terraform-verify] PASS bootstrap inventory/local state/pins/Environment OIDC/mock-only guard")
+
+stack = base / "foundation"
+source = "\n".join(p.read_text() for p in stack.glob("*.tf"))
+assert not list(stack.glob("*.tf.json")), "unexpected alternative Terraform source"
+assert (stack / ".terraform.lock.hcl").is_file(), "committed provider lockfile required"
+assert not re.search(r'\b(module|data|provisioner)\s+"', source), "resource-only foundation required"
+backends = re.findall(r'\bbackend\s+"([^"]+)"\s*\{([^}]*)\}', source)
+assert [name for name, _ in backends] == ["azurerm"], "single azurerm remote backend required"
+backend = dict(re.findall(r'^\s*(\w+)\s*=\s*(\S+)\s*$', backends[0][1], re.M))
+assert backend == {
+    "key": '"foundation.tfstate"', "use_oidc": "true", "use_azuread_auth": "true",
+    "lookup_blob_endpoint": "false", "use_cli": "false", "use_msi": "false",
+}, "foundation backend must be OIDC + Entra ID with runtime account/container/tenant/client inputs"
+assert not re.search(r'\b(client_secret\w*|client_certificate\w*|access_key|sas_token|oidc_token\w*|msi_endpoint)\s*=', source), \
+    "long-lived or committed Azure credential forbidden"
+# backend + provider 각각 OIDC만 허용한다. Provider client_id는 bootstrap CI identity input이다.
+for setting, count in ((r'use_oidc\s*=\s*true', 2), (r'use_cli\s*=\s*false', 2), (r'use_msi\s*=\s*false', 2),
+                       (r'client_id\s*=\s*var\.ci_client_id', 1)):
+    assert len(re.findall(setting, source)) == count, f"OIDC-only provider/backend: {setting}"
+assert f'required_version = "= {terraform}"' in source, "Terraform pin mismatch"
+assert re.search(r'version\s*=\s*"= ' + re.escape(azurerm) + '"', source), "AzureRM pin mismatch"
+assert re.search(r'resource_provider_registrations\s*=\s*"none"', source), "automatic RP registration forbidden"
+# CI에는 subscription-scope deleted-vault purge/recover 권한이 없다. 두 feature 모두 명시적으로 끈다.
+def key_vault_features(text):
+    block = re.search(r'\bkey_vault\s*\{([^}]*)\}', text)
+    return block and dict(re.findall(r'^\s*(\w+)\s*=\s*(\S+)\s*$', block.group(1), re.M))
+expected_features = {"purge_soft_delete_on_destroy": "false", "recover_soft_deleted_key_vaults": "false"}
+assert key_vault_features(source) == expected_features, \
+    "Key Vault provider features must disable purge-on-destroy and automatic soft-deleted vault recovery"
+# Negative regression: recovery feature를 제거하거나 켜면 위 contract가 거부해야 한다.
+recover = r'^[ \t]*recover_soft_deleted_key_vaults\s*=\s*false[ \t]*\n'
+for mutated in (re.sub(recover, "", source, flags=re.M),
+                re.sub(recover, "      recover_soft_deleted_key_vaults = true\n", source, flags=re.M)):
+    assert mutated != source and key_vault_features(mutated) != expected_features, \
+        "automatic Key Vault recovery removal/enablement must fail the static contract"
+resources = re.findall(r'\bresource\s+"([^"]+)"\s+"([^"]+)"', source)
+assert sorted(resources) == [("azurerm_dns_zone", "project"), ("azurerm_key_vault", "project")], \
+    "foundation inventory is one public DNS zone and one Key Vault only"
+assert not re.search(r'\b(access_policy|network_acls)\b', source), "legacy access policy/network ACL forbidden"
+vault = re.search(r'resource\s+"azurerm_key_vault"\s+"project"\s*\{(.*?)\n\}', source, re.S).group(1)
+for setting in (r'sku_name\s*=\s*"standard"', r'rbac_authorization_enabled\s*=\s*true',
+                r'public_network_access_enabled\s*=\s*false', r'soft_delete_retention_days\s*=\s*7\b',
+                r'purge_protection_enabled\s*=\s*false', r'resource_group_name\s*=\s*var\.resource_group_name'):
+    assert re.search(setting, vault), f"Key Vault contract: {setting}"
+outputs = dict(re.findall(r'\boutput\s+"([^"]+)"\s*\{(.*?)\n\}', source, re.S))
+assert set(outputs) == {"dns_zone", "key_vault"}, "unexpected foundation outputs"
+assert "azurerm_dns_zone.project.name_servers" in outputs["dns_zone"], "delegation name servers output required"
+assert sorted(re.findall(r'azurerm_key_vault\.project\.(\w+)', outputs["key_vault"])) == ["id", "name", "vault_uri"], \
+    "Key Vault output is non-secret ID/name/URI metadata only"
+tests = list((stack / "tests").glob("*"))
+assert [p.name for p in tests] == ["security.tftest.hcl"], "unexpected Terraform test"
+test = tests[0].read_text()
+assert re.findall(r'\bmock_provider\s+"([^"]+)"', test) == ["azurerm"]
+assert not re.search(r'\b(provider|module)\s*("|{)|\bproviders\s*=', test), "real test provider/module forbidden"
+commands = re.findall(r'\bcommand\s*=\s*(\w+)', test)
+assert commands and all(command == "plan" for command in commands), "mock plan only"
+print("[terraform-verify] PASS foundation inventory/remote backend/OIDC-only/Key Vault/recovery-negative/mock-only guard")
 PY
 
 work="$(mktemp -d "$ROOT/.tmp/terraform-static.XXXXXX")"
 trap 'rm -rf "$work"' EXIT
-cp "$STACK/"*.tf "$STACK/.terraform.lock.hcl" "$work/"
-cp -R "$STACK/tests" "$work/"
 touch "$work/terraform.rc"
-# Azure credentials, TF_VAR/TF_CLI_ARGS, cached CLI credentials/config, local state/tfvars는 상속하지 않는다.
-tf() { env -i PATH="$PATH" TF_IN_AUTOMATION=1 TF_INPUT=0 TF_CLI_CONFIG_FILE="$work/terraform.rc" "$TF" -chdir="$work" "$@"; }
-tf fmt -check -recursive
-tf init -backend=false -input=false -lockfile=readonly
-tf validate
-tf test -filter=tests/security.tftest.hcl
-echo "[terraform-verify] PASS clean credential-free fmt/init/validate + mock security contract"
+# Azure credentials, TF_VAR/TF_CLI_ARGS, cached CLI credentials/config, local/remote state/tfvars는 상속하지 않는다.
+tf() { env -i PATH="$PATH" TF_IN_AUTOMATION=1 TF_INPUT=0 TF_CLI_CONFIG_FILE="$work/terraform.rc" "$TF" -chdir="$dir" "$@"; }
+for stack in bootstrap foundation; do
+  src="$ROOT/infra/terraform/$stack"
+  dir="$work/$stack"
+  mkdir "$dir"
+  cp "$src/"*.tf "$src/.terraform.lock.hcl" "$dir/"
+  cp -R "$src/tests" "$dir/"
+  tf fmt -check -recursive
+  tf init -backend=false -input=false -lockfile=readonly
+  tf validate
+  tf test -filter=tests/security.tftest.hcl
+  echo "[terraform-verify] PASS $stack clean credential-free fmt/init/validate + mock security contract"
+done
