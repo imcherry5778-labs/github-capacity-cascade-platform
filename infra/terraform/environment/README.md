@@ -59,7 +59,7 @@ az aks mesh get-revisions --location <location> -o table
 
 ## Explicitly managed inventory
 
-Resource 29개. Module, data source, Kubernetes/Helm provider, AzureAD provider는 없다.
+Resource 28개. Module, data source, Kubernetes/Helm provider, AzureAD provider는 없다.
 Resource Group, Key Vault 및 그 secret/key/certificate/access policy, DNS public record는 만들지 않는다.
 
 | Area | Terraform address | 역할 |

@@ -209,6 +209,8 @@ assert not violations, violations
 # README inventory가 실제 source address와 어긋나지 않게 한다.
 for kind, name in expected_resources:
     assert f"`{kind}.{name}`" in readme, f"README inventory missing {kind}.{name}"
+assert re.findall(r'^Resource (\d+)개\.', readme, re.M) == [str(len(expected_resources))], \
+    "README headline resource count must match the explicit inventory"
 # Automatic RP registration이 꺼져 있으므로 paid-run preflight 목록이 필수 provider를 빠뜨리지 않게 한다.
 for provider in ("ContainerService", "Compute", "Network", "ManagedIdentity", "DBforPostgreSQL", "ContainerRegistry", "KeyVault",
                  "OperationalInsights", "Insights", "Monitor", "AlertsManagement", "Dashboard", "Storage"):
