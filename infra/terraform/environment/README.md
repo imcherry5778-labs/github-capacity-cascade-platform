@@ -220,10 +220,12 @@ Final price/quota는 이 PR에서 정하지 않는다. W4 aggregate paid-run pre
 
 ## Resource Provider registration
 
-자동 등록이 꺼져 있으므로 paid-run 전에 subscription에서 등록 상태를 확인한다.
+자동 등록이 꺼져 있고 CI identity는 RG-scoped라 등록할 수 없으므로, paid-run 전에 subscription에서 등록 상태를 확인한다.
 `Microsoft.ContainerService`, `Microsoft.Compute`, `Microsoft.Network`, `Microsoft.ManagedIdentity`, `Microsoft.DBforPostgreSQL`,
 `Microsoft.ContainerRegistry`, `Microsoft.KeyVault`, `Microsoft.OperationalInsights`, `Microsoft.Insights`, `Microsoft.Monitor`,
-`Microsoft.Dashboard`, `Microsoft.Storage`(PostgreSQL service endpoint).
+`Microsoft.AlertsManagement`, `Microsoft.Dashboard`, `Microsoft.Storage`(PostgreSQL service endpoint).
+AlertsManagement provider는 이 stack이 alert rule을 만들지 않아도 Managed Prometheus onboarding prerequisite다
+([AKS monitoring prerequisites](https://learn.microsoft.com/en-us/azure/azure-monitor/containers/kubernetes-monitoring-enable?tabs=terraform#prerequisites)).
 
 ## Lifecycle / cleanup
 

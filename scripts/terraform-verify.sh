@@ -209,6 +209,10 @@ assert not violations, violations
 # README inventory가 실제 source address와 어긋나지 않게 한다.
 for kind, name in expected_resources:
     assert f"`{kind}.{name}`" in readme, f"README inventory missing {kind}.{name}"
+# Automatic RP registration이 꺼져 있으므로 paid-run preflight 목록이 필수 provider를 빠뜨리지 않게 한다.
+for provider in ("ContainerService", "Compute", "Network", "ManagedIdentity", "DBforPostgreSQL", "ContainerRegistry", "KeyVault",
+                 "OperationalInsights", "Insights", "Monitor", "AlertsManagement", "Dashboard", "Storage"):
+    assert f"`Microsoft.{provider}`" in readme, f"README Resource Provider inventory missing Microsoft.{provider}"
 # Negative regression: 대표적인 위험 변경을 주입하면 guard가 각각 거부해야 한다.
 mutations = {
     "public PostgreSQL": (r'(resource "azurerm_postgresql_flexible_server"[\s\S]*?public_network_access_enabled\s*=\s*)false', r'\1true'),
