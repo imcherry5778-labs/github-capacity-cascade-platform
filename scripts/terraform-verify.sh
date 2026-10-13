@@ -75,7 +75,19 @@ for setting, count in ((r'use_oidc\s*=\s*true', 2), (r'use_cli\s*=\s*false', 2),
 assert f'required_version = "= {terraform}"' in source, "Terraform pin mismatch"
 assert re.search(r'version\s*=\s*"= ' + re.escape(azurerm) + '"', source), "AzureRM pin mismatch"
 assert re.search(r'resource_provider_registrations\s*=\s*"none"', source), "automatic RP registration forbidden"
-assert re.search(r'purge_soft_delete_on_destroy\s*=\s*false', source), "CI has no subscription-scope Key Vault purge right"
+# CI에는 subscription-scope deleted-vault purge/recover 권한이 없다. 두 feature 모두 명시적으로 끈다.
+def key_vault_features(text):
+    block = re.search(r'\bkey_vault\s*\{([^}]*)\}', text)
+    return block and dict(re.findall(r'^\s*(\w+)\s*=\s*(\S+)\s*$', block.group(1), re.M))
+expected_features = {"purge_soft_delete_on_destroy": "false", "recover_soft_deleted_key_vaults": "false"}
+assert key_vault_features(source) == expected_features, \
+    "Key Vault provider features must disable purge-on-destroy and automatic soft-deleted vault recovery"
+# Negative regression: recovery feature를 제거하거나 켜면 위 contract가 거부해야 한다.
+recover = r'^[ \t]*recover_soft_deleted_key_vaults\s*=\s*false[ \t]*\n'
+for mutated in (re.sub(recover, "", source, flags=re.M),
+                re.sub(recover, "      recover_soft_deleted_key_vaults = true\n", source, flags=re.M)):
+    assert mutated != source and key_vault_features(mutated) != expected_features, \
+        "automatic Key Vault recovery removal/enablement must fail the static contract"
 resources = re.findall(r'\bresource\s+"([^"]+)"\s+"([^"]+)"', source)
 assert sorted(resources) == [("azurerm_dns_zone", "project"), ("azurerm_key_vault", "project")], \
     "foundation inventory is one public DNS zone and one Key Vault only"
@@ -97,7 +109,7 @@ assert re.findall(r'\bmock_provider\s+"([^"]+)"', test) == ["azurerm"]
 assert not re.search(r'\b(provider|module)\s*("|{)|\bproviders\s*=', test), "real test provider/module forbidden"
 commands = re.findall(r'\bcommand\s*=\s*(\w+)', test)
 assert commands and all(command == "plan" for command in commands), "mock plan only"
-print("[terraform-verify] PASS foundation inventory/remote backend/OIDC-only/Key Vault/mock-only guard")
+print("[terraform-verify] PASS foundation inventory/remote backend/OIDC-only/Key Vault/recovery-negative/mock-only guard")
 PY
 
 work="$(mktemp -d "$ROOT/.tmp/terraform-static.XXXXXX")"

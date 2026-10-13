@@ -67,11 +67,28 @@ foundation RG `Role Based Access Control Administrator` 범위 안에서 필요�
 
 [Azure soft-delete 문서](https://learn.microsoft.com/en-us/azure/key-vault/general/soft-delete-overview)에 따르면 vault purge는
 subscription owner 또는 `Key Vault Purge Operator` 권한이 필요하다. AzureRM 5.7.0 provider는 기본적으로
-destroy 뒤 purge를 호출하지만 CI identity는 foundation/environment RG 권한만 가진다.
-따라서 `features.key_vault.purge_soft_delete_on_destroy=false`로 destroy를 soft-delete까지만 수행하고,
-Azure가 7일 retention 뒤 purge한다. 그 기간에는 같은 vault 이름을 재사용할 수 없고, CI는 subscription-scope
-deleted-vault 조회 권한이 없어 provider의 soft-deleted vault 자동 recover도 사용할 수 없다.
-Retention 안에 재생성하려면 다른 `key_vault_name`을 쓰거나 별도 승인된 operator recover/purge가 필요하다.
+destroy 뒤 purge를 호출하고 같은 이름의 soft-deleted vault를 자동 recover하지만, CI identity는 foundation/environment RG 권한만 가진다.
+따라서 provider feature를 다음처럼 고정한다.
+
+```hcl
+features {
+  key_vault {
+    purge_soft_delete_on_destroy    = false
+    recover_soft_deleted_key_vaults = false
+  }
+}
+```
+
+- Destroy는 provider-driven purge 없이 soft-delete까지만 수행하고, Azure가 7일 retention 뒤 purge한다.
+- 이전에 삭제된 vault의 자동 recover는 사용하지 않는다.
+- Retention 동안 같은 vault 이름 재사용은 정상 CI lifecycle에서 지원하지 않는다. 새로 승인된 배포는 충돌하지 않는 `key_vault_name`을 사용한다.
+- 예외적인 recover/purge는 별도 operator 권한과 승인이 필요하며 이 stack의 CI 경로가 아니다.
+- Terraform `destroy` 성공은 soft-deleted vault 같은 Azure residual object가 모두 사라졌다는 증거가 아니다.
+
+이 설정은 lifecycle hardening이며 Azure runtime permission 문제의 검증된 해결이 아니다.
+AzureRM 5.7.0은 자동 recover를 꺼도 생성 전에 subscription-scope deleted-vault API를 조회한다
+([source](https://github.com/hashicorp/terraform-provider-azurerm/blob/v5.7.0/internal/services/keyvault/key_vault_resource.go)).
+이 feature는 그 조회를 없애거나 subscription-scope 권한을 주지 않으며, 그 조회의 403/409 등 실제 생성/삭제/RBAC/residual 동작은 **not verified**다.
 실제 destroy/residual 확인은 P6 이후 승인된 실행에서 한다.
 
 ## Static validation

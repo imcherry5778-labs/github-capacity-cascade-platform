@@ -23,9 +23,11 @@ terraform {
 provider "azurerm" {
   features {
     key_vault {
-      # Vault purge는 subscription-scope 권한이 필요하다. CI는 foundation RG 권한만 가지므로
+      # Vault purge/recover는 subscription-scope 권한이 필요하다. CI는 foundation RG 권한만 가지므로
       # destroy는 soft-delete까지만 수행하고 Azure가 retention 만료 후 purge한다.
-      purge_soft_delete_on_destroy = false
+      # 이전에 삭제된 vault를 자동 recover하지 않는다. 재배포는 충돌하지 않는 이름을 사용한다.
+      purge_soft_delete_on_destroy    = false
+      recover_soft_deleted_key_vaults = false
     }
   }
 
