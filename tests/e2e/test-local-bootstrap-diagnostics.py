@@ -19,6 +19,8 @@ OWNED = "server-owned"
 POD_SECRET = "POD-SPEC-SECRET-VALUE"
 KUBECONFIG_SECRET = "KUBECONFIG-PRIVATE-KEY"
 SECRET_PAYLOAD = "SECRET-OBJECT-PAYLOAD"
+# Container log, Pod/container status message, event message/reason에 주입하는 fake credential.
+CREDENTIAL = "FAKE-CREDENTIAL-SENTINEL-7f3a"
 DIAG = "kubectl --request-timeout=15s"
 
 STUB = r"""#!/usr/bin/env bash
@@ -60,7 +62,7 @@ case "$name" in
         *" get deployments,statefulsets,jobs "*) cat "$STUB_FIXTURES/workloads.json" ;;
         *" get pods "*) cat "$STUB_FIXTURES/pods.json" ;;
         *" get events "*) cat "$STUB_FIXTURES/events.json" ;;
-        *" logs "*) echo "log tail line" ;;
+        *" logs "*) echo "redis password=$STUB_CREDENTIAL" ;;
       esac
       exit 0
     fi
@@ -70,52 +72,83 @@ exit 0
 """
 
 
-def container(name, ready, restarts=0, state=None, last=None, image="quay.io/example:1"):
+def container(name, ready, restarts=0, state=None, last=None, started=None, image="quay.io/example:1"):
     status = {"name": name, "image": image, "ready": ready, "restartCount": restarts,
               "state": state or {"running": {"startedAt": "2026-10-14T00:00:00Z"}}, "lastState": last or {}}
+    if started is not None:
+        status["started"] = started
     return status
 
 
-def pod(name, phase, statuses, conditions=(), namespace="argocd"):
+def pod(name, phase, statuses, conditions=(), init=None, namespace="argocd"):
+    status = {"phase": phase, "conditions": list(conditions)}
+    if statuses is not None:
+        status["containerStatuses"] = statuses
+    if init is not None:
+        status["initContainerStatuses"] = init
     return {
         "metadata": {"namespace": namespace, "name": name},
         "spec": {"nodeName": "k3d-server-0",
                  "containers": [{"name": "main", "env": [{"name": "REDIS_PASSWORD", "value": POD_SECRET}]}]},
-        "status": {"phase": phase, "conditions": list(conditions), "containerStatuses": statuses},
+        "status": status,
     }
 
+
+READY = [{"type": "Ready", "status": "True"}]
+COMPLETED_INIT = container("init", True, 0, {"terminated": {"reason": "Completed", "exitCode": 0}})
 
 FIXTURES = {
     "nodes.json": {"items": [{
         "metadata": {"name": "k3d-server-0"}, "spec": {"taints": [{"key": "node.kubernetes.io/memory-pressure", "effect": "NoSchedule"}]},
         "status": {"allocatable": {"cpu": "2", "memory": "4Gi", "pods": "110"},
-                   "conditions": [{"type": "MemoryPressure", "status": "True"}, {"type": "Ready", "status": "True"}]},
+                   "conditions": [{"type": "MemoryPressure", "status": "True", "message": CREDENTIAL},
+                                  {"type": "Ready", "status": "True"}]},
     }]},
     "workloads.json": {"items": [{
         "kind": "Deployment", "metadata": {"namespace": "argocd", "name": "argocd-redis"}, "spec": {"replicas": 1},
-        "status": {"conditions": [{"type": "Available", "status": "False", "reason": "MinimumReplicasUnavailable"},
-                                  {"type": "Progressing", "status": "False", "reason": "ProgressDeadlineExceeded"}]},
+        "status": {"conditions": [
+            {"type": "Available", "status": "False", "reason": "MinimumReplicasUnavailable", "message": CREDENTIAL},
+            {"type": "Progressing", "status": "False", "reason": "ProgressDeadlineExceeded", "message": CREDENTIAL}]},
     }]},
     "pods.json": {"items": [
-        pod("argocd-redis-1", "Running", [container("redis", False, 3,
-            {"waiting": {"reason": "CrashLoopBackOff", "message": "back-off restarting failed container"}},
-            {"terminated": {"reason": "Error", "exitCode": 1}})]),
+        # argocd-redis가 secret-init init container에서 막혀 main container가 시작되지 않은 상태.
+        pod("argocd-redis-1", "Pending",
+            [container("redis", False, 0, {"waiting": {"reason": "PodInitializing"}}, started=False,
+                       image="public.ecr.aws/docker/library/redis:8.2.3-alpine")],
+            [{"type": "Initialized", "status": "False", "reason": "ContainersNotInitialized", "message": CREDENTIAL},
+             {"type": "Ready", "status": "False", "reason": "ContainersNotReady", "message": CREDENTIAL}],
+            init=[container("secret-init", False, 2,
+                            {"waiting": {"reason": "CrashLoopBackOff", "message": f"back-off {CREDENTIAL}"}},
+                            {"terminated": {"reason": "Error", "exitCode": 1,
+                                            "message": f'secret "argocd-redis" not found token={CREDENTIAL}'}},
+                            started=False)]),
         pod("argocd-repo-server-1", "Running", [container("repo-server", False)],
-            [{"type": "Ready", "status": "False", "reason": "ContainersNotReady"}]),
+            [{"type": "Ready", "status": "False", "reason": "ContainersNotReady", "message": CREDENTIAL}]),
         pod("argocd-applicationset-1", "Pending", [container("controller", False, 0,
-            {"waiting": {"reason": "ErrImagePull", "message": "failed to pull image quay.io/example:1"}})]),
-        pod("argocd-application-controller-0", "Pending", [],
+            {"waiting": {"reason": "ErrImagePull", "message": f"manifest unknown {CREDENTIAL}"}})]),
+        pod("argocd-application-controller-0", "Pending", None,
             [{"type": "PodScheduled", "status": "False", "reason": "Unschedulable",
-              "message": "0/1 nodes are available: 1 Insufficient memory."}]),
-        pod("postgres-0", "Running", [container("postgres", True)], namespace="postgres"),
+              "message": f"0/1 nodes are available: 1 Insufficient memory. {CREDENTIAL}"}]),
+        # Running이지만 main container status가 없거나, Ready condition이 False이거나, init container가 재시작됨.
+        pod("argocd-no-status-1", "Running", None, READY),
+        pod("argocd-ready-false-1", "Running", [container("main", True)],
+            [{"type": "Ready", "status": "False", "reason": "ReadinessGatesNotReady"}]),
+        pod("argocd-init-restarted-1", "Running", [container("main", True)], READY,
+            init=[container("init", True, 1, {"terminated": {"reason": "Completed", "exitCode": 0}})]),
+        pod("postgres-0", "Running", [container("postgres", True)], READY, init=[COMPLETED_INIT], namespace="postgres"),
+        pod("job-1", "Succeeded", [container("job", False, 0, {"terminated": {"reason": "Completed", "exitCode": 0}})],
+            namespace="kube-system"),
     ]},
     "events.json": {"items": [
         {"type": "Warning", "reason": "Unhealthy", "count": 4, "lastTimestamp": "2026-10-14T00:02:00Z",
          "metadata": {"namespace": "argocd"}, "involvedObject": {"kind": "Pod", "name": "argocd-repo-server-1"},
-         "message": "Readiness probe failed: connection refused"},
+         "message": f"Readiness probe failed: connection refused {CREDENTIAL}"},
         {"type": "Warning", "reason": "FailedScheduling", "lastTimestamp": "2026-10-14T00:01:00Z",
          "metadata": {"namespace": "argocd"}, "involvedObject": {"kind": "Pod", "name": "argocd-application-controller-0"},
-         "message": "0/1 nodes are available: 1 Insufficient memory."},
+         "message": f"0/1 nodes are available: 1 Insufficient memory. {CREDENTIAL}"},
+        {"type": "Warning", "reason": f"Leak-{CREDENTIAL}", "lastTimestamp": "2026-10-14T00:03:00Z",
+         "metadata": {"namespace": "argocd"}, "involvedObject": {"kind": "Pod", "name": "argocd-redis-1"},
+         "message": CREDENTIAL},
         {"type": "Normal", "reason": "Pulled", "lastTimestamp": "2026-10-14T00:00:30Z",
          "metadata": {"namespace": "postgres"}, "involvedObject": {"kind": "Pod", "name": "postgres-0"}, "message": "ignored"},
     ]},
@@ -153,11 +186,11 @@ class LocalBootstrapDiagnosticsTest(unittest.TestCase):
             "PATH": os.environ["PATH"], "HOME": str(base), "TMPDIR": str(lock_dir),
             "STUB_LOG": str(self.log), "STUB_STATE": str(self.state), "STUB_FIXTURES": str(fixtures),
             "STUB_SERVER_ID": OWNED, "STUB_KUBECONFIG_SECRET": KUBECONFIG_SECRET,
-            "STUB_SECRET_PAYLOAD": SECRET_PAYLOAD, "STUB_FAIL_ROLLOUT": "argocd-redis", "STUB_ROLLOUT_RC": "7",
+            "STUB_SECRET_PAYLOAD": SECRET_PAYLOAD, "STUB_CREDENTIAL": CREDENTIAL, "STUB_FAIL_ROLLOUT": "argocd-redis", "STUB_ROLLOUT_RC": "7",
         }
 
-    def run_script(self, script, **env):
-        result = subprocess.run([str(self.root / "scripts" / script)], cwd=self.root, env={**self.env, **env},
+    def run_script(self, script, *args, **env):
+        result = subprocess.run([str(self.root / "scripts" / script), *args], cwd=self.root, env={**self.env, **env},
                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=120)
         self.calls = self.log.read_text().splitlines()
         self.output = result.stdout
@@ -176,7 +209,8 @@ class LocalBootstrapDiagnosticsTest(unittest.TestCase):
     def assert_no_secret_access(self):
         self.assertFalse([c for c in self.calls if c.startswith("kubectl") and " get " in f" {c} " and
                           (" secret" in c or " configmap" in c)])
-        for value in (POD_SECRET, KUBECONFIG_SECRET, SECRET_PAYLOAD):
+        self.assertEqual([c for c in self.calls if " logs " in f" {c} "], [])
+        for value in (POD_SECRET, KUBECONFIG_SECRET, SECRET_PAYLOAD, CREDENTIAL):
             self.assertNotIn(value, self.output)
 
     def test_owned_bootstrap_failure_diagnoses_before_cleanup(self):
@@ -186,18 +220,37 @@ class LocalBootstrapDiagnosticsTest(unittest.TestCase):
         self.assertIsNotNone(delete)
         self.assertLess(pods, delete)
         self.assertLess(self.output.index("----- bootstrap diagnostics -----"), self.output.index("deleting k3d cluster"))
-        for signal in ("node k3d-server-0 MemoryPressure=True", "taints=node.kubernetes.io/memory-pressure:NoSchedule",
-                       "Deployment argocd/argocd-redis", "ProgressDeadlineExceeded", "healthy pods: 1",
-                       "container redis image=quay.io/example:1 ready=false restarts=3 state=waiting:CrashLoopBackOff back-off restarting",
-                       "last=terminated:Error:1", "state=waiting:ErrImagePull", "failed to pull image",
-                       "condition PodScheduled=False Unschedulable 0/1 nodes are available: 1 Insufficient memory.",
-                       "condition Ready=False ContainersNotReady", "Readiness probe failed",
-                       "event 2026-10-14T00:01:00Z Warning argocd Pod/argocd-application-controller-0 FailedScheduling",
-                       "logs argocd/argocd-redis-1/redis previous=true", "logs argocd/argocd-repo-server-1/repo-server previous=false"):
+        for signal in (
+            "node k3d-server-0 MemoryPressure=True,Ready=True", "taints=node.kubernetes.io/memory-pressure:NoSchedule",
+            "Deployment argocd/argocd-redis", "Available=False:MinimumReplicasUnavailable",
+            "Progressing=False:ProgressDeadlineExceeded", "healthy pods: 2 of 9",
+            # init container 실패: init status와 시작되지 않은 main container
+            "pod argocd/argocd-redis-1 phase=Pending",
+            "  condition Initialized=False ContainersNotInitialized\n",
+            "  container(init) secret-init image=quay.io/example:1 ready=false started=false restarts=2"
+            " state=waiting:CrashLoopBackOff last=terminated:Error:1 hints=object-not-found\n",
+            "  container redis image=public.ecr.aws/docker/library/redis:8.2.3-alpine ready=false started=false restarts=0"
+            " state=waiting:PodInitializing\n",
+            # readiness / image pull / scheduling
+            "  condition Ready=False ContainersNotReady\n",
+            "  container repo-server image=quay.io/example:1 ready=false started=- restarts=0 state=running:-\n",
+            "state=waiting:ErrImagePull hints=image-not-found",
+            "  condition PodScheduled=False Unschedulable hints=insufficient-memory\n",
+            "pod argocd/argocd-application-controller-0 phase=Pending node=k3d-server-0\n"
+            "  condition PodScheduled=False Unschedulable hints=insufficient-memory\n"
+            "  containers: no main container status reported\n",
+            # Running이지만 healthy가 아닌 Pod
+            "pod argocd/argocd-no-status-1 phase=Running", "pod argocd/argocd-ready-false-1 phase=Running",
+            "  condition Ready=False ReadinessGatesNotReady", "pod argocd/argocd-init-restarted-1 phase=Running",
+            "  container(init) init image=quay.io/example:1 ready=true started=- restarts=1 state=terminated:Completed:0",
+            "event 2026-10-14T00:01:00Z Warning argocd Pod/argocd-application-controller-0 FailedScheduling x1 hints=insufficient-memory\n",
+            "event 2026-10-14T00:02:00Z Warning argocd Pod/argocd-repo-server-1 Unhealthy x4 hints=connection-refused,readiness-probe\n",
+            "event 2026-10-14T00:03:00Z Warning argocd Pod/argocd-redis-1 - x1\n",
+        ):
             self.assertIn(signal, self.output)
-        self.assertNotIn("postgres-0", self.output.split("healthy pods: 1")[1].split("event ")[0])
+        for healthy in ("postgres/postgres-0", "kube-system/job-1"):
+            self.assertNotIn(f"pod {healthy}", self.output)
         self.assertNotIn("Pulled", self.output)
-        self.assertNotIn("logs argocd/argocd-applicationset-1", self.output)
         self.assertTrue(all("--request-timeout=15s" in c for c in self.calls[self.index("kubectl -n argocd rollout status deployment/argocd-redis") + 1:]
                             if c.startswith("kubectl")))
         self.assert_no_secret_access()
@@ -257,6 +310,43 @@ class LocalBootstrapDiagnosticsTest(unittest.TestCase):
         self.assertIn("FAIL cleanup incomplete", self.output)
         self.assertEqual(self.server(), OWNED)
         self.assertFalse((self.root / ".tmp" / "kubeconfig").exists())
+
+    def test_credential_sentinels_never_reach_output(self):
+        # Container log, condition/container/termination/event message, event reason에 credential을 넣는다.
+        self.assertEqual(self.run_script("local-run.sh"), 7)
+        self.assertIn("----- bootstrap diagnostics -----", self.output)
+        self.assertEqual([c for c in self.calls if " logs " in f" {c} "], [])
+        self.assertNotIn(CREDENTIAL, self.output)
+        self.assertNotIn("password=", self.output)
+        self.assertNotIn("not found", self.output)
+
+    def test_guard_setup_without_ownership_cannot_inspect(self):
+        # Guard setup(make up)은 marker가 없다. 다른 invocation cluster가 이미 있으면 refuse만 하고 조회하지 않는다.
+        (self.state / "server").write_text("server-other\n")
+        self.assertNotEqual(self.run_script("local-up.sh"), 0)
+        self.assertIn("already exists", self.output)
+        self.assertEqual(self.diagnostic_calls(), [])
+        self.assertEqual(self.server(), "server-other")
+        # local-verify.sh bootstrap-diagnostics를 직접 호출해도 marker가 없거나 server ID가 다르면 조회하지 않는다.
+        (self.root / ".tmp" / "kubeconfig").write_text("other invocation kubeconfig\n")
+        marker = self.state / "marker"
+        marker.write_text(OWNED + "\n")
+        for env in ({}, {"LOCAL_CLUSTER_OWNERSHIP_MARKER": str(self.state / "absent")},
+                    {"LOCAL_CLUSTER_OWNERSHIP_MARKER": str(marker)}):
+            self.assertEqual(self.run_script("local-verify.sh", "bootstrap-diagnostics", **env), 1)
+            self.assertIn("require the invocation-owned cluster; not inspecting", self.output)
+            self.assertEqual([c for c in self.calls if c.startswith("kubectl")], [])
+        self.assertEqual(self.server(), "server-other")
+
+    def test_only_owned_local_up_invokes_bootstrap_diagnostics(self):
+        # Workflow/Makefile/scripts에서 bootstrap 진단을 marker 없이 직접 호출하는 경로가 없어야 한다.
+        callers = []
+        for path in [REPO / "Makefile", *sorted((REPO / ".github" / "workflows").glob("*.yml")),
+                     *sorted((REPO / "scripts").glob("*.sh"))]:
+            text = path.read_text()
+            if path.name != "local-verify.sh" and ("bootstrap-diagnostics" in text or "local-verify.sh diagnostics" in text):
+                callers.append(path.relative_to(REPO).as_posix())
+        self.assertEqual(callers, ["scripts/local-up.sh"])
 
 
 if __name__ == "__main__":

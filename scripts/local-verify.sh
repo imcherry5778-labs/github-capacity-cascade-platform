@@ -5,7 +5,7 @@
 #   baseline     fresh platform readiness 후 warm-up 1 + measured 5 journey를 기록한다.
 #   runtime      P1 contract/journey/continuity와 Argo self-heal 후 developer journey를 검사한다.
 #   diagnostics  실패 분석용 cluster 상태를 출력한다.
-#   bootstrap-diagnostics  bootstrap 실패 원인 구분용 non-secret status/event를 출력한다(local-up.sh owned failure path).
+#   bootstrap-diagnostics  bootstrap 실패 원인 구분용 status/reason을 출력한다(local-up.sh owned failure path 전용).
 # Readiness gate만 bounded wait를 사용하고, developer operation 자체는 retry하지 않는다.
 set -euo pipefail
 
@@ -544,48 +544,67 @@ diagnostics() {
 }
 
 # Bootstrap 실패 원인(scheduling, image pull, crash/restart, readiness, node pressure)을 구분할 compact status.
-# Secret/ConfigMap, Pod spec(env), raw manifest는 조회하지 않고 status/condition/event field만 출력한다.
-# Container log는 Argo CD namespace의 not-ready Pod에서 시작된 container의 짧은 tail로 제한한다.
+# local-up.sh owned failure path 전용이다. Marker의 server ID와 현재 cluster server ID가 같을 때만 조회한다.
+# Pod는 API JSON 전체를 받지만 status/metadata field만 출력한다. Container log와 condition/event/termination
+# message 원문은 출력하지 않는다. Reason/type은 identifier 형식만, message는 고정 allowlist hint token으로만 남긴다.
 bootstrap_diagnostics() {
-  local k=(kubectl --request-timeout=15s) rc=0 pods ns pod container previous
+  local k=(kubectl --request-timeout=15s) rc=0 owner current pods
+  owner="$(cat "${LOCAL_CLUSTER_OWNERSHIP_MARKER:-/nonexistent}" 2>/dev/null)" || owner=""
+  current="$(docker ps -aq --no-trunc --filter label=k3d.cluster=capacity-cascade-local --filter label=k3d.role=server)" || current=""
+  if [[ -z "$owner" || "$current" != "$owner" ]]; then
+    echo "[local-verify] bootstrap diagnostics require the invocation-owned cluster; not inspecting" >&2
+    return 1
+  fi
+  # jq program text다($m, $p는 jq 변수).
+  # shellcheck disable=SC2016
+  local defs='
+    def id: if type == "string" and test("^[A-Za-z][A-Za-z0-9]{0,63}$") then . else "-" end;
+    def image: if type == "string" and test("^[A-Za-z0-9][A-Za-z0-9./:@_-]{0,254}$") then . else "-" end;
+    def hints: (. // "" | ascii_downcase) as $m | [
+      ["insufficient cpu", "insufficient-cpu"], ["insufficient memory", "insufficient-memory"],
+      ["insufficient pods", "insufficient-pods"], ["too many pods", "insufficient-pods"],
+      ["untolerated taint", "untolerated-taint"], ["node affinity", "node-affinity-mismatch"],
+      ["unbound immediate persistentvolumeclaims", "unbound-pvc"], ["not found", "object-not-found"],
+      ["manifest unknown", "image-not-found"], ["unauthorized", "registry-unauthorized"],
+      ["toomanyrequests", "registry-rate-limited"], ["i/o timeout", "network-timeout"],
+      ["connection refused", "connection-refused"], ["readiness probe", "readiness-probe"],
+      ["liveness probe", "liveness-probe"], ["startup probe", "startup-probe"]
+    ] | map(select(.[0] as $p | $m | contains($p)) | .[1]) | unique |
+      if length > 0 then " hints=" + join(",") else "" end;
+    def state: to_entries[0] // {key: "unknown", value: {}} |
+      "\(.key | id):\(.value.reason | id)" + (if .value.exitCode != null then ":\(.value.exitCode)" else "" end);
+    def healthy: .status.phase == "Succeeded" or (.status.phase == "Running" and
+      any(.status.conditions[]?; .type == "Ready" and .status == "True") and
+      ((.status.containerStatuses // []) | length > 0 and all(.[]; .ready and .restartCount == 0)) and
+      all(.status.initContainerStatuses[]?; (.ready or .state.terminated.exitCode == 0) and .restartCount == 0));'
   echo "----- bootstrap diagnostics -----" >&2
-  "${k[@]}" get nodes -o json | jq -r '.items[] |
-    "node \(.metadata.name) \([.status.conditions[]? | "\(.type)=\(.status)"] | join(","))" +
+  "${k[@]}" get nodes -o json | jq -r "$defs"'.items[] |
+    "node \(.metadata.name) \([.status.conditions[]? | "\(.type | id)=\(.status | id)"] | join(","))" +
     " allocatable=cpu:\(.status.allocatable.cpu),memory:\(.status.allocatable.memory),pods:\(.status.allocatable.pods)" +
-    " unschedulable=\(.spec.unschedulable // false) taints=\([.spec.taints[]? | "\(.key):\(.effect)"] | join(","))"' >&2 || rc=1
-  "${k[@]}" get deployments,statefulsets,jobs -A -o json | jq -r '.items[] |
+    " unschedulable=\(.spec.unschedulable // false) taints=\([.spec.taints[]? | "\(.key):\(.effect | id)"] | join(","))"' >&2 || rc=1
+  "${k[@]}" get deployments,statefulsets,jobs -A -o json | jq -r "$defs"'.items[] |
     "\(.kind) \(.metadata.namespace)/\(.metadata.name) replicas=\(.spec.replicas // "-") ready=\(.status.readyReplicas // 0)" +
     " available=\(.status.availableReplicas // 0) succeeded=\(.status.succeeded // 0) failed=\(.status.failed // 0)" +
     " conditions=\([.status.conditions[]? | select(.status != "True" or .type == "ReplicaFailure" or .type == "Failed") |
-      "\(.type)=\(.status):\(.reason // "")"] | join(","))"' >&2 || rc=1
+      "\(.type | id)=\(.status | id):\(.reason | id)"] | join(","))"' >&2 || rc=1
   pods="$("${k[@]}" get pods -A -o json)" || { echo "pods unavailable" >&2; rc=1; }
   if [[ -n "$pods" ]]; then
-    jq -r '[.items[] | select(.status.phase == "Succeeded" or (.status.phase == "Running" and
-        all(.status.containerStatuses[]?; .ready and .restartCount == 0)))] | "healthy pods: \(length)"' <<<"$pods" >&2 || rc=1
-    jq -r '.items[] | select(.status.phase != "Succeeded" and (.status.phase != "Running" or
-        any(.status.containerStatuses[]?; (.ready | not) or .restartCount > 0))) |
-      "pod \(.metadata.namespace)/\(.metadata.name) phase=\(.status.phase) node=\(.spec.nodeName // "-")",
-      (.status.conditions[]? | select(.status != "True") |
-        "  condition \(.type)=\(.status) \(.reason // "") \(.message // "" | gsub("\\s+"; " ") | .[0:240])"),
+    jq -r "$defs"'"healthy pods: \([.items[] | select(healthy)] | length) of \(.items | length)"' <<<"$pods" >&2 || rc=1
+    jq -r "$defs"'.items[] | select(healthy | not) |
+      "pod \(.metadata.namespace)/\(.metadata.name) phase=\(.status.phase | id) node=\(.spec.nodeName // "-")",
+      (.status.conditions[]? | select(.status != "True") | "  condition \(.type | id)=\(.status | id) \(.reason | id)\(.message | hints)"),
+      (if (.status.containerStatuses // []) | length == 0 then "  containers: no main container status reported" else empty end),
       ((.status.initContainerStatuses // [] | map(. + {init: true})) + (.status.containerStatuses // []) | .[] |
-        "  container\(if .init then "(init)" else "" end) \(.name) image=\(.image) ready=\(.ready) restarts=\(.restartCount)" +
-        " state=\(.state | to_entries[0] | "\(.key):\(.value.reason // "")" + if .value.exitCode != null then ":\(.value.exitCode)" else "" end)" +
-        " \(.state.waiting.message // "" | gsub("\\s+"; " ") | .[0:240])" +
-        (if .lastState.terminated then " last=terminated:\(.lastState.terminated.reason // ""):\(.lastState.terminated.exitCode)" else "" end))
+        "  container\(if .init then "(init)" else "" end) \(.name) image=\(.image | image) ready=\(.ready) started=\(if has("started") then .started else "-" end)" +
+        " restarts=\(.restartCount) state=\(.state | state)" +
+        (if .lastState.terminated then " last=\(.lastState | state)" else "" end) +
+        ([.state.waiting.message, .state.terminated.message, .lastState.terminated.message] | map(. // "") | join(" ") | hints))
       ' <<<"$pods" >&2 || rc=1
   fi
-  "${k[@]}" get events -A -o json | jq -r '[.items[] | select(.type == "Warning" or .metadata.namespace == "argocd")] |
+  "${k[@]}" get events -A -o json | jq -r "$defs"'[.items[] | select(.type == "Warning" or .metadata.namespace == "argocd")] |
     sort_by(.lastTimestamp // .eventTime // .metadata.creationTimestamp) | .[-40:][] |
-    "event \(.lastTimestamp // .eventTime // "-") \(.type) \(.metadata.namespace) \(.involvedObject.kind)/\(.involvedObject.name)" +
-    " \(.reason) x\(.count // 1) \(.message // "" | gsub("\\s+"; " ") | .[0:240])"' >&2 || rc=1
-  if [[ -n "$pods" ]]; then
-    while read -r ns pod container previous; do
-      echo "logs $ns/$pod/$container previous=$previous (tail 20)" >&2
-      "${k[@]}" -n "$ns" logs "$pod" -c "$container" --tail=20 "--previous=$previous" >&2 || rc=1
-    done < <(jq -r '.items[] | select(.metadata.namespace == "argocd" and any(.status.containerStatuses[]?; .ready | not)) |
-      .metadata as $m | .status.containerStatuses[] | select((.ready | not) and (.restartCount > 0 or .state.running != null)) |
-      "\($m.namespace) \($m.name) \(.name) \(.restartCount > 0)"' <<<"$pods")
-  fi
+    "event \(.lastTimestamp // .eventTime // "-") \(.type | id) \(.metadata.namespace) \(.involvedObject.kind | id)/\(.involvedObject.name)" +
+    " \(.reason | id) x\(.count // 1)\(.message | hints)"' >&2 || rc=1
   return "$rc"
 }
 
