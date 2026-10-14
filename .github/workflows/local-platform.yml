@@ -21,6 +21,7 @@ on:
 permissions:
   contents: read
   checks: read
+  pull-requests: read
 
 concurrency:
   group: local-platform-${{ github.event.pull_request.number }}
@@ -28,6 +29,8 @@ concurrency:
 
 jobs:
   local-platform:
+    # Static-only 판정에서도 이 check 이름을 유지한다. 아래 docs-only 판정이 직전 head의 이 이름으로 성공을 조회하며,
+    # 실제 runtime 실행/생략 여부는 job summary에 별도로 기록한다.
     name: static + fresh local lifecycle
     runs-on: ubuntu-24.04
     timeout-minutes: 45
@@ -38,23 +41,46 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
 
-      # pull_request.paths는 PR 전체 3-dot diff를 보므로, 같은 PR의 docs-only 후속 push도 workflow 자체는 다시 실행된다.
-      # synchronize의 직전 HEAD → 현재 HEAD delta와 직전 local-platform 성공을 둘 다 증명한 경우에만 expensive runtime을 생략한다.
+      # 1. PR base → checked-out exact HEAD 전체 changed-file set(PR files API)이 Azure Terraform static-only allowlist에만
+      #    속하면 expensive Local runtime을 생략한다(scripts/ci-change-impact.py). Latest commit delta만으로는 판정하지 않는다.
+      # 2. Complete PR diff가 runtime-impacting으로 검증된 경우에만 기존 docs-only 최적화를 적용한다. pull_request.paths는
+      #    PR 전체 3-dot diff를 보므로 같은 PR의 docs-only 후속 push도 workflow는 다시 실행된다. synchronize의 직전 HEAD →
+      #    현재 HEAD delta와 직전 local-platform 성공을 둘 다 증명한 경우에만 runtime을 생략한다.
+      # 3. Classifier가 uncertain이거나 실패/잘못된 출력이면 어떤 shortcut도 없이 full runtime이다.
       # 비교/API 조회가 불확실하면 runtime_changed=true를 유지해 기존 전체 검증으로 fail safe한다.
+      # tests/e2e/test-ci-change-impact.py가 이 run block을 그대로 실행해 판정 경로를 검증한다.
       - name: Classify current PR update
         id: changes
         env:
           EVENT_ACTION: ${{ github.event.action }}
           BEFORE_SHA: ${{ github.event.before }}
           AFTER_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
           REPOSITORY: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -uo pipefail
           runtime_changed=true
+          classification=full-runtime
           reason="full runtime by default"
 
-          if [[ "$EVENT_ACTION" == "synchronize" &&
+          # 정확히 한 줄 "<decision>\t<reason>"만 신뢰한다. 실패/다른 형식은 uncertain이다.
+          impact_decision=uncertain
+          impact_reason="change-impact classifier failed or produced invalid output"
+          impact_format=$'^(static-only|runtime-impacting|uncertain)\t([^\t\n]*)$'
+          if impact="$(python3 scripts/ci-change-impact.py "$REPOSITORY" "$PR_NUMBER" "$AFTER_SHA" "$(git rev-parse HEAD)")" &&
+             [[ "$impact" =~ $impact_format ]]; then
+            impact_decision="${BASH_REMATCH[1]}"
+            impact_reason="${BASH_REMATCH[2]}"
+          fi
+
+          if [[ "$impact_decision" == "static-only" ]]; then
+            runtime_changed=false
+            classification=static-only
+            reason="PR diff: $impact_reason"
+          elif [[ "$impact_decision" != "runtime-impacting" ]]; then
+            reason="docs-only shortcut not applied because the complete PR diff is not verified"
+          elif [[ "$EVENT_ACTION" == "synchronize" &&
                 "$BEFORE_SHA" =~ ^[0-9a-f]{40}$ &&
                 "$AFTER_SHA" =~ ^[0-9a-f]{40}$ &&
                 "$AFTER_SHA" == "$(git rev-parse HEAD)" ]]; then
@@ -90,6 +116,7 @@ jobs:
                       .name == "static + fresh local lifecycle" and
                       .status == "completed" and .conclusion == "success")' "$checks_file" >/dev/null; then
                     runtime_changed=false
+                    classification=docs-only-synchronize
                     reason="docs-only synchronize after successful previous local-platform head"
                   else
                     reason="docs-only delta but previous successful local-platform head is not proven"
@@ -109,17 +136,25 @@ jobs:
             reason="opened/reopened PR requires full runtime"
           fi
 
-          echo "runtime_changed=$runtime_changed" >>"$GITHUB_OUTPUT"
-          echo "runtime_changed=$runtime_changed: $reason"
+          [[ "$classification" != full-runtime ]] || reason="PR diff ($impact_decision): $impact_reason; delta: $reason"
+          {
+            echo "runtime_changed=$runtime_changed"
+            echo "pr_diff=$impact_decision"
+            echo "classification=$classification"
+            echo "reason=$reason"
+          } >>"$GITHUB_OUTPUT"
+          echo "runtime_changed=$runtime_changed classification=$classification: $reason"
 
       - name: Install pinned tools
         run: make tools
 
       - name: Source / static / render validation
+        id: static
         run: make static
 
       - name: Fresh lifecycle (make local) + owned cleanup
         if: steps.changes.outputs.runtime_changed == 'true'
+        id: lifecycle
         run: |
           make local
           if .tmp/bin/k3d cluster get capacity-cascade-local >/dev/null 2>&1; then
@@ -208,6 +243,7 @@ jobs:
 
       - name: Fresh coordinated backup and restore
         if: steps.changes.outputs.runtime_changed == 'true'
+        id: recovery
         run: |
           make recovery
           if .tmp/bin/k3d cluster get capacity-cascade-local >/dev/null 2>&1; then
@@ -236,6 +272,7 @@ jobs:
 
       - name: Forgejo patch upgrade and fresh state-aware rollback
         if: steps.changes.outputs.runtime_changed == 'true'
+        id: upgrade
         run: |
           make upgrade
           result="$(find results/local -path '*/upgrade-*/result.json' -print -quit)"
@@ -280,6 +317,7 @@ jobs:
 
       - name: Ownership guard (existing / concurrent create-delete / replaced / ambiguous / uninspectable cluster)
         if: steps.changes.outputs.runtime_changed == 'true'
+        id: ownership
         run: |
           mkdir -p .tmp/journey
           touch .tmp/journey/credentials.env .tmp/port-forward.log
@@ -345,6 +383,7 @@ jobs:
 
       - name: Cleanup error path (k3d cluster delete failure)
         if: steps.changes.outputs.runtime_changed == 'true'
+        id: cleanup_error
         run: |
           # 삭제 실패를 흉내 내는 k3d wrapper로 make down을 실행한다. 실패가 exit code로 드러나고,
           # cluster가 남아 있어도 kubeconfig/credential/temp output은 제거되어야 한다.
@@ -375,3 +414,42 @@ jobs:
       - name: Cleanup
         if: ${{ always() && steps.changes.outputs.runtime_changed == 'true' }}
         run: make down
+
+      # Static-only/docs-only 판정은 runtime 생략이며 Local runtime PASS가 아니다. 실제 실행된 stage outcome만 기록한다.
+      - name: Change-impact summary
+        if: always()
+        env:
+          PR_DIFF: ${{ steps.changes.outputs.pr_diff }}
+          CLASSIFICATION: ${{ steps.changes.outputs.classification }}
+          REASON: ${{ steps.changes.outputs.reason }}
+          STATIC_OUTCOME: ${{ steps.static.outcome }}
+          LIFECYCLE_OUTCOME: ${{ steps.lifecycle.outcome }}
+          STAGES: >-
+            make local=${{ steps.lifecycle.outcome }};
+            make recovery=${{ steps.recovery.outcome }};
+            make upgrade=${{ steps.upgrade.outcome }};
+            ownership guard setup=${{ steps.up.outcome }};
+            ownership guards=${{ steps.ownership.outcome }};
+            cleanup error path=${{ steps.cleanup_error.outcome }}
+        run: |
+          set -uo pipefail
+          case "$LIFECYCLE_OUTCOME" in
+            success | failure | cancelled) runtime="executed" ;;
+            *) case "$CLASSIFICATION" in
+                 static-only | docs-only-synchronize) runtime="not executed (skipped by classification; Local runtime not verified for this HEAD)" ;;
+                 *) runtime="not executed (required but not reached)" ;;
+               esac ;;
+          esac
+          {
+            echo "### Local platform change impact"
+            echo
+            echo "- Source HEAD: \`$(git rev-parse HEAD 2>/dev/null || echo unknown)\`"
+            echo "- PR diff: \`${PR_DIFF:-unavailable}\`"
+            echo "- Classification: \`${CLASSIFICATION:-unavailable}\`"
+            echo "- Reason: ${REASON:-classification step did not complete}"
+            echo "- Static validation (make static): \`${STATIC_OUTCOME:-not reached}\`"
+            echo "- Local runtime: $runtime"
+            if [[ "$runtime" == executed ]]; then
+              echo "- Runtime stage outcomes: \`$STAGES\`"
+            fi
+          } | tee -a "$GITHUB_STEP_SUMMARY"
