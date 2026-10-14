@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """CI change impact: PR base → checked-out exact HEAD 전체 changed-file set으로 Local runtime 필요 여부를 정한다.
 
-모든 path가 Azure Terraform source/static verifier allowlist에 속할 때만 static-only다.
-API 오류, HEAD 불일치, 불완전/잘린 file list 등 불확실한 결과는 항상 full-runtime으로 fail closed한다.
+Decision (machine-readable):
+  static-only        complete PR diff의 모든 path가 Azure Terraform source/static verifier allowlist에 속함
+  runtime-impacting  complete PR diff에 allowlist 밖 path가 있음
+  uncertain          API 오류, HEAD/base 불일치, 불완전/잘린/malformed file list 등 complete diff를 증명하지 못함
+Workflow는 uncertain(및 classifier 실패/잘못된 출력)에서 어떤 shortcut도 없이 full runtime을 실행한다.
 
 usage: ci-change-impact.py REPOSITORY PR_NUMBER PR_HEAD_SHA CHECKED_OUT_SHA
-stdout: "<static-only|full-runtime>\t<reason>" 한 줄. Changed path는 stderr에 기록한다.
+stdout: "<static-only|runtime-impacting|uncertain>\t<reason>" 한 줄. Changed path는 stderr에 기록한다.
 """
 import json
 import os
@@ -37,11 +40,11 @@ def static_only_path(path):
 
 def classify(paths):
     if not paths:
-        return "full-runtime", "empty changed-file set"
+        return "uncertain", "empty changed-file set"
     runtime = sorted(path for path in paths if not static_only_path(path))
     if runtime:
         more = f" (+{len(runtime) - 1} more)" if len(runtime) > 1 else ""
-        return "full-runtime", f"runtime-impacting or unrecognized path {runtime[0]!r}{more}"
+        return "runtime-impacting", f"runtime-impacting or unrecognized path {runtime[0]!r}{more}"
     return "static-only", f"all {len(paths)} changed paths are Azure Terraform static-only"
 
 
@@ -65,7 +68,7 @@ def pr_files(get_json, repository, number, head):
 
     before = snapshot()
     count = before[2]
-    paths, entries = set(), 0
+    paths, filenames, entries = set(), set(), 0
     for page in range(1, FILES_API_LIMIT // PAGE_SIZE + 1):
         batch = get_json(f"/repos/{repository}/pulls/{number}/files?per_page={PAGE_SIZE}&page={page}")
         if not isinstance(batch, list):
@@ -74,11 +77,15 @@ def pr_files(get_json, repository, number, head):
             name = entry.get("filename") if isinstance(entry, dict) else None
             if not isinstance(name, str) or not name:
                 raise Uncertain(f"files page {page} entry without filename")
+            # 같은 filename이 다시 오면 count는 맞아도 다른 changed path가 빠졌을 수 있다.
+            if name in filenames:
+                raise Uncertain(f"files page {page} repeats a filename")
+            filenames.add(name)
             paths.add(name)
             previous = entry.get("previous_filename")
-            if previous is not None:
+            if previous is not None or entry.get("status") == "renamed":
                 if not isinstance(previous, str) or not previous:
-                    raise Uncertain(f"files page {page} entry with invalid previous_filename")
+                    raise Uncertain(f"files page {page} entry with missing or invalid previous_filename")
                 paths.add(previous)
         entries += len(batch)
         if len(batch) < PAGE_SIZE:
@@ -99,15 +106,15 @@ def pr_files(get_json, repository, number, head):
 
 def decide(get_json, repository, number, head, checked_out, log=lambda path: None):
     if not REPOSITORY.match(repository) or not re.fullmatch(r'[1-9][0-9]*', number):
-        return "full-runtime", "invalid repository or PR number"
+        return "uncertain", "invalid repository or PR number"
     if not SHA.match(head) or head != checked_out:
-        return "full-runtime", "checked-out HEAD does not match PR head"
+        return "uncertain", "checked-out HEAD does not match PR head"
     try:
         paths = pr_files(get_json, repository, number, head)
     except Uncertain as error:
-        return "full-runtime", f"PR diff uncertain: {error}"
+        return "uncertain", f"PR diff uncertain: {error}"
     except Exception as error:  # API/network/JSON 오류. Raw response body는 출력하지 않는다.
-        return "full-runtime", f"PR diff unavailable: {type(error).__name__}"
+        return "uncertain", f"PR diff unavailable: {type(error).__name__}"
     for path in sorted(paths):
         log(path)
     return classify(paths)
@@ -126,7 +133,7 @@ def github_get_json(path):
 
 def main(argv):
     if len(argv) != 4:
-        decision, reason = "full-runtime", "classifier usage error"
+        decision, reason = "uncertain", "classifier usage error"
     else:
         decision, reason = decide(github_get_json, *argv,
                                   log=lambda path: print(f"PR path: {path}", file=sys.stderr))
