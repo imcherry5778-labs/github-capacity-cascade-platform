@@ -14,9 +14,11 @@ resource "azurerm_federated_identity_credential" "forgejo_secrets" {
 }
 
 resource "azurerm_role_assignment" "forgejo_secrets" {
-  scope                = var.key_vault_id
-  role_definition_name = "Key Vault Secrets User"
-  principal_id         = azurerm_user_assigned_identity.forgejo_secrets.principal_id
+  scope                            = var.key_vault_id
+  role_definition_name             = "Key Vault Secrets User"
+  principal_id                     = azurerm_user_assigned_identity.forgejo_secrets.principal_id
+  principal_type                   = "ServicePrincipal"
+  skip_service_principal_aad_check = true
 }
 
 resource "azurerm_user_assigned_identity" "cert_manager" {
@@ -34,7 +36,9 @@ resource "azurerm_federated_identity_credential" "cert_manager" {
 }
 
 resource "azurerm_role_assignment" "cert_manager_dns" {
-  scope                = var.dns_zone_id
-  role_definition_name = "DNS Zone Contributor"
-  principal_id         = azurerm_user_assigned_identity.cert_manager.principal_id
+  scope                            = var.dns_zone_id
+  role_definition_name             = "DNS Zone Contributor"
+  principal_id                     = azurerm_user_assigned_identity.cert_manager.principal_id
+  principal_type                   = "ServicePrincipal"
+  skip_service_principal_aad_check = true
 }

@@ -133,6 +133,10 @@ CI의 기존 environment RG Contributor는 control-plane credential retrieval ac
 이 control-plane role는 Kubernetes data-plane bootstrap authorization을 대신하지 않는다.
 
 Temporary grants are P6 approval/review duties, not new persistent Terraform identities.
+새 UAMI assignment는 [Azure new-service-principal guidance](https://learn.microsoft.com/en-us/azure/role-based-access-control/role-assignments-template#new-service-principal)와
+[AzureRM 5.7.0 role assignment schema](https://github.com/hashicorp/terraform-provider-azurerm/blob/v5.7.0/website/docs/r/role_assignment.html.markdown)에 따라
+`principal_type=ServicePrincipal` / `skip_service_principal_aad_check=true`를 사용한다.
+이는 replication-time lookup 경계의 source 설정이며 actual effective access는 **not verified**다.
 Subscription Owner/Contributor/User Access Administrator, permanent AKS Cluster Admin, workload/CI
 Secrets Officer 권한을 추가하지 않는다. Project RG 밖 권한이 필요하면 stop/report한다.
 Kubernetes RBAC escalation에 필요한 bootstrap privilege가 없는 operator는 임의 broad role을 만들지 않는다.

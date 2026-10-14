@@ -207,6 +207,10 @@ W3의 4개 role에 위 2개가 추가되어 role assignment는 6개다. CI ident
 영구 Kubernetes Cluster Admin, Key Vault secret write, subscription privilege를 추가하지 않는다.
 Temporary operator bootstrap duty와 stable controller RBAC는 [aggregate preflight](../../../docs/p5-preflight.md)에 있다.
 
+새 UAMI의 두 assignment는 `principal_type="ServicePrincipal"`,
+`skip_service_principal_aad_check=true`를 명시한다. Fresh identity replication 중 AAD lookup 실패를
+피하는 source 설정이며 실제 role propagation/권한 사용 가능 여부는 P6에서 확인한다.
+
 ## Planned managed side effects
 
 아래 resource는 Terraform이 explicit하게 소유하지 않지만 Azure가 위 resource 때문에 만든다. Terraform state/destroy가 직접 보장하지 않는다.

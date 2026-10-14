@@ -601,9 +601,13 @@ run "platform_workload_rbac" {
       azurerm_role_assignment.forgejo_secrets.scope == var.key_vault_id &&
       azurerm_role_assignment.forgejo_secrets.role_definition_name == "Key Vault Secrets User" &&
       azurerm_role_assignment.forgejo_secrets.principal_id == azurerm_user_assigned_identity.forgejo_secrets.principal_id &&
+      azurerm_role_assignment.forgejo_secrets.principal_type == "ServicePrincipal" &&
+      azurerm_role_assignment.forgejo_secrets.skip_service_principal_aad_check == true &&
       azurerm_role_assignment.cert_manager_dns.scope == var.dns_zone_id &&
       azurerm_role_assignment.cert_manager_dns.role_definition_name == "DNS Zone Contributor" &&
       azurerm_role_assignment.cert_manager_dns.principal_id == azurerm_user_assigned_identity.cert_manager.principal_id
+      && azurerm_role_assignment.cert_manager_dns.principal_type == "ServicePrincipal"
+      && azurerm_role_assignment.cert_manager_dns.skip_service_principal_aad_check == true
     )
     error_message = "Exact ServiceAccount federation and resource-scoped platform roles required."
   }
