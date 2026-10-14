@@ -12,6 +12,31 @@ CLUSTER=capacity-cascade-local
 
 log() { printf '[local-up] %s\n' "$*"; }
 
+# Bootstrap 실패 진단. Owned cleanup(local-run.sh / local-recover.sh의 local-down.sh)은 이 script 종료 뒤에 실행되므로
+# 여기서 cluster와 kubeconfig가 남아 있는 동안 수집한다. Marker를 받아 lock 안에서 직접 만들고 kubeconfig까지 받은
+# cluster만 대상이다. Create/delete lock 안에서 현재 server ID가 그 cluster와 같을 때만 조회하고, ownership이 없거나
+# 확인할 수 없으면 조회하지 않는다. 진단 실패/timeout은 원래 exit code와 이후 cleanup을 바꾸지 않는다.
+diagnostics_server_id=""
+owned_bootstrap_diagnostics() {
+  local current
+  exec 9>"${TMPDIR:-/tmp}/k3d-$CLUSTER.lock"
+  flock -w 60 9 || { echo "[local-up] create/delete lock unavailable; not inspecting $CLUSTER" >&2; return 1; }
+  current="$(docker ps -aq --no-trunc --filter "label=k3d.cluster=$CLUSTER" --filter label=k3d.role=server)" ||
+    { echo "[local-up] cannot inspect cluster ownership; not inspecting $CLUSTER" >&2; return 1; }
+  [[ -n "$current" && "$current" == "$diagnostics_server_id" ]] ||
+    { echo "[local-up] $CLUSTER is not the cluster created by this invocation; not inspecting" >&2; return 1; }
+  timeout 120 "$ROOT/scripts/local-verify.sh" bootstrap-diagnostics
+}
+on_exit() {
+  local rc=$?
+  trap - EXIT
+  if [[ "$rc" -ne 0 && -n "$diagnostics_server_id" ]]; then
+    owned_bootstrap_diagnostics || echo "[local-up] bootstrap diagnostics incomplete" >&2
+  fi
+  exit "$rc"
+}
+trap on_exit EXIT
+
 "$ROOT/scripts/install-tools.sh"
 if [[ -n "${LOCAL_RESTORE_SECRETS_FILE:-}" ]]; then
   [[ -f "$LOCAL_RESTORE_SECRETS_FILE" && "$(stat -c %a "$LOCAL_RESTORE_SECRETS_FILE")" == 600 ]] ||
@@ -56,6 +81,7 @@ if [[ -n "${LOCAL_CLUSTER_OWNERSHIP_MARKER:-}" ]]; then
 fi
 exec 9>&-
 ( umask 077 && k3d kubeconfig get "$CLUSTER" >"$KUBECONFIG" )
+[[ -z "${LOCAL_CLUSTER_OWNERSHIP_MARKER:-}" ]] || diagnostics_server_id="$server_id"
 kubectl wait node --all --for=condition=Ready --timeout=180s
 # k3s는 bundled addon을 cluster 시작 후 비동기로 생성한다.
 kubectl -n kube-system wait deployment/local-path-provisioner --for=create --timeout=180s
