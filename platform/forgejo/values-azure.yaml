@@ -1,0 +1,18 @@
+# Deployment-time hostname/private DB/PVC size는 render-azure-platform.py가 Application에 공급한다.
+# values-common.yaml의 Local-independent contract를 그대로 합성한다.
+serviceAccount:
+  create: false
+  name: forgejo
+persistence:
+  storageClass: managed-csi
+  accessModes: [ReadWriteOnce]
+gitea:
+  config:
+    database:
+      SSL_MODE: verify-full
+    log:
+      MODE: console
+      LEVEL: Info
+deployment:
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"

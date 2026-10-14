@@ -1,0 +1,4 @@
+apiVersion: v2
+name: azure-stable
+version: 0.1.0
+type: application

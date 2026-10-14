@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "hostname",
+    "tenant_id",
+    "forgejo_secrets_client_id",
+    "key_vault_name",
+    "producer_image"
+  ],
+  "properties": {
+    "hostname": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9.-]+[a-z0-9]$"
+    },
+    "tenant_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "forgejo_secrets_client_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "key_vault_name": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9-]{3,24}$"
+    },
+    "producer_image": {
+      "type": "string",
+      "pattern": "^code\\.forgejo\\.org/forgejo/forgejo:15\\.0\\.9-rootless@sha256:[0-9a-f]{64}$"
+    }
+  }
+}

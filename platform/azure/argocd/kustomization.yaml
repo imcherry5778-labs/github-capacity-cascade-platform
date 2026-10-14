@@ -1,0 +1,30 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: argocd
+resources:
+  - https://raw.githubusercontent.com/argoproj/argo-cd/c9c369efcc5b2a0bd720803f8d14a1c3eaddf579/manifests/core-install.yaml
+patches:
+  # Upstream Core의 cluster-wide wildcard write 권한을 제거한다.
+  - target:
+      kind: ClusterRole
+      name: argocd-application-controller
+    patch: |-
+      - op: replace
+        path: /rules
+        value:
+          - apiGroups: [""]
+            resources: [namespaces]
+            verbs: [get, list, watch]
+          - apiGroups: [apiextensions.k8s.io]
+            resources: [customresourcedefinitions]
+            verbs: [get, list, watch]
+          - apiGroups: [authorization.k8s.io]
+            resources: [selfsubjectaccessreviews]
+            verbs: [create]
+  - target:
+      kind: ConfigMap
+      name: argocd-cm
+    patch: |-
+      - op: add
+        path: /data/resource.respectRBAC
+        value: strict

@@ -1,0 +1,48 @@
+{
+  "apiVersion": "networking.istio.io/v1beta1",
+  "kind": "VirtualService",
+  "metadata": {
+    "name": "forgejo",
+    "namespace": "forgejo",
+    "annotations": {
+      "argocd.argoproj.io/sync-wave": "0"
+    }
+  },
+  "spec": {
+    "hosts": [
+      "{{ .Values.hostname }}"
+    ],
+    "gateways": [
+      "forgejo"
+    ],
+    "http": [
+      {
+        "match": [
+          {
+            "uri": {
+              "prefix": "/metrics"
+            }
+          }
+        ],
+        "directResponse": {
+          "status": 404
+        }
+      },
+      {
+        "route": [
+          {
+            "destination": {
+              "host": "forgejo-http.forgejo.svc.cluster.local",
+              "port": {
+                "number": 3000
+              }
+            }
+          }
+        ],
+        "retries": {
+          "attempts": 0
+        }
+      }
+    ]
+  }
+}
