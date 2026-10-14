@@ -1,0 +1,22 @@
+{
+  "apiVersion": "telemetry.istio.io/v1",
+  "kind": "Telemetry",
+  "metadata": {
+    "name": "forgejo",
+    "namespace": "forgejo",
+    "annotations": {
+      "argocd.argoproj.io/sync-wave": "0"
+    }
+  },
+  "spec": {
+    "accessLogging": [
+      {
+        "providers": [
+          {
+            "name": "envoy"
+          }
+        ]
+      }
+    ]
+  }
+}

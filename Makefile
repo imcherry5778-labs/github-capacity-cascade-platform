@@ -14,6 +14,7 @@ tools:
 static:
 	scripts/local-verify.sh static
 	scripts/terraform-verify.sh
+	PYTHONDONTWRITEBYTECODE=1 python3 scripts/verify-azure-platform.py
 
 terraform-static: tools
 	scripts/terraform-verify.sh

@@ -177,12 +177,13 @@ def environment_violations(source):
     if not re.search(r'admin_enabled\s*=\s*false', acr) or not re.search(r'anonymous_pull_enabled\s*=\s*false', acr):
         v.append("ACR must use identity, not admin/anonymous access")
     roles = sorted(re.findall(r'role_definition_name\s*=\s*"([^"]+)"', source))
-    if roles != ["AcrPull", "Managed Identity Operator", "Monitoring Data Reader", "Network Contributor"]:
-        v.append("role assignments limited to subnet join, kubelet identity, AcrPull and Grafana workspace read")
+    if roles != sorted(["AcrPull", "Managed Identity Operator", "Monitoring Data Reader", "Network Contributor",
+                        "Key Vault Secrets User", "DNS Zone Contributor"]):
+        v.append("role assignments limited to W3 infrastructure + W4 scoped KV read/DNS solver")
     if re.search(r'\bscope\s*=\s*"', source):
         v.append("role assignment scope must reference an environment resource, not a literal scope")
     outputs = dict(re.findall(r'\boutput\s+"([^"]+)"\s*\{(.*?)\n\}', source, re.S))
-    if set(outputs) != {"network", "kubernetes_cluster", "postgresql", "key_vault_private_endpoint", "container_registry", "monitoring"}:
+    if set(outputs) != {"network", "kubernetes_cluster", "postgresql", "key_vault_private_endpoint", "container_registry", "monitoring", "platform_identities"}:
         v.append("unexpected environment outputs")
     if any(re.search(r'\.(kube_\w*config\w*|connection_string|instrumentation_key|\w*password\w*|\w*shared_key|admin_username|secret_identity)\b', body)
            or re.search(r'\bsensitive\s*=', body) for body in outputs.values()):
@@ -202,6 +203,9 @@ expected_resources = sorted([
     ("azurerm_monitor_data_collection_endpoint", "prometheus"), ("azurerm_monitor_data_collection_rule", "prometheus"),
     ("azurerm_monitor_data_collection_rule_association", "prometheus"), ("azurerm_dashboard_grafana", "this"),
     ("azurerm_application_insights", "this"),
+    *(("azurerm_user_assigned_identity", name) for name in ("forgejo_secrets", "cert_manager")),
+    *(("azurerm_federated_identity_credential", name) for name in ("forgejo_secrets", "cert_manager")),
+    *(("azurerm_role_assignment", name) for name in ("forgejo_secrets", "cert_manager_dns")),
 ])
 source = "\n".join(p.read_text() for p in sorted(stack.glob("*.tf")))
 violations = environment_violations(source)

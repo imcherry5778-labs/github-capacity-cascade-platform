@@ -131,12 +131,34 @@ override_resource {
   values          = { id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/test-environment/providers/Microsoft.Insights/dataCollectionRules/test-aks-prometheus" }
 }
 
+override_resource {
+  target          = azurerm_user_assigned_identity.forgejo_secrets
+  override_during = plan
+  values = {
+    id           = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/test-environment/providers/Microsoft.ManagedIdentity/userAssignedIdentities/test-aks-forgejo-secrets"
+    client_id    = "88888888-8888-8888-8888-888888888888"
+    principal_id = "99999999-9999-9999-9999-999999999999"
+  }
+}
+
+override_resource {
+  target          = azurerm_user_assigned_identity.cert_manager
+  override_during = plan
+  values = {
+    id           = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/test-environment/providers/Microsoft.ManagedIdentity/userAssignedIdentities/test-aks-cert-manager"
+    client_id    = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    principal_id = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+  }
+}
+
 variables {
-  subscription_id     = "00000000-0000-0000-0000-000000000000"
-  tenant_id           = "00000000-0000-0000-0000-000000000000"
-  ci_client_id        = "11111111-1111-1111-1111-111111111111"
-  resource_group_name = "test-environment"
-  location            = "test-location"
+  subscription_id                = "00000000-0000-0000-0000-000000000000"
+  tenant_id                      = "00000000-0000-0000-0000-000000000000"
+  ci_client_id                   = "11111111-1111-1111-1111-111111111111"
+  resource_group_name            = "test-environment"
+  location                       = "test-location"
+  foundation_resource_group_name = "test-foundation"
+  dns_zone_id                    = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/test-foundation/providers/Microsoft.Network/dnsZones/platform.example.com"
   names = {
     virtual_network         = "test-vnet"
     kubernetes_cluster      = "test-aks"
@@ -311,7 +333,7 @@ run "environment_contract" {
   }
 
   assert {
-    # Stack이 만드는 role assignment는 이 네 개뿐이며 모두 environment RG 안의 resource scope다.
+    # W3 infrastructure role 네 개는 유지한다. W4 workload role 두 개는 별도 assertion으로 검증한다.
     condition = (
       azurerm_role_assignment.aks_subnet.role_definition_name == "Network Contributor" &&
       azurerm_role_assignment.aks_subnet.scope == azurerm_subnet.aks_nodes.id &&
@@ -562,4 +584,43 @@ run "reject_short_postgresql_password" {
     postgresql_administrator_password = "short"
   }
   expect_failures = [var.postgresql_administrator_password]
+}
+
+run "platform_workload_rbac" {
+  command = plan
+  assert {
+    condition = (
+      azurerm_federated_identity_credential.forgejo_secrets.subject == "system:serviceaccount:forgejo:forgejo-secrets" &&
+      azurerm_federated_identity_credential.cert_manager.subject == "system:serviceaccount:cert-manager:cert-manager" &&
+      azurerm_federated_identity_credential.forgejo_secrets.user_assigned_identity_id == azurerm_user_assigned_identity.forgejo_secrets.id &&
+      azurerm_federated_identity_credential.cert_manager.user_assigned_identity_id == azurerm_user_assigned_identity.cert_manager.id &&
+      azurerm_federated_identity_credential.forgejo_secrets.issuer == azurerm_kubernetes_cluster.this.oidc_issuer_url &&
+      azurerm_federated_identity_credential.cert_manager.issuer == azurerm_kubernetes_cluster.this.oidc_issuer_url &&
+      toset(azurerm_federated_identity_credential.forgejo_secrets.audience) == toset(["api://AzureADTokenExchange"]) &&
+      toset(azurerm_federated_identity_credential.cert_manager.audience) == toset(["api://AzureADTokenExchange"]) &&
+      azurerm_role_assignment.forgejo_secrets.scope == var.key_vault_id &&
+      azurerm_role_assignment.forgejo_secrets.role_definition_name == "Key Vault Secrets User" &&
+      azurerm_role_assignment.forgejo_secrets.principal_id == azurerm_user_assigned_identity.forgejo_secrets.principal_id &&
+      azurerm_role_assignment.forgejo_secrets.principal_type == "ServicePrincipal" &&
+      azurerm_role_assignment.forgejo_secrets.skip_service_principal_aad_check == true &&
+      azurerm_role_assignment.cert_manager_dns.scope == var.dns_zone_id &&
+      azurerm_role_assignment.cert_manager_dns.role_definition_name == "DNS Zone Contributor" &&
+      azurerm_role_assignment.cert_manager_dns.principal_id == azurerm_user_assigned_identity.cert_manager.principal_id
+      && azurerm_role_assignment.cert_manager_dns.principal_type == "ServicePrincipal"
+      && azurerm_role_assignment.cert_manager_dns.skip_service_principal_aad_check == true
+    )
+    error_message = "Exact ServiceAccount federation and resource-scoped platform roles required."
+  }
+}
+
+run "reject_dns_outside_foundation" {
+  command = plan
+  variables { dns_zone_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/other/providers/Microsoft.Network/dnsZones/example.com" }
+  expect_failures = [var.dns_zone_id]
+}
+
+run "reject_vault_outside_foundation" {
+  command = plan
+  variables { key_vault_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/other/providers/Microsoft.KeyVault/vaults/other" }
+  expect_failures = [var.key_vault_id]
 }

@@ -73,6 +73,28 @@ variable "key_vault_id" {
     condition     = can(regex("(?i)^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft\\.KeyVault/vaults/[^/]+$", var.key_vault_id))
     error_message = "key_vault_id는 기존 Key Vault의 ARM resource ID여야 한다."
   }
+
+  validation {
+    condition     = startswith(lower(var.key_vault_id), lower("/subscriptions/${var.subscription_id}/resourceGroups/${var.foundation_resource_group_name}/providers/Microsoft.KeyVault/vaults/"))
+    error_message = "Key Vault role은 같은 subscription의 승인된 foundation RG 안으로 제한한다."
+  }
+}
+
+variable "foundation_resource_group_name" {
+  description = "bootstrap resource_group_names.foundation. Cross-RG workload RBAC boundary 검증용이다."
+  type        = string
+  nullable    = false
+}
+
+variable "dns_zone_id" {
+  description = "foundation dns_zone.id. cert-manager의 zone-scoped role에만 사용한다."
+  type        = string
+  nullable    = false
+
+  validation {
+    condition     = can(regex("(?i)^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft\\.Network/dnsZones/[^/]+$", var.dns_zone_id)) && startswith(lower(var.dns_zone_id), lower("/subscriptions/${var.subscription_id}/resourceGroups/${var.foundation_resource_group_name}/providers/Microsoft.Network/dnsZones/"))
+    error_message = "dns_zone_id는 같은 subscription의 승인된 foundation RG public DNS zone이어야 한다."
+  }
 }
 
 variable "network" {

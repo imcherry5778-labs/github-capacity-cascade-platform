@@ -1,11 +1,11 @@
-# Azure environment source — P5-W3
+# Azure environment source — P5-W3/W4
 
 이 stack은 bootstrap이 만든 environment Resource Group 안의 paid runtime infrastructure만 소유한다.
 현재는 **implemented / static verified** 대상이며 Azure backend/provisioning/runtime은 **not verified**다.
 Lifecycle/RBAC/managed capability/observability contract는 [`docs/architecture.md`](../../../docs/architecture.md#7-azure-control-plane)를 따른다.
 
 Forgejo, Argo CD, ingress routing object, workload ServiceAccount/SecretProviderClass, OTel Collector,
-Key Vault secret, experiment fixture는 이 stack에 없다. 후속 P5-W4가 아래 output을 소비한다.
+Key Vault secret, experiment fixture는 이 stack에 없다. [P5-W4 platform source](../../../platform/azure/README.md)가 아래 output을 소비한다.
 
 ## Remote state / authentication
 
@@ -59,7 +59,7 @@ az aks mesh get-revisions --location <location> -o table
 
 ## Explicitly managed inventory
 
-Resource 28개. Module, data source, Kubernetes/Helm provider, AzureAD provider는 없다.
+Resource 34개. Module, data source, Kubernetes/Helm provider, AzureAD provider는 없다.
 Resource Group, Key Vault 및 그 secret/key/certificate/access policy, DNS public record는 만들지 않는다.
 
 | Area | Terraform address | 역할 |
@@ -142,7 +142,7 @@ Managed Istio add-on은 cluster auto-upgrade를 따라가지 않으며, 자동 n
 [support policy](https://learn.microsoft.com/en-us/azure/aks/istio-support-policy) 2026-09-11 revision 기준:
 
 - `asm-1-30`은 AKS 1.32–1.37과 compatible로 표기되며 expected EOL은 2027-01이다. Regional rollout은 [AKS release status](https://releases.aks.azure.com/)와 `az aks mesh get-revisions`가 authority다.
-- **Blocked**: `ProxyConfig`, `WorkloadEntry`, `WorkloadGroup`, `IstioOperator`, `WasmPlugin` custom resource. Ambient, multi-cluster, Gateway API(ingress/GAMMA)도 미지원이다.
+- **Blocked**: `ProxyConfig`, `WorkloadEntry`, `WorkloadGroup`, `IstioOperator`, `WasmPlugin` custom resource. Ambient/multi-cluster는 미지원이다. Gateway API의 dedicated guide와 overview가 불일치하므로 W4는 추가 managed capability가 필요 없는 classic ingress를 선택한다([aggregate revalidation](../../../docs/p5-preflight.md#managed-capability-matrix--revalidate)).
 - **Allowed but support-limited**: `EnvoyFilter`. 이 사용에서 생긴 문제는 add-on support 범위 밖이다. MeshConfig는 일부 field만 supported다.
 - Ingress gateway는 annotation/`externalTrafficPolicy`만 customization 가능하며 port/protocol 변경은 지원하지 않는다.
 - P4 shared-gate path(`ext_authz` extension provider, `Sidecar` connection pool, proxy stat)의 managed support 분류는 아직 runtime 검증 전이다(**not verified**).
@@ -166,7 +166,8 @@ KEDA add-on은 Metrics Server/Operator resource/Helm value 변경을 지원하�
 
 Bootstrap CI identity의 권한(state container `Storage Blob Data Contributor`, foundation/environment RG `Contributor` +
 `Role Based Access Control Administrator`)은 변경하지 않는다. Subscription-wide 권한을 새로 요구하지 않는다.
-이 stack이 만드는 role assignment는 4개이며 모두 environment RG 안의 resource scope다.
+W3 infrastructure role assignment는 아래 4개이며 모두 environment RG 안의 resource scope다.
+W4 추가 identity/FIC/2 role은 다음 subsection에 있고 전체 assignment는 6개다.
 
 | Principal | Role | Scope | 필요 이유 |
 | --- | --- | --- | --- |
@@ -177,8 +178,8 @@ Bootstrap CI identity의 권한(state container `Storage Blob Data Contributor`,
 
 생성하지 않는 것:
 
-- Workload identity, federated identity credential, Key Vault data-plane role: W4.
-- AKS Kubernetes data-plane role(`Azure Kubernetes Service RBAC *`): local account가 꺼져 있으므로 CI/operator의 cluster 접근은 W4가 principal/scope를 정해 environment RG 안에 부여해야 한다.
+- Workload identity/federated credential/Key Vault read role는 아래 W4 source가 추가한다.
+- Permanent AKS Kubernetes admin role는 만들지 않는다. 기존 environment RG Contributor가 kubeconfig 조회를 포함하며 temporary operator bootstrap는 aggregate preflight를 따른다.
 - Grafana user role(`Grafana Admin/Viewer`): 사람 principal은 commit하지 않으며 사용 전 별도로 부여한다.
 - ACR push role: 현재 [ACR role 문서](https://learn.microsoft.com/en-us/azure/container-registry/container-registry-rbac-built-in-roles-overview)는
   `RBAC Registry Permissions` mode의 push에 `AcrPush`를 권장한다. CI의 RG `Contributor`가 data-plane push를 포함하는지는 **not verified**다.
@@ -186,6 +187,29 @@ Bootstrap CI identity의 권한(state container `Storage Blob Data Contributor`,
 
 Cross-RG dependency: Key Vault private endpoint 연결 승인은 foundation vault의 `privateEndpointConnectionsApproval` action이 필요하며,
 bootstrap이 CI에 준 foundation RG `Contributor`가 이를 포함한다. 실제 effective RBAC는 **not verified**다.
+
+## P5-W4 platform identity 추가
+
+입력 `foundation_resource_group_name`, `dns_zone_id`는 bootstrap/foundation output이며
+Actual principal/region은 아직 **not verified**다.
+Foundation Key Vault와 DNS zone ID는 같은 subscription의 승인된 foundation RG 안으로 검증한다.
+
+| Resource | 역할 |
+| --- | --- |
+| `azurerm_user_assigned_identity.forgejo_secrets` | environment-owned CSI producer identity |
+| `azurerm_federated_identity_credential.forgejo_secrets` | `system:serviceaccount:forgejo:forgejo-secrets` |
+| `azurerm_role_assignment.forgejo_secrets` | existing Key Vault 하나의 `Key Vault Secrets User` |
+| `azurerm_user_assigned_identity.cert_manager` | environment-owned DNS solver identity |
+| `azurerm_federated_identity_credential.cert_manager` | `system:serviceaccount:cert-manager:cert-manager` |
+| `azurerm_role_assignment.cert_manager_dns` | foundation DNS zone 하나의 `DNS Zone Contributor` |
+
+W3의 4개 role에 위 2개가 추가되어 role assignment는 6개다. CI identity에
+영구 Kubernetes Cluster Admin, Key Vault secret write, subscription privilege를 추가하지 않는다.
+Temporary operator bootstrap duty와 stable controller RBAC는 [aggregate preflight](../../../docs/p5-preflight.md)에 있다.
+
+새 UAMI의 두 assignment는 `principal_type="ServicePrincipal"`,
+`skip_service_principal_aad_check=true`를 명시한다. Fresh identity replication 중 AAD lookup 실패를
+피하는 source 설정이며 실제 role propagation/권한 사용 가능 여부는 P6에서 확인한다.
 
 ## Planned managed side effects
 
@@ -279,7 +303,7 @@ Test는 [mock provider](https://developer.hashicorp.com/terraform/language/tests
 Positive contract 2개와 negative 11개(subnet 중첩/VNet 밖 subnet/pod CIDR 중첩/`/29` DB subnet/service CIDR 밖 DNS IP/
 malformed CIDR/Key Vault가 아닌 ID/Premium ACR/non-managed Istio revision/reserved DB admin/짧은 password)를 검사한다.
 Source guard는 exact inventory, OIDC-only backend/provider, credential 부재, private PostgreSQL, write-only password,
-Key Vault 참조 전용, AKS managed capability, ACR admin 비활성, role assignment 4개, non-secret output을 검사하고,
+Key Vault 참조 전용, AKS managed capability, ACR admin 비활성, role assignment 6개, non-secret output을 검사하고,
 대표 위반을 주입한 mutation이 guard에 거부되는지 확인한다.
 Provider pin은 bootstrap/foundation과 같은 Terraform `1.16.4` / AzureRM `5.7.0`이며 `.terraform.lock.hcl`은 foundation과 동일하다.
 2026-10-13 upstream latest는 Terraform `1.16.5`, AzureRM `5.9.0`이지만 5.8.0/5.9.0 changelog에 W3 필요 변경이 없어 pin을 유지했다.

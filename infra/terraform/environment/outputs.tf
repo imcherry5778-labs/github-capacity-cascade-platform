@@ -64,3 +64,19 @@ output "monitoring" {
     prometheus_dcr_id           = azurerm_monitor_data_collection_rule.prometheus.id
   }
 }
+
+output "platform_identities" {
+  description = "P5 platform ServiceAccount federation용 non-secret client/principal IDs."
+  value = {
+    forgejo_secrets = {
+      client_id    = azurerm_user_assigned_identity.forgejo_secrets.client_id
+      principal_id = azurerm_user_assigned_identity.forgejo_secrets.principal_id
+      subject      = azurerm_federated_identity_credential.forgejo_secrets.subject
+    }
+    cert_manager = {
+      client_id    = azurerm_user_assigned_identity.cert_manager.client_id
+      principal_id = azurerm_user_assigned_identity.cert_manager.principal_id
+      subject      = azurerm_federated_identity_credential.cert_manager.subject
+    }
+  }
+}
