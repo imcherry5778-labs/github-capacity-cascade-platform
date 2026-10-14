@@ -5,6 +5,7 @@
 #   baseline     fresh platform readiness 후 warm-up 1 + measured 5 journey를 기록한다.
 #   runtime      P1 contract/journey/continuity와 Argo self-heal 후 developer journey를 검사한다.
 #   diagnostics  실패 분석용 cluster 상태를 출력한다.
+#   bootstrap-diagnostics  bootstrap 실패 원인 구분용 non-secret status/event를 출력한다(local-up.sh owned failure path).
 # Readiness gate만 bounded wait를 사용하고, developer operation 자체는 retry하지 않는다.
 set -euo pipefail
 
@@ -13,7 +14,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT/versions.env"
 export PATH="$ROOT/.tmp/bin:$PATH"
 export KUBECONFIG="$ROOT/.tmp/kubeconfig"
-MODE="${1:?usage: local-verify.sh static|gitops-ready|baseline|runtime|diagnostics}"
+MODE="${1:?usage: local-verify.sh static|gitops-ready|baseline|runtime|diagnostics|bootstrap-diagnostics}"
 
 # values-local.yaml ROOT_URL과 같은 loopback endpoint (Local development exception).
 LOCAL_PORT=13000
@@ -101,6 +102,7 @@ static() {
   PYTHONDONTWRITEBYTECODE=1 python3 "$ROOT/tests/e2e/test-shared-gate.py"
   PYTHONDONTWRITEBYTECODE=1 python3 "$ROOT/tests/e2e/test-saturation.py"
   PYTHONDONTWRITEBYTECODE=1 python3 "$ROOT/tests/e2e/test-ci-change-impact.py"
+  PYTHONDONTWRITEBYTECODE=1 python3 "$ROOT/tests/e2e/test-local-bootstrap-diagnostics.py"
   "$ROOT/scripts/install-shared-gate.sh"
   python3 "$ROOT/scripts/validate-shared-gate.py" render "$ROOT/.tmp/rendered/shared-gate"
   "$ROOT/.tmp/p4-tools/istio-$ISTIO_VERSION/bin/istioctl" manifest generate \
@@ -541,11 +543,58 @@ diagnostics() {
   kubectl -n postgres logs statefulset/postgres --tail=80 >&2 || true
 }
 
+# Bootstrap 실패 원인(scheduling, image pull, crash/restart, readiness, node pressure)을 구분할 compact status.
+# Secret/ConfigMap, Pod spec(env), raw manifest는 조회하지 않고 status/condition/event field만 출력한다.
+# Container log는 Argo CD namespace의 not-ready Pod에서 시작된 container의 짧은 tail로 제한한다.
+bootstrap_diagnostics() {
+  local k=(kubectl --request-timeout=15s) rc=0 pods ns pod container previous
+  echo "----- bootstrap diagnostics -----" >&2
+  "${k[@]}" get nodes -o json | jq -r '.items[] |
+    "node \(.metadata.name) \([.status.conditions[]? | "\(.type)=\(.status)"] | join(","))" +
+    " allocatable=cpu:\(.status.allocatable.cpu),memory:\(.status.allocatable.memory),pods:\(.status.allocatable.pods)" +
+    " unschedulable=\(.spec.unschedulable // false) taints=\([.spec.taints[]? | "\(.key):\(.effect)"] | join(","))"' >&2 || rc=1
+  "${k[@]}" get deployments,statefulsets,jobs -A -o json | jq -r '.items[] |
+    "\(.kind) \(.metadata.namespace)/\(.metadata.name) replicas=\(.spec.replicas // "-") ready=\(.status.readyReplicas // 0)" +
+    " available=\(.status.availableReplicas // 0) succeeded=\(.status.succeeded // 0) failed=\(.status.failed // 0)" +
+    " conditions=\([.status.conditions[]? | select(.status != "True" or .type == "ReplicaFailure" or .type == "Failed") |
+      "\(.type)=\(.status):\(.reason // "")"] | join(","))"' >&2 || rc=1
+  pods="$("${k[@]}" get pods -A -o json)" || { echo "pods unavailable" >&2; rc=1; }
+  if [[ -n "$pods" ]]; then
+    jq -r '[.items[] | select(.status.phase == "Succeeded" or (.status.phase == "Running" and
+        all(.status.containerStatuses[]?; .ready and .restartCount == 0)))] | "healthy pods: \(length)"' <<<"$pods" >&2 || rc=1
+    jq -r '.items[] | select(.status.phase != "Succeeded" and (.status.phase != "Running" or
+        any(.status.containerStatuses[]?; (.ready | not) or .restartCount > 0))) |
+      "pod \(.metadata.namespace)/\(.metadata.name) phase=\(.status.phase) node=\(.spec.nodeName // "-")",
+      (.status.conditions[]? | select(.status != "True") |
+        "  condition \(.type)=\(.status) \(.reason // "") \(.message // "" | gsub("\\s+"; " ") | .[0:240])"),
+      ((.status.initContainerStatuses // [] | map(. + {init: true})) + (.status.containerStatuses // []) | .[] |
+        "  container\(if .init then "(init)" else "" end) \(.name) image=\(.image) ready=\(.ready) restarts=\(.restartCount)" +
+        " state=\(.state | to_entries[0] | "\(.key):\(.value.reason // "")" + if .value.exitCode != null then ":\(.value.exitCode)" else "" end)" +
+        " \(.state.waiting.message // "" | gsub("\\s+"; " ") | .[0:240])" +
+        (if .lastState.terminated then " last=terminated:\(.lastState.terminated.reason // ""):\(.lastState.terminated.exitCode)" else "" end))
+      ' <<<"$pods" >&2 || rc=1
+  fi
+  "${k[@]}" get events -A -o json | jq -r '[.items[] | select(.type == "Warning" or .metadata.namespace == "argocd")] |
+    sort_by(.lastTimestamp // .eventTime // .metadata.creationTimestamp) | .[-40:][] |
+    "event \(.lastTimestamp // .eventTime // "-") \(.type) \(.metadata.namespace) \(.involvedObject.kind)/\(.involvedObject.name)" +
+    " \(.reason) x\(.count // 1) \(.message // "" | gsub("\\s+"; " ") | .[0:240])"' >&2 || rc=1
+  if [[ -n "$pods" ]]; then
+    while read -r ns pod container previous; do
+      echo "logs $ns/$pod/$container previous=$previous (tail 20)" >&2
+      "${k[@]}" -n "$ns" logs "$pod" -c "$container" --tail=20 "--previous=$previous" >&2 || rc=1
+    done < <(jq -r '.items[] | select(.metadata.namespace == "argocd" and any(.status.containerStatuses[]?; .ready | not)) |
+      .metadata as $m | .status.containerStatuses[] | select((.ready | not) and (.restartCount > 0 or .state.running != null)) |
+      "\($m.namespace) \($m.name) \(.name) \(.restartCount > 0)"' <<<"$pods")
+  fi
+  return "$rc"
+}
+
 case "$MODE" in
   static) static ;;
   gitops-ready) gitops_ready ;;
   baseline) baseline ;;
   runtime) runtime ;;
   diagnostics) diagnostics ;;
+  bootstrap-diagnostics) bootstrap_diagnostics ;;
   *) fail "unknown mode: $MODE" ;;
 esac

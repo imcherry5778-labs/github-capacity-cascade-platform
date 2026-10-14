@@ -41,6 +41,8 @@ Command exit가 0이어도 semantic assertion이 틀리면 operation은 `failed`
 
 `results/local/`은 Git에서 제외하되 `.tmp/journey` 및 credential-bearing runtime state와 분리해 `local-down.sh` 이후에도 남긴다. 실패한 run도 덮어쓰지 않는다. CI는 JSONL/summary 파일만 명시적으로 upload하고 `.tmp`, raw response, kubeconfig, credential, diagnostics를 upload하지 않는다. `request` 오류도 raw API body를 출력하지 않는다. 테스트는 API status/timeout, Git failure, incomplete record와 secret exclusion을 검증한다.
 
+Ownership marker를 받은 `local-up.sh`가 직접 만든 cluster에서 bootstrap이 실패하면, owned cleanup 전에 create/delete lock 안에서 현재 server ID가 그 cluster와 같은지 다시 확인한 뒤 `local-verify.sh bootstrap-diagnostics`를 bounded 실행해 CI step log에 남긴다. Node condition/allocatable/taint, workload replica/condition, not-ready 또는 restart Pod의 condition/container state, Warning 및 `argocd` event, `argocd` not-ready container log tail만 출력하고 Secret/ConfigMap/Pod spec은 조회하지 않는다. Ownership이 없거나 확인되지 않으면 조회하지 않으며, 진단 실패는 원래 exit code와 cleanup을 바꾸지 않는다. `tests/e2e/test-local-bootstrap-diagnostics.py`가 stub으로 이 순서와 경계를 검증한다.
+
 P3-W2의 Argo-safe coordinated backup → fresh restore와 P3-W3의 v15 patch upgrade → previous compatible state 기반 rollback은 같은 lifecycle에 구현되어 있다. 각 실행의 완료 여부는 sanitized result와 exact-head CI로 별도 확인한다.
 
 P3-W2의 `forgejo doctor` 판정은 현재 runtime에 적용되는 개별 무수정 integrity check와 source에서 확인한 경로 진단의 비교로 한다. `doctor check --all`의 무오류 종료를 보편적인 건강 조건으로 사용하지 않는다. LFS가 꺼진 Core에서 `gc-lfs`는 해당 없음이고, console logging으로 인해 `/data/log`가 없는 `paths` 결과는 source baseline의 명시적 예외다. 복구 target에는 이 예외 외 새 경로 오류가 없어야 한다.

@@ -407,9 +407,11 @@ jobs:
           # 삭제가 실제로 실패해 cluster가 남아 있어야 이 경로를 검증한 것이다.
           .tmp/bin/k3d.real cluster get capacity-cascade-local >/dev/null
 
-      - name: Diagnostics
+      # make local/recovery/upgrade의 bootstrap 실패 진단은 owned cleanup이 cluster를 지우기 전에 local-up.sh가 해당 step
+      # log에 남긴다. 이 step은 automatic cleanup이 없는 guard setup(make up) 실패만 아래 Cleanup 전에 진단한다.
+      - name: Guard setup bootstrap diagnostics
         if: ${{ failure() && steps.changes.outputs.runtime_changed == 'true' && steps.up.outcome == 'failure' }}
-        run: scripts/local-verify.sh diagnostics
+        run: scripts/local-verify.sh bootstrap-diagnostics
 
       - name: Cleanup
         if: ${{ always() && steps.changes.outputs.runtime_changed == 'true' }}
