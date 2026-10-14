@@ -13,20 +13,20 @@ spec = importlib.util.spec_from_file_location("impact", ROOT / "scripts/ci-chang
 impact = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(impact)
 
-REPO, PR, HEAD = "owner/repo", "7", "a" * 40
+REPO, PR, HEAD, BASE = "owner/repo", "7", "a" * 40, "c" * 40
 TF = "infra/terraform/environment/main.tf"
 
 
 def api(files, head=HEAD, changed_files=None, pages=None, heads=None):
-    """Fake GitHub API. `pages`로 page 응답을, `heads`로 연속 PR 조회의 head/count를 바꿀 수 있다."""
+    """Fake GitHub API. `pages`로 page 응답을, `heads`로 연속 PR 조회의 (head, count[, base ref, base SHA])를 바꿀 수 있다."""
     entries = [f if isinstance(f, dict) else {"filename": f} for f in files]
     count = len(entries) if changed_files is None else changed_files
     pr_calls = iter(heads or [])
 
     def get_json(path):
         if path == f"/repos/{REPO}/pulls/{PR}":
-            sha, n = next(pr_calls, (head, count))
-            return {"head": {"sha": sha}, "changed_files": n}
+            sha, n, ref, base = (*next(pr_calls, (head, count)), "main", BASE)[:4]
+            return {"head": {"sha": sha}, "base": {"ref": ref, "sha": base}, "changed_files": n}
         prefix = f"/repos/{REPO}/pulls/{PR}/files?per_page=100&page="
         assert path.startswith(prefix), path
         page = int(path[len(prefix):])
@@ -157,7 +157,21 @@ class ChangeImpactTest(unittest.TestCase):
 
     def test_head_moves_during_listing(self):
         self.assert_full(api([TF], heads=[(HEAD, 1), ("b" * 40, 1)]), "API PR head differs")
-        self.assert_full(api([TF], heads=[(HEAD, 1), (HEAD, 2)]), "changed during listing")
+        self.assert_full(api([TF], heads=[(HEAD, 1), (HEAD, 2)]), "changed_files changed during listing")
+
+    def test_base_moves_during_listing(self):
+        # Retarget 또는 base rewrite: head와 changed_files가 같아도 base가 바뀌면 page들이 같은 diff라고 볼 수 없다.
+        for label, after in (("retarget", (HEAD, 1, "release", BASE)), ("base rewrite", (HEAD, 1, "main", "d" * 40))):
+            with self.subTest(label):
+                self.assert_full(api([TF], heads=[(HEAD, 1), after]), "base ref/SHA changed during listing")
+
+    def test_missing_or_invalid_base(self):
+        for base in ({}, {"ref": "main"}, {"ref": "", "sha": BASE}, {"ref": "main", "sha": "not-a-sha"}):
+            with self.subTest(base=base):
+                get_json = api([TF])
+                pr = lambda path: ({"head": {"sha": HEAD}, "base": base, "changed_files": 1}
+                                   if path.endswith(f"/pulls/{PR}") else get_json(path))
+                self.assert_full(pr, "base ref/SHA is missing or invalid")
 
     def test_api_failure(self):
         def failing(error):

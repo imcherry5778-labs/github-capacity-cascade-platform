@@ -47,20 +47,24 @@ def classify(paths):
 
 def pr_files(get_json, repository, number, head):
     """Exact HEAD의 complete PR changed-file set. Rename은 이전/새 path를 모두 포함한다."""
-    def expected_count():
+    def snapshot():
         pr = get_json(f"/repos/{repository}/pulls/{number}")
-        if not isinstance(pr, dict) or not isinstance(pr.get("head"), dict):
+        if not isinstance(pr, dict) or not isinstance(pr.get("head"), dict) or not isinstance(pr.get("base"), dict):
             raise Uncertain("malformed pull request response")
         if pr["head"].get("sha") != head:
             raise Uncertain("API PR head differs from checked-out HEAD")
+        base_ref, base_sha = pr["base"].get("ref"), pr["base"].get("sha")
+        if not isinstance(base_ref, str) or not base_ref or not isinstance(base_sha, str) or not SHA.match(base_sha):
+            raise Uncertain("PR base ref/SHA is missing or invalid")
         count = pr.get("changed_files")
         if type(count) is not int or count < 1:
             raise Uncertain("PR changed_files is missing or empty")
         if count >= FILES_API_LIMIT:
             raise Uncertain(f"PR changed_files {count} reaches files API limit {FILES_API_LIMIT}")
-        return count
+        return base_ref, base_sha, count
 
-    count = expected_count()
+    before = snapshot()
+    count = before[2]
     paths, entries = set(), 0
     for page in range(1, FILES_API_LIMIT // PAGE_SIZE + 1):
         batch = get_json(f"/repos/{repository}/pulls/{number}/files?per_page={PAGE_SIZE}&page={page}")
@@ -83,8 +87,12 @@ def pr_files(get_json, repository, number, head):
         raise Uncertain("files pagination did not terminate within API limit")
     if entries != count:
         raise Uncertain(f"files API returned {entries} entries but PR reports {count}")
-    # Listing 중 PR HEAD가 바뀌면 page들이 서로 다른 diff에 속할 수 있다.
-    if expected_count() != count:
+    # Listing 중 PR head/base(retarget, base rewrite)가 바뀌면 page들이 서로 다른 diff에 속할 수 있다.
+    # Head는 snapshot()이 다시 검사하고, base ref/SHA와 changed_files는 listing 전과 같아야 한다.
+    after = snapshot()
+    if after[:2] != before[:2]:
+        raise Uncertain("PR base ref/SHA changed during listing")
+    if after[2] != count:
         raise Uncertain("PR changed_files changed during listing")
     return paths
 
