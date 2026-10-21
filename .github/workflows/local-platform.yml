@@ -207,6 +207,11 @@ jobs:
             results/local/shared-gate-*/source.json
             results/local/shared-gate-*/direct-baseline.json
             results/local/shared-gate-*/app-image.json
+            results/local/shared-gate-*/image-import.json
+            results/local/shared-gate-*/image-scheduled.json
+            results/local/shared-gate-*/image-failure.json
+            results/local/shared-gate-*/image-build.log
+            results/local/shared-gate-*/image-import.log
             results/local/shared-gate-*/istio-source.yaml
             results/local/shared-gate-*/fixture-source.yaml
             results/local/shared-gate-*/owned-resources.json

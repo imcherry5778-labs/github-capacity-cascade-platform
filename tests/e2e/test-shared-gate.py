@@ -8,6 +8,8 @@ import json
 from pathlib import Path
 import threading
 import unittest
+from unittest.mock import patch
+import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -24,6 +26,48 @@ evidence = load("evidence", "scripts/validate-shared-gate.py")
 
 
 class CheckTests(unittest.TestCase):
+    def test_exact_node_cri_reference_and_config_id_required(self):
+        reference = "docker.io/library/ext-authz-sim:test"
+        images = [{"id": "sha256:expected", "tags": [reference]}]
+        self.assertEqual(evidence.match_image(images, reference, "sha256:expected"), images[0])
+        for inventory in ([], [{"id": "sha256:expected", "tags": ["ext-authz-sim:test"]}],
+                          [{"id": "sha256:other", "tags": [reference]}], images + images):
+            with self.assertRaises(ValueError):
+                evidence.match_image(inventory, reference, "sha256:expected")
+
+    def test_failed_image_check_retains_inventory_without_claiming_success(self):
+        with tempfile.TemporaryDirectory() as directory, patch.dict(evidence.os.environ, {"EXT_AUTHZ_IMAGE": "ext-authz-sim:test"}), \
+                patch.object(evidence, "owned_image_node", return_value="owned-node"), \
+                patch.object(evidence, "image_inventory", return_value=[]):
+            (Path(directory) / "app-image.json").write_text(json.dumps({"image_id": "sha256:expected"}))
+            with self.assertRaisesRegex(ValueError, "absent"):
+                evidence.image_check(directory)
+            result = json.loads((Path(directory) / "image-import.json").read_text())
+            self.assertEqual(result["images"], [])
+            self.assertNotIn("completed", result)
+
+    def test_scheduled_image_must_match_owned_node_and_never_pull(self):
+        with tempfile.TemporaryDirectory() as directory, patch.dict(evidence.os.environ, {"EXT_AUTHZ_IMAGE": "ext-authz-sim:test"}), \
+                patch.object(evidence, "owned_image_node", return_value="owned-node"), \
+                patch.object(evidence, "image_inventory", return_value=[{"id": "sha256:expected", "tags": ["docker.io/library/ext-authz-sim:test"]}]), \
+                patch.object(evidence, "pod") as target:
+            (Path(directory) / "app-image.json").write_text(json.dumps({"image_id": "sha256:expected"}))
+            target.return_value = {"metadata": {"name": "fixture"}, "spec": {"nodeName": "other-node", "containers": [
+                {"name": "app", "image": "ext-authz-sim:test", "imagePullPolicy": "Never"}]}}
+            with self.assertRaisesRegex(ValueError, "scheduled"):
+                evidence.image_check(directory, scheduled=True)
+            target.return_value["spec"]["nodeName"] = "owned-node"
+            evidence.image_check(directory, scheduled=True)
+            target.return_value["spec"]["containers"][0]["imagePullPolicy"] = "Always"
+            with self.assertRaisesRegex(ValueError, "scheduled"):
+                evidence.image_check(directory, scheduled=True)
+
+    def test_node_message_hints_exclude_raw_credentials_and_paths(self):
+        message = 'ErrImageNeverPull /home/private/person token=secret-sentinel not present with pull policy of Never'
+        hints = evidence.image_hints(message)
+        self.assertEqual(hints, ["ErrImageNeverPull", "not present with pull policy of Never"])
+        self.assertNotIn("secret-sentinel", json.dumps(hints))
+
     def test_concurrent_checks_keep_json_lines_separate(self):
         server = app.ThreadingHTTPServer(("127.0.0.1", 0), app.CheckHandler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
