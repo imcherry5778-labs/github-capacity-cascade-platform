@@ -10,6 +10,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import tarfile
 
 sys.dont_write_bytecode = True
 
@@ -75,6 +76,29 @@ def image_inventory(node):
     return [{"id": i["id"], "tags": i.get("repoTags", [])} for i in images]
 
 
+def archive_config_digest(path, reference):
+    # Docker's containerd store can report an index/manifest ID from inspect.
+    # CRI reports the image config digest. Hash that same config from the local export.
+    with tarfile.open(path) as archive:
+        manifests = json.load(archive.extractfile("manifest.json"))
+        selected = [m for m in manifests if reference in m.get("RepoTags", [])]
+        require(len(selected) == 1, "built image export reference absent/ambiguous")
+        config = archive.extractfile(selected[0]["Config"]).read()
+        platform = json.loads(config)
+        require(platform["os"] == "linux" and platform["architecture"] == "amd64", "fixture platform differs")
+        return "sha256:" + hashlib.sha256(config).hexdigest()
+
+
+def image_config(directory, workdir):
+    path = Path(workdir) / "app-image.tar"
+    reference = os.environ["EXT_AUTHZ_IMAGE"]
+    command("docker", "image", "save", reference, "-o", str(path))
+    out = Path(directory) / "app-image.json"
+    data = json.loads(out.read_text())
+    data["config_digest"] = archive_config_digest(path, reference)
+    out.write_text(json.dumps(data, indent=2))
+
+
 def match_image(images, reference, image_id):
     matches = [i for i in images if reference in i["tags"]]
     require(len(matches) == 1, "exact fixture image reference absent/ambiguous in node CRI")
@@ -94,7 +118,7 @@ def image_check(directory, scheduled=False):
                        "image": app["image"], "pull_policy": app["imagePullPolicy"]}
     # Write observations even if validation fails; no successful result is synthesized.
     (out / ("image-scheduled.json" if scheduled else "image-import.json")).write_text(json.dumps(data, indent=2))
-    match_image(data["images"], reference, json.loads((out / "app-image.json").read_text())["image_id"])
+    match_image(data["images"], reference, json.loads((out / "app-image.json").read_text())["config_digest"])
     if scheduled:
         require(data["pod"]["node"] == node and data["pod"]["image"] == os.environ["EXT_AUTHZ_IMAGE"] and
                 data["pod"]["pull_policy"] == "Never", "scheduled fixture image/node/pull policy differs")
@@ -367,6 +391,8 @@ if __name__ == "__main__":
             render(sys.argv[2])
         elif mode == "image-check":
             image_check(sys.argv[2], "scheduled" in sys.argv[3:])
+        elif mode == "image-config":
+            image_config(sys.argv[2], sys.argv[3])
         elif mode == "image-diagnostics":
             image_diagnostics(sys.argv[2], sys.argv[3])
         elif mode == "runtime":

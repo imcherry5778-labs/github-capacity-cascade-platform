@@ -96,6 +96,7 @@ docker build --build-arg "BASE_IMAGE=$EXT_AUTHZ_BASE_IMAGE" -t "$EXT_AUTHZ_IMAGE
 printf '%s\n' "$build_rc" >"$work/build.exit"
 [[ "$build_rc" == 0 ]] || fail 'fixture image build failed'
 docker image inspect "$EXT_AUTHZ_IMAGE" --format '{{.Id}}' | jq -Rs --arg base "$EXT_AUTHZ_BASE_IMAGE" '{image_id:(.|rtrimstr("\n")),base_image:$base}' >"$out/app-image.json"
+python3 "$validator" image-config "$out" "$work"
 k3d image import "$EXT_AUTHZ_IMAGE" -c capacity-cascade-local >"$work/import.log" 2>&1 || import_rc=$?
 printf '%s\n' "$import_rc" >"$work/import.exit"
 [[ "$import_rc" == 0 ]] || fail 'fixture image import failed'
