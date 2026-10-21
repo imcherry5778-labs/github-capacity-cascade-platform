@@ -85,6 +85,60 @@ Official Forgejo [release](https://code.forgejo.org/forgejo/forgejo/releases/tag
 [cert-manager release](https://github.com/cert-manager/cert-manager/releases/tag/v1.21.2)가 authority다.
 Pinned release를 현재 latest라고 일반화하지 않는다. P6 직전 security/support changes를 재검증한다.
 
+## P6-W1 security/version reconciliation — 2026-10-21
+
+위 2026-10-14 표는 P5 source selection의 역사적 기록이다. P6-W1의 현재 pin authority는
+`versions.env`와 아래 공식 upstream 재조회다. Azure runtime/support/cost 검증으로 승격하지 않는다.
+
+| Component | P6-W1 결정 / 공식 근거 |
+| --- | --- |
+| Argo CD Core | `v3.5.3 → v3.5.6`. [GHSA-fmxq-cgp8-87wp](https://github.com/argoproj/argo-cd/security/advisories/GHSA-fmxq-cgp8-87wp)의 3.5.x 영향 범위는 `<3.5.4`다. [v3.5.6 release](https://github.com/argoproj/argo-cd/releases/tag/v3.5.6)는 같은 minor의 수정 patch다. |
+| Forgejo | `15.0.9-rootless → 15.0.10-rootless`. [공식 release/support](https://forgejo.org/releases/)에서 v15 LTS는 2027-07-15까지 지원한다. [15.0.10 notes](https://codeberg.org/forgejo/forgejo/src/branch/forgejo/release-notes-published/15.0.10.md)의 Actions fork-event 권한, label ownership/metadata, tag API metadata 보안 수정을 반영한다. Actions disabled만으로 label/API 수정 필요성을 제외하지 않는다. |
+| Terraform | `1.16.4 → 1.16.6`. [1.16.5](https://github.com/hashicorp/terraform/releases/tag/v1.16.5)는 tainted-state/resource-identity crash를, [1.16.6](https://github.com/hashicorp/terraform/releases/tag/v1.16.6)는 registry HTTP/2 resource exhaustion `CVE-2026-78669`를 수정한다. Upstream은 compromised registry를 core security 보장 밖 threat로 구분한다. 세 stack의 exact required version과 기존 checksum installer를 함께 적용한다. |
+| AzureRM | `5.7.0` 유지. [5.8.0–5.10.0 changelog](https://github.com/hashicorp/terraform-provider-azurerm/blob/v5.10.0/CHANGELOG.md)와 [공개 advisory](https://github.com/hashicorp/terraform-provider-azurerm/security/advisories)를 확인했다. 현재 source에 갱신을 요구하는 security fix는 확인되지 않았다. 아래 관련 변경과 적용 여부를 구분한다. |
+| Forgejo chart | `17.1.7` 유지. [official chart release](https://code.forgejo.org/forgejo-helm/forgejo-helm/releases/tag/v17.1.7)와 후속 17.2.0/17.3.0/17.3.1 release를 비교하고 OCI artifact를 다시 받았다. 후속 release의 service label/OAuth mapping/v18 internal-token 변경은 현재 Core와 관련이 없고, 17.3.0의 `15.0.10` default 갱신은 직접 image override로 반영한다. Chart의 default appVersion은 `15.0.9`이나 common `image.tag`와 Azure digest override로 `15.0.10`을 선택한다. Schema/render regression으로 실제 image와 Core contract를 검사한다. |
+| cert-manager | `v1.21.2` 유지. [release](https://github.com/cert-manager/cert-manager/releases/tag/v1.21.2), [support matrix](https://cert-manager.io/docs/releases/), [공개 advisory](https://github.com/cert-manager/cert-manager/security/advisories)를 확인했다. 1.21은 Kubernetes 1.36을 포함하며 조회된 advisory 영향 범위에 이 patch는 포함되지 않는다. ACME response/ambient credential 보안 수정은 이미 이 patch에 있다. 실제 AKS admission/DNS-01/renewal은 not verified다. |
+
+Argo [tag ref](https://api.github.com/repos/argoproj/argo-cd/git/ref/tags/v3.5.6)는
+`c2b1e3017e2cec86b122172e861dcd026453ae44` commit이다. 해당
+[Core manifest](https://raw.githubusercontent.com/argoproj/argo-cd/c2b1e3017e2cec86b122172e861dcd026453ae44/manifests/core-install.yaml)의
+SHA256은 `d3d9d3555ad77eb4b6d27b1ec0d2af7978a91537e84d54631f983c227f0a3d31`이다.
+Core kind inventory와 Redis `public.ecr.aws/docker/library/redis:8.2.3-alpine` dependency는 이전 pin과 같다.
+Local bootstrap과 Azure kustomization은 같은 exact commit을 사용한다. AppProject 제한 우회는
+controller RBAC와 별개이므로 기존 narrow Azure RBAC도 유지한다. 공개 advisory 목록의
+2026-10-07 repo-server Kustomize/Jsonnet/OCI/SSH 수정도 3.5.4에 포함된다.
+
+Forgejo [official registry tag](https://code.forgejo.org/v2/forgejo/forgejo/manifests/15.0.10-rootless)를
+anonymous pull authentication으로 재조회하여 response bytes SHA256과 `Docker-Content-Digest`를 대조했다.
+
+- OCI index: `sha256:6ffebd9ab9ee9f6677e3523fa60debd9de630ff2a226fa681d6cc0c7ba541d77`
+- Index의 linux/amd64 manifest: `sha256:2cec77b3181e6e52a4e4d110b2509ef48c0b03f279d520c51bf5731233a8cb18`
+- Chart `17.1.7` OCI digest 재조회: `sha256:f5044e73361f5991978f1bc281a570bf893fd0f468e7d76274a7853eb27428cf`
+- cert-manager `v1.21.2` chart OCI digest 재조회: `sha256:634dce9c13b56677a2c05e2ab76c312d0be2664022d5dd05815da67e1fd5f610`
+
+Azure renderer의 Forgejo와 CSI producer는 stable tag + TO index digest를 공유한다.
+Local normal lifecycle은 values commit `9b4fdb44cc07ea11870730e728b038514e415e29`의 stable tag를 사용한다.
+Static은 pinned Git object의 common/local values와 checkout을 byte 비교하여 과거 patch 배포를 거부한다. Upgrade drill은
+`15.0.9 → 15.0.10` tag/index/amd64 imageID를 검증한다. [v15 upgrade guide](https://forgejo.org/docs/v15.0/admin/upgrade/)의
+full backup/queue/old binary와 newer state 금지를 유지한다. 새 patch notes에는 별도 Core migration이나
+PAT/session 재발급 요구가 명시되지 않았다. Runtime continuity는 새 exact-head full Local CI로 별도 판정한다.
+기존 P3 `15.0.8 → 15.0.9` evidence는 [역사적 preflight](local-operations.md#official-upstream-preflight-2026-09-30)로 보존한다.
+새 preflight raw release-note SHA256은 `15.0.9=6aa9580cab5d0fbfde65a16077d873ba660a9ba2cda9d8e30d37e7af8a02c51c`,
+`15.0.10=602db98c853da2b491070e9b1cffed97b3e07b530ff32bf04c8ac7e2904daec1`이며 변경 시 중단한다.
+
+AzureRM 관련 후속 수정 중 AKS minor alias perpetual diff는 P6에서 실제 exact patch 선택 전에
+재검토한다. 현재 capability 후보 `1.36`을 deployment 선택으로 간주하지 않는다.
+Subnet service endpoint list-order diff(현재 단일 endpoint), Grafana SMTP(미사용),
+PostgreSQL `PremiumV22_LRS` storage validation(현재 해당 type 미선택),
+StorageV2→Storage kind 변경(현재 고정 StorageV2)은 이 work unit의 갱신 근거가 아니다.
+Provider를 유지하므로 세 `.terraform.lock.hcl`은 변경하지 않으며 `init -lockfile=readonly`로 확인한다.
+이 검토는 취약점 부재의 포괄적 보장이 아니며 paid 실행 직전 current advisory를 다시 확인한다.
+
+P6-W1은 public upstream/GitHub 조회와 credential-free static/mock/render/Local regression만 수행한다.
+Azure subscription/credentialed plan/OIDC exchange/paid resource/DNS/secret action은 범위 밖이다.
+P6 후속 gate의 actual account/region/quota/cost/RBAC, exact AKS/managed Istio runtime,
+secret/private reachability/TLS/observability와 merged deployment SHA는 계속 **not verified**다.
+
 ## Cost model — REVALIDATE / amounts not verified
 
 각 line은 승인 region/currency의 PAYG SKU/meter/unit/quantity/time/rate/effective date와 pricing URL을

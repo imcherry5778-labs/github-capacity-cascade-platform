@@ -164,7 +164,7 @@ def validate_result(result, clean=True):
     require(set(result['doctor']) == {'source', 'upgraded', 'target', 'post-write'}, 'doctor inventory missing')
     require(len(result['upstream']) == 2 and all(v.get('reviewed') is True and HASH.fullmatch(v.get('sha256', '')) and
             v.get('url') == f'https://codeberg.org/forgejo/forgejo/raw/branch/forgejo/release-notes-published/{v.get("version")}.md' for v in result['upstream']) and
-            [v.get('version') for v in result['upstream']] == ['15.0.8', '15.0.9'], 'official upstream evidence')
+            [v.get('version') for v in result['upstream']] == ['15.0.9', '15.0.10'], 'official upstream evidence')
     expected = 'no schema-version change observed' if a['database_authority'] == b['database_authority'] else 'migration observed'
     require(result.get('database_observation') == expected, 'DB migration claim differs from observation')
     return result

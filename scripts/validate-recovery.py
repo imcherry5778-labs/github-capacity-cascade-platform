@@ -42,8 +42,8 @@ def load(path):
         return json.load(stream)
 
 
-def doctor_config(directory, patch="15.0.9"):
-    # The pinned v15.0.9 binary defaults these absent keys to false/console/workdir/log.
+def doctor_config(directory, patch="15.0.10"):
+    # The pinned v15.0.10 binary defaults these absent keys to false/console/workdir/log.
     section = ""
     keys = {}
     for line in (directory / "app.ini").read_text().splitlines():
@@ -141,7 +141,7 @@ def validate_doctor(directory, source=None, upgrade=False):
     directory = Path(directory)
     meta = load(directory / "metadata.json")
     patch = meta.get("forgejo_version", "").split("+", 1)[0]
-    require(patch in ({"15.0.8", "15.0.9"} if upgrade else {"15.0.9"}) and
+    require(patch in ({"15.0.9", "15.0.10"} if upgrade else {"15.0.10"}) and
             meta.get("forgejo_version", "").startswith(patch + "+") and
             meta.get("forgejo_image_id"), "doctor runtime version/image")
     config = doctor_config(directory, patch)
