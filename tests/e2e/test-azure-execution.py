@@ -22,6 +22,12 @@ NOW = dt.datetime(2026, 10, 24, 0, tzinfo=dt.timezone.utc)
 SOURCE = "a" * 40
 
 
+class FixedDateTime(dt.datetime):
+    @classmethod
+    def now(cls, tz=None):
+        return NOW.astimezone(tz) if tz else NOW.replace(tzinfo=None)
+
+
 def fixture():
     identity = "00000000-0000-0000-0000-000000000001"
     config = {"backend": {"storage_account_name": "teststate123", "container_name": "tfstate",
@@ -139,6 +145,13 @@ class ApprovalTest(unittest.TestCase):
 
 
 class CommandIsolationTest(unittest.TestCase):
+    def setUp(self):
+        # Fixture 생성과 execute()의 재검사 모두 같은 낮 시각을 사용한다.
+        # 실제 23:00 KST 실행이 one-hour window를 다음 날로 넘기지 않게 한다.
+        clock = patch.object(execution.dt, "datetime", FixedDateTime)
+        clock.start()
+        self.addCleanup(clock.stop)
+
     def test_plan_apply_destroy_and_secret_isolation(self):
         for stack in ("foundation", "environment"):
             for operation in ("plan", "apply", "destroy"):
