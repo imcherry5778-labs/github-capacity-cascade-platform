@@ -211,8 +211,8 @@ variable "kubernetes" {
   }
 
   validation {
-    condition     = var.kubernetes.system_node_pool.node_count >= 1 && floor(var.kubernetes.system_node_pool.node_count) == var.kubernetes.system_node_pool.node_count
-    error_message = "system_node_pool.node_count는 1 이상의 정수여야 한다."
+    condition     = var.kubernetes.system_node_pool.node_count >= 2 && floor(var.kubernetes.system_node_pool.node_count) == var.kubernetes.system_node_pool.node_count
+    error_message = "system_node_pool.node_count는 2 이상의 정수여야 한다."
   }
 
   validation {

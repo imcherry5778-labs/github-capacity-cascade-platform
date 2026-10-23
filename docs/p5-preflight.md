@@ -32,7 +32,7 @@ Snapshot/backup/state, retained disk, soft-deleted vault, DNS delegation은 expl
 | --- | --- | --- |
 | Region/subscription/tenant | DEFERRED / not verified | 승인된 actual account/region, constraints, naming availability |
 | AKS `1.36` / `asm-1-30` | REVALIDATE | 문서 compatibility는 일치하나 region selection이 아님; `az aks get-versions`, `az aks mesh get-revisions`의 region/tier별 current output + selected patch |
-| Node SKU/count, control-plane Free/Standard | DEFERRED | VM family vCPU/total regional vCPU, SKU restrictions/zone capacity, node addon/Forgejo/producer headroom |
+| Node SKU/count, control-plane Free/Standard | DEFERRED | system pool node count는 정수 ≥ 2로 validation; node당 최소 4 vCPU/4 GB, B-series 제외는 [공식 조건](https://learn.microsoft.com/en-us/azure/aks/use-system-pools)에 따라 실제 SKU로 확인. VM family/total regional vCPU quota, region availability, addon/Forgejo/producer headroom은 별도 미검증 |
 | PostgreSQL version/SKU/storage | DEFERRED | region SKU/tier/vCPU/storage min/max/IOPS/backup constraints와 current capacity; application baseline은 측정 전 미확정 |
 | VNet/subnet/pod/service CIDR | REVALIDATE | non-overlap, private DNS link, delegated PostgreSQL subnet ≥ /28, node/IP/max-pod/PE headroom, required public egress |
 | Resource Provider registration | REVALIDATE | environment [RP list](../infra/terraform/environment/README.md#resource-provider-registration)와 subscription 상태 대조; source의 auto-registration은 OFF |
