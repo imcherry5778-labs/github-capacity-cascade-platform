@@ -1,8 +1,9 @@
 # P5 aggregate paid-execution preflight
 
 P5-W4는 source/static 검증만 수행한다. 이 문서는 P6 paid gate의 단일 aggregate checklist이며
-실제 Azure execution 승인이나 완료 evidence가 아니다. 2026-10-14 기준 region/account/quota/
-operator principal/final hostname은 제공되지 않았으며 **not verified**다.
+실제 Azure execution 승인이나 완료 evidence가 아니다. P5 최초 preflight(2026-10-14)에서 region/account/quota/
+operator principal/final hostname은 제공되지 않았다. P6-DNS-APEX는 apex delegation 방식을 확정하며
+실제 DNS delegation/runtime 검증은 계속 **not verified**다. 실제 domain/account/naming은 local/CI input으로 전달한다.
 Deploy order는 `bootstrap → foundation → environment → platform → runtime validation`,
 cleanup order는 `platform → environment → foundation → bootstrap`다.
 
@@ -13,13 +14,13 @@ Explicit inventory는 owning source에 있다. 복사된 inventory를 별도로 
 | Stack / owner | Source inventory | Lifecycle |
 | --- | --- | --- |
 | bootstrap | [12 resources](../infra/terraform/bootstrap/README.md#planned-inventory--ci-scope): three RG boundaries, state backend, CI identity/OIDC/RBAC | 마지막 제거; local state 보호 |
-| foundation | [2 resources](../infra/terraform/foundation/README.md#planned-inventory): public project DNS zone, private/RBAC Key Vault | 장기 shared; parent authority는 external |
+| foundation | [2 resources](../infra/terraform/foundation/README.md#planned-inventory): public apex DNS zone, private/RBAC Key Vault | 장기 shared; registrar authority는 external |
 | environment | [34 resources](../infra/terraform/environment/README.md#planned-inventory): W3 28 + W4 identity/FIC/RBAC 6 | short-lived PAYG; fourth stack 없음 |
 | platform operator | [ownership table](../platform/azure/README.md#source--ownership): Core/cert-manager bootstrap, namespaces/RBAC, TLS, managed monitoring config, project A record | platform cleanup |
 | Argo | Forgejo chart + `platform/azure/stable`; `forgejo` namespace만 | self-heal ON / prune OFF |
 | cert-manager | ACME account Secret, CertificateRequest/Order/Challenge, `aks-istio-ingress/forgejo-tls` | issuer/certificate controller lifecycle |
 | Azure RP | [implicit inventory](../infra/terraform/environment/README.md#planned-managed-side-effects) | AKS node RG/VMSS/OS disk/LB/IP/PV/add-on identity; Monitor `MA_*` RG/default DCE/DCR; possible NetworkWatcherRG |
-| external operator | parent NS delegation/registrar authority | 이 source에서 registrar/parent zone을 변경하지 않음 |
+| external operator | Gabia registrar NS delegation/rollback | 이 source에서 registrar NS를 변경하지 않음 |
 
 Experiment-owned fixture/namespace는 stable Argo ownership 밖이다. Managed ingress Deployment/Service,
 Istio/KEDA/CSI lifecycle과 controller installation을 Argo로 이관하지 않는다.
@@ -37,7 +38,7 @@ Snapshot/backup/state, retained disk, soft-deleted vault, DNS delegation은 expl
 | VNet/subnet/pod/service CIDR | REVALIDATE | non-overlap, private DNS link, delegated PostgreSQL subnet ≥ /28, node/IP/max-pod/PE headroom, required public egress |
 | Resource Provider registration | REVALIDATE | environment [RP list](../infra/terraform/environment/README.md#resource-provider-registration)와 subscription 상태 대조; source의 auto-registration은 OFF |
 | Provider operation quotas | not verified | AKS clusters/node pools/LB/rules/public IP/disk/PE/DNS/PG/ACR/Monitor/Grafana 및 identity/FIC/role-assignment count |
-| Public HTTPS hostname / delegation | DEFERRED | existing project zone, parent authority 승인, observed NS chain/A resolution, ingress actual IP |
+| Public HTTPS hostname / delegation | DECIDED apex 방식 / runtime not verified | foundation apex zone, Gabia registrar NS 4개 전환 승인, observed NS chain/SOA/A resolution, ingress actual IP; 아래 DNS gate 충족 |
 | Admission/schema/effective access | not verified | managed namespaces/CRDs, controller readiness, scoped RBAC deny/allow, private endpoints |
 
 Microsoft [release compatibility policy](https://learn.microsoft.com/en-us/azure/aks/istio-support-policy)는
@@ -139,6 +140,50 @@ Azure subscription/credentialed plan/OIDC exchange/paid resource/DNS/secret acti
 P6 후속 gate의 actual account/region/quota/cost/RBAC, exact AKS/managed Istio runtime,
 secret/private reachability/TLS/observability와 merged deployment SHA는 계속 **not verified**다.
 
+## DNS apex delegation gate
+
+P6-DNS-APEX(2026-10-23)의 DECIDED 방식은 **Gabia registrar NS → foundation Azure DNS apex zone의
+authoritative NS 4개**다. Child zone delegation을 전제하지 않는다. Domain registration은 Gabia에 유지한다.
+기존 foundation은 input을 zone 이름으로 그대로 사용하고, renderer는 하위 hostname의 상대 A record와
+동일 zone의 DNS-01 hosted zone을 만든다. Resource inventory와 RBAC resource scope는 늘리지 않는다.
+`cert_manager`의 `DNS Zone Contributor`는 기존처럼 foundation zone ID 하나에 한정되지만,
+그 zone이 apex이므로 apex 전체 record에 권한이 미친다. `selector.dnsNames`를 권한 경계로 해석하지 않는다.
+
+Paid 실행 승인 전에 external DNS operator와 Terraform cleanup operator를 지정하고 다음을 확보한다.
+
+1. Gabia NS 변경 권한, 현재 registrar/TLD delegation 및 authoritative NS/SOA/TTL, existing records와
+   Email Routing 의존성, DNSSEC/parent DS 상태를 다시 확인한다. 사전 전달된 계정 상태는 runtime evidence를 대신하지 않는다.
+2. Rollback/teardown에 사용할 **유효한 대체 authoritative DNS**와 관리 권한, 필요한 records/의도한 teardown 응답,
+   NS 목록을 확정한다. 전환 전에 각 대체 NS의 authoritative SOA/NS 응답을 직접 확인한다.
+   기존 Cloudflare nameserver가 계속 유효하거나 같은 값으로 복구 가능하다고 가정하지 않는다.
+3. Registrar/TLD NS TTL, zone NS TTL, relevant record/negative TTL과 registrar 처리 시간을 확인하여
+   복구·전파 확인을 포함한 same-day cleanup 가능 시간을 산정한다. 대체 DNS, 권한 또는 시간이 미확정이면
+   **P6 paid execution blocker**로 보고하고 실행 승인을 진행하지 않는다.
+
+[Gabia 공식 FAQ](https://webtraffic.gabia.com/faq/view.php?category1=&category2=&category3=&keyword=&seqno=3279)는
+NS 변경 후 안정화에 1~2일이 걸릴 수 있다고 안내한다(2026-10-23 재확인).
+따라서 apex 전환과 복구의 당일 완료는 보장할 수 없으며, 현재 same-day cleanup contract와의 충돌은
+**미해결 P6 paid execution blocker**다. 관측 TTL/복구 계획으로 당일 완료 가능성을 검토하거나,
+아래 별도 임시 보존 승인을 먼저 받아야 한다. 본 PR은 same-day 기본값을 완화하거나 보존을 승인하지 않는다.
+
+승인된 전환에서 Terraform operator는 생성된 zone의 actual NS 4개를 전달하고 external operator가 Gabia에 설정한다.
+Azure authoritative NS 직접 질의와 registrar/TLD delegation chain, 독립 recursive resolver들의 SOA/NS/A 결과를
+UTC 시각/TTL과 함께 기록한다. Azure output이나 registrar UI 저장만으로 전환 성공을 선언하지 않는다.
+[Azure delegation 지침](https://learn.microsoft.com/en-us/azure/dns/dns-delegate-domain-azure-dns)과
+[DNS caching 경계](https://learn.microsoft.com/en-us/azure/dns/dns-faq#how-long-does-it-take-for-dns-changes-to-take-effect)를 참고한다.
+
+Teardown/rollback에서도 external operator가 대체 DNS의 준비 상태를 재확인한 뒤 Gabia NS를 복구한다.
+Terraform cleanup operator는 TLD delegation이 대체 NS를 가리키는지, 각 대체 NS의 authoritative 응답과
+독립 recursive resolver들의 NS/SOA/필요한 record 응답이 의도한 상태인지 확인한다.
+관측한 delegation/cache TTL의 대기 구간과 재질의 결과를 남기며, 전파 미완료/불일치/응답 실패 시
+**Azure DNS zone을 삭제하지 않고 cleanup incomplete로 보고**한다. A/TXT record cleanup은 delegation 복구의 대체물이 아니다.
+
+Same-day deadline 전에 gate를 완료할 수 없다면 구체적인 blocker와 잔존 resource를 보고한다.
+필요한 임시 보존은 owner, exact resource/state/RBAC 의존성, 보존 기간/expiry, 예상 비용 및 제거 계획에 대한
+**별도 explicit approval**을 요구한다. 24시간 초과에는 AGENTS.md의 새 승인 조건도 적용한다.
+승인이 없다고 zone을 무조건 삭제하거나 cleanup 성공으로 처리하지 않는다. 가능하고 승인된 다른 cleanup은 진행하되
+zone과 그 foundation RG/state/cleanup 권한을 먼저 제거하지 않는다. 실제 복구·전파·zone 삭제는 모두 **not verified**다.
+
 ## Cost model — REVALIDATE / amounts not verified
 
 각 line은 승인 region/currency의 PAYG SKU/meter/unit/quantity/time/rate/effective date와 pricing URL을
@@ -233,7 +278,7 @@ Upstream Azure Monitor Collector exporter는 beta이며 Microsoft 지원을 보�
 P6 explicit approval 전에 current cost/quota/RBAC + exact source commit을 검토한다. 그 뒤:
 
 1. Bootstrap local-state source → backend/CI trust/three RG boundaries.
-2. Foundation remote state → project zone/private vault. Parent delegation은 external authority의 별도 승인 action.
+2. Foundation remote state → apex zone/private vault. Gabia registrar NS delegation은 위 DNS gate에 따른 external operator의 별도 승인 action.
 3. Environment remote state → private network/PG/AKS/observability/identities/FIC/roles.
 4. Platform operator: verify private access → DB role/KV initialization → render exact merged source →
    namespaces, scoped Core bootstrap/controller RBAC, cert-manager Helm/issuer/certificate,
@@ -250,13 +295,17 @@ Default same-day teardown과 24h 초과 별도 승인은 AGENTS.md를 따른다.
    shared consumer 부재 확인 뒤 제거한다. Managed ingress Deployment/Service를 직접 지우지 않는다.
 2. PVC/PV: chart `helm.sh/resource-policy=keep`와 prune OFF 때문에 retained claim을 명시 inventory한다.
    PVC→PV reclaim policy→disk/snapshot ID를 기록하고 approved retention 또는 deletion을 확인한다.
-   Project A record와 challenge TXT를 정리하고 parent delegation은 external owner에게 확인한다.
+   Project A record와 challenge TXT는 writer/controller 정지 후 exact ownership을 확인해 정리한다.
+   External operator가 위 DNS gate에 따라 대체 authoritative DNS로 Gabia NS를 복구하고 결과를 확인한다.
 3. Environment: TF-owned identities/FIC/role assignments/private connectivity/AKS/PG/ACR/observability를 정리한다.
    AKS node RG/LB/IP/PV disk와 Monitor-managed RG/default DCE/DCR 잔존을 확인한다.
    PG PITR/backup retention 및 exports의 비용/삭제 경계를 확인한다. 삭제 성공만으로 zero residual claim 금지.
-4. Foundation: project records/delegation 필요성 확인 후 DNS zone/vault를 정리한다. KV는 provider purge/recover
+4. Foundation: 위 DNS gate의 delegation 복구/전파 확인이 완료된 뒤에만 DNS zone을 정리한다.
+   Gabia NS가 Azure를 가리키거나 전파가 미완료이면 foundation destroy를 실행하지 않고 blocker/보존 승인을 보고한다.
+   KV는 provider purge/recover
    OFF, soft-delete 7일이며 이름 재사용/exceptional purge는 W2 boundary를 따른다.
-5. Bootstrap: downstream state/locks와 evidence 보존 후 CI trust/identity/RG RBAC/state container/account,
+5. Bootstrap: DNS zone이 보존 중이면 foundation RG/state/cleanup 권한을 제거하지 않는다.
+   Downstream state/locks와 evidence 보존 후 CI trust/identity/RG RBAC/state container/account,
    final three RG boundaries를 제거한다. Temporary operator assignments를 별도 확인한다.
 6. Finalization: project/managed RG, public IP/LB/disk/snapshots, PG backups, ACR, Monitor/LAW/Grafana/AppInsights,
    DNS delegation/records, KV deleted-vault, identity/FIC/RBAC/state backend inventory + actual costs를 대조한다.

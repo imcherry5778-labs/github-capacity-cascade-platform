@@ -29,7 +29,7 @@ variable "location" {
 }
 
 variable "dns_zone_name" {
-  description = "Parent DNS authority가 나중에 delegate할 project public subdomain zone 이름."
+  description = "Gabia registrar NS를 통해 Azure DNS에 delegate할 public apex zone 이름. 실제 domain은 local/CI input으로만 전달한다."
   type        = string
   nullable    = false
 }

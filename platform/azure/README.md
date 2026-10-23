@@ -12,7 +12,7 @@ INPUT은 repository 밖의 non-secret operator metadata이며 다음 **모든** 
 | Field | Authority |
 | --- | --- |
 | `source_revision` | P6에서 actual GitHub merged commit으로 선택한 lowercase full 40-character SHA |
-| `hostname`, `dns_zone` | 기존 foundation project zone 아래 final HTTPS hostname / zone |
+| `hostname`, `dns_zone` | foundation public apex zone 아래 final HTTPS hostname / apex zone 이름 |
 | `subscription_id`, `tenant_id`, `foundation_resource_group` | approved bootstrap metadata |
 | `key_vault_name` | foundation Key Vault output |
 | `forgejo_secrets_client_id`, `cert_manager_client_id` | environment `platform_identities` output |
@@ -27,6 +27,15 @@ CLI는 clean checkout `HEAD == source_revision`, local `origin/main` ancestry를
 P6는 먼저 fresh fetch와 actual GitHub merge state를 독립 확인한다. Local ancestry 검사는
 remote source authority를 대체하지 않는다. P5에는 배포 revision이 없고, PR HEAD를 pin하지 않는다.
 Static fixture의 full SHA는 parser/render 검증용이며 배포 가능한 merged-source 증거가 아니다.
+
+DNS input 예시는 `dns_zone=example.com`, `hostname=forgejo.example.com`이며 실제 domain은 local/CI input으로만 전달한다.
+기존 validation은 hostname이 `.` + zone으로 끝나는 하위 이름인지 확인하므로 apex zone도 지원한다.
+`dns-record.json`은 zone `example.com` 안의 상대 A record `forgejo`를 지정하고 ingress IPv4/TTL 300을 담는다.
+DNS-01은 같은 apex 이름을 `azureDNS.hostedZoneName`으로 사용한다
+([cert-manager AzureDNS contract](https://cert-manager.io/docs/configuration/acme/dns01/azuredns/)).
+Zone apex 자체를 Forgejo hostname으로 사용하는 것은 현재 contract 밖이다.
+Registrar delegation/rollback은 external operator 소유이며 renderer는 이를 실행하지 않는다.
+Platform A/TXT cleanup과 Azure zone 삭제는 [DNS apex delegation gate](../../docs/p5-preflight.md#dns-apex-delegation-gate)를 따른다.
 
 ## Source / ownership
 
