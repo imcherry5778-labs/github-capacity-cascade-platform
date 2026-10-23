@@ -7,6 +7,10 @@ operator principal/final hostname은 제공되지 않았다. P6-DNS-APEX는 apex
 Deploy order는 `bootstrap → foundation → environment → platform → runtime validation`,
 cleanup order는 `platform → environment → foundation → bootstrap`다.
 
+P6의 비용 없는 account-targeted 재검증, bootstrap local-state 보호 절차와 수동 OIDC execution gate는
+[P6 execution preparation](p6-execution-preparation.md)에 기록한다. 그 기록은 기존 P5 시점 evidence를
+덮어쓰지 않으며 paid execution approval/runtime 완료를 의미하지 않는다.
+
 ## Infrastructure / ownership — DECIDED
 
 Explicit inventory는 owning source에 있다. 복사된 inventory를 별도로 운영하지 않는다.
