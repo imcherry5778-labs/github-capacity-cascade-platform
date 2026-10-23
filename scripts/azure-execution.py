@@ -94,7 +94,6 @@ def validate(approval, config, env, now):
             config["foundation"]["resource_group_name"].lower() != config["environment"]["resource_group_name"].lower() and
             config["foundation"]["resource_group_name"] == config["environment"]["foundation_resource_group_name"],
             "subscription/RG boundaries mismatch")
-    require(config["foundation"]["dns_zone_name"] == "imcherry5778.xyz", "apex DNS contract mismatch")
     return stack, operation
 
 

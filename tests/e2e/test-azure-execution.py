@@ -38,7 +38,7 @@ def fixture():
         config[stack] = {key: "fixture" for key in names if key != "postgresql_administrator_password"}
         config[stack].update(tenant_id=identity, ci_client_id=identity, location="koreacentral",
                              resource_group_name=stack, subscription_id=identity)
-    config["foundation"]["dns_zone_name"] = "imcherry5778.xyz"
+    config["foundation"]["dns_zone_name"] = "example.test"
     config["environment"]["foundation_resource_group_name"] = "foundation"
     approval = {"status": "approved", "campaign_id": "test-campaign", "source_sha": SOURCE,
                 "operator": "operator", "source_pr": 25, "approval_evidence": "https://example.test/approval",
@@ -114,8 +114,7 @@ class ApprovalTest(unittest.TestCase):
                                      ("environment", "postgresql_administrator_password", "dummy"),
                                      ("environment", "location", "eastus"),
                                      ("environment", "resource_group_name", "foundation"),
-                                     ("environment", "resource_group_name", "FOUNDATION"),
-                                     ("foundation", "dns_zone_name", "child.imcherry5778.xyz")):
+                                     ("environment", "resource_group_name", "FOUNDATION")):
             with self.subTest(field=field):
                 changed = copy.deepcopy(c)
                 changed[target][field] = value
@@ -123,6 +122,15 @@ class ApprovalTest(unittest.TestCase):
                 changed_approval = a | {"config_sha256": execution.digest(changed)}
                 with self.assertRaises(ValueError):
                     execution.validate(changed_approval, changed, e, NOW)
+
+    def test_dns_zone_change_requires_approved_config_digest(self):
+        a, c, e = fixture()
+        changed = copy.deepcopy(c)
+        changed["foundation"]["dns_zone_name"] = "other.test"
+        with self.assertRaisesRegex(ValueError, "approved input digest mismatch"):
+            execution.validate(a, changed, e, NOW)
+        self.assertEqual(execution.validate(a | {"config_sha256": execution.digest(changed)}, changed, e, NOW),
+                         ("foundation", "plan"))
 
     def test_moved_main_unmerged_or_wrong_source_pr_refused(self):
         a, _, _ = fixture()
