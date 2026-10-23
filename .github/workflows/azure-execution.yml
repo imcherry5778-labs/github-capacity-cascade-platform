@@ -1,0 +1,76 @@
+name: azure-execution
+
+# 별도 campaign 승인 없이는 gate에서 종료한다. PR/push/schedule trigger 없음.
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Reviewed and merged main SHA (40 hex characters)
+        required: true
+        type: string
+      campaign_id:
+        description: Explicit P6 campaign approval identifier
+        required: true
+        type: string
+      stack:
+        description: Remote-state stack (bootstrap is operator-owned)
+        required: true
+        type: choice
+        options: [foundation, environment]
+      operation:
+        description: Individually approved operation
+        required: true
+        type: choice
+        options: [plan, apply, destroy]
+
+permissions: {}
+
+concurrency:
+  group: azure-execution
+  cancel-in-progress: false
+
+env:
+  P6_SOURCE_SHA: ${{ inputs.source_sha }}
+  P6_CAMPAIGN_ID: ${{ inputs.campaign_id }}
+  P6_STACK: ${{ inputs.stack }}
+  P6_OPERATION: ${{ inputs.operation }}
+  P6_CAMPAIGN_APPROVAL: ${{ vars.P6_CAMPAIGN_APPROVAL }}
+  P6_EXECUTION_CONFIG: ${{ vars.P6_EXECUTION_CONFIG }}
+  GH_TOKEN: ${{ github.token }}
+
+jobs:
+  gate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read # actual merged PR의 merge_commit_sha 검증에만 필요
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Verify explicit approval and merged exact source (no Azure credentials)
+        run: python3 scripts/azure-execution.py gate
+
+  terraform:
+    needs: gate
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    environment: azure
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Install checksum-verified pinned tools
+        run: make tools
+      - name: Recheck approval, execute one remote stack, diagnose failure
+        env:
+          P6_POSTGRESQL_ADMINISTRATOR_PASSWORD: ${{ inputs.stack == 'environment' && secrets.P6_POSTGRESQL_ADMINISTRATOR_PASSWORD || '' }}
+        run: python3 scripts/azure-execution.py execute
+      # State/plan/tfvars/provider log/token은 artifact와 job output에 올리지 않는다.

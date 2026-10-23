@@ -1,0 +1,179 @@
+{
+  "source_baseline_sha": "575b7827ac0d9fedebba82abbf3374454c0d712c",
+  "scope": "read-only targeted Grafana queries; no provisioning/registration/OIDC exchange/Terraform plan",
+  "historical_major_version_request": {
+    "endpoint": "not supplied",
+    "api_version": "not supplied",
+    "reported_code": "ResourceTypeRegistrationNotFound",
+    "status": "historical URL/response not independently verified"
+  },
+  "requests": [
+    {
+      "observed_at_utc": "2026-10-23T15:40:28.319040+00:00",
+      "method": "GET",
+      "endpoint": "https://management.azure.com/subscriptions/{subscriptionId}/providers/Microsoft.Dashboard?api-version=2021-04-01",
+      "http_status_log": [
+        "INFO: Response status: 200"
+      ],
+      "returncode": 0,
+      "response": {
+        "namespace": "Microsoft.Dashboard",
+        "registrationState": "Registered",
+        "resourceTypes": [
+          {
+            "apiVersions": [
+              "2026-09-01",
+              "2026-07-01-preview",
+              "2026-05-01-preview",
+              "2025-11-01-preview",
+              "2025-09-01-preview",
+              "2025-08-01",
+              "2025-04-01-preview",
+              "2025-02-01-preview",
+              "2024-11-01-preview",
+              "2024-10-01",
+              "2023-10-01-preview",
+              "2023-09-01",
+              "2022-10-01-preview",
+              "2022-08-01",
+              "2022-05-01-preview",
+              "2021-09-01-preview"
+            ],
+            "capabilities": "SystemAssignedResourceIdentity, SupportsTags, SupportsLocation",
+            "defaultApiVersion": "2026-09-01",
+            "locations": [
+              "South Central US",
+              "West Central US",
+              "West Europe",
+              "East US",
+              "East US 2",
+              "North Europe",
+              "UK South",
+              "Australia East",
+              "Sweden Central",
+              "West US",
+              "West US 2",
+              "West US 3",
+              "Central US",
+              "Southeast Asia",
+              "Canada Central",
+              "Central India",
+              "East Asia",
+              "UAE North",
+              "Japan East",
+              "France Central",
+              "Brazil South",
+              "Norway East",
+              "Germany West Central",
+              "Italy North",
+              "Korea Central",
+              "Switzerland North",
+              "Malaysia West",
+              "Indonesia Central",
+              "South Africa North",
+              "South India",
+              "Australia Southeast",
+              "Canada East"
+            ],
+            "resourceType": "grafana"
+          }
+        ]
+      },
+      "projection": "resourceTypes projected to grafana; values otherwise unchanged",
+      "command": [
+        "az",
+        "rest",
+        "--method",
+        "get",
+        "--url",
+        "https://management.azure.com/subscriptions/{subscriptionId}/providers/Microsoft.Dashboard?api-version=2021-04-01",
+        "--verbose",
+        "-o",
+        "json"
+      ],
+      "command_normalization": "subscription ID replaced with {subscriptionId}; no request Authorization headers retained",
+      "official_contract": "https://learn.microsoft.com/en-us/rest/api/resources/providers/get?view=rest-resources-2021-04-01"
+    },
+    {
+      "observed_at_utc": "2026-10-23T15:40:29.571041+00:00",
+      "method": "GET",
+      "endpoint": "https://management.azure.com/subscriptions/{subscriptionId}/providers/Microsoft.Dashboard/skus?api-version=2025-08-01",
+      "http_status_log": [
+        "INFO: Response status: 200"
+      ],
+      "returncode": 0,
+      "response": {
+        "value": []
+      },
+      "command": [
+        "az",
+        "rest",
+        "--method",
+        "get",
+        "--url",
+        "https://management.azure.com/subscriptions/{subscriptionId}/providers/Microsoft.Dashboard/skus?api-version=2025-08-01",
+        "--verbose",
+        "-o",
+        "json"
+      ],
+      "command_normalization": "subscription ID replaced with {subscriptionId}; no request Authorization headers retained",
+      "contract_status": "Not present in inspected official OpenAPI. New targeted GET observation only; not a verified regional SKU enumeration contract."
+    },
+    {
+      "observed_at_utc": "2026-10-23T15:40:53.534737+00:00",
+      "method": "GET",
+      "endpoint": "https://management.azure.com/subscriptions/{subscriptionId}/providers/Microsoft.Dashboard/locations/koreacentral/grafanaVersions?api-version=2025-08-01",
+      "contract_status": "exploratory path; absent from inspected official 2025-08-01 OpenAPI; historical request URL not supplied",
+      "http_status_log": [
+        "INFO: Response status: 404"
+      ],
+      "returncode": 1,
+      "response": {
+        "error": {
+          "code": "ResourceTypeRegistrationNotFound",
+          "message": "The resource type registration 'Microsoft.Dashboard/locations/grafanaVersions' could not be found."
+        }
+      },
+      "command": [
+        "az",
+        "rest",
+        "--method",
+        "get",
+        "--url",
+        "https://management.azure.com/subscriptions/{subscriptionId}/providers/Microsoft.Dashboard/locations/koreacentral/grafanaVersions?api-version=2025-08-01",
+        "--verbose",
+        "-o",
+        "json"
+      ],
+      "command_normalization": "subscription ID replaced with {subscriptionId}; no request Authorization headers retained"
+    }
+  ],
+  "selection": {
+    "region": "koreacentral",
+    "sku": "Standard",
+    "verified_major_versions": [],
+    "availability": "not verified"
+  },
+  "official_contract": {
+    "repository": "Azure/azure-rest-api-specs",
+    "commit": "abf2c7290136ff3e0493caf2566434b84c484522",
+    "path": "specification/dashboard/resource-manager/Microsoft.Dashboard/Dashboard/stable/2025-08-01/grafana.json",
+    "major_version_regional_enumeration": "not present in inspected OpenAPI",
+    "sha256": "cae55a9a4dc6c86cc7b056982ee7516f744209c7b379597f553563e08fb2b0c8"
+  },
+  "github_live_inspection": {
+    "oidc_subject": "repo:imcherry5778-labs@273613742/github-capacity-cascade-platform@1384941385:environment:azure",
+    "environment": "azure",
+    "allowed_branch": "main",
+    "required_reviewer": false,
+    "delete_branch_on_merge": true,
+    "environment_is_paid_approval": false,
+    "token_exchange": "not verified"
+  },
+  "historical_sku_request": {
+    "endpoint": "not supplied",
+    "api_version": "not supplied",
+    "reported_response": "empty list",
+    "status": "user-supplied historical observation; original request not reconstructed"
+  }
+}

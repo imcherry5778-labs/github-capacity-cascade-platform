@@ -5,6 +5,7 @@ on:
   pull_request:
     paths:
       - .github/workflows/local-platform.yml
+      - .github/workflows/azure-execution.yml
       - Makefile
       - .gitignore
       - versions.env
