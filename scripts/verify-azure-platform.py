@@ -97,6 +97,14 @@ def static():
             (directory / name).write_text(json.dumps(value))
         manifest = run(HELM, "template", "azure-stable", str(ROOT / "platform/azure/stable"),
                        "--namespace", "forgejo", "-f", str(directory / "stable-values.json"))
+        # The producer schema must track the selected stable patch and reject the old drill A.
+        stale_values = output["stable-values.json"] | {
+            "producer_image": "code.forgejo.org/forgejo/forgejo:" + PIN["FORGEJO_UPGRADE_FROM_IMAGE_TAG"] + "@" + PIN["FORGEJO_UPGRADE_FROM_IMAGE_DIGEST"]}
+        (directory / "stale-values.json").write_text(json.dumps(stale_values))
+        stale = subprocess.run([HELM, "template", "azure-stable", str(ROOT / "platform/azure/stable"),
+                                "--namespace", "forgejo", "-f", str(directory / "stale-values.json")],
+                               text=True, capture_output=True, timeout=120)
+        assert stale.returncode != 0 and "producer_image" in stale.stderr, "old producer patch must fail schema validation"
         documents = [json.loads("\n".join(line for line in chunk.splitlines() if not line.startswith("#")))
                      for chunk in manifest.split("---") if chunk.strip()]
         assert len(documents) == 7 and all(d["metadata"]["namespace"] == "forgejo" for d in documents)

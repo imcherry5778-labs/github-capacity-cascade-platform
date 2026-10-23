@@ -24,6 +24,10 @@ owned_cluster() {
 on_exit() {
   local rc=$?
   trap - EXIT
+  if [[ "$rc" -ne 0 && -n "$work" ]]; then
+    # Preserve image evidence before temporary logs and the owned cluster disappear.
+    timeout 60s python3 "$validator" image-diagnostics "$out" "$work" || true
+  fi
   if [[ "$rc" -ne 0 && "${fixture_up:-false}" == true && ! -e "$out/checks.jsonl" ]]; then
     python3 "$validator" capture "$out" >"$out/path.json" || true
   fi
@@ -87,9 +91,18 @@ phase direct-baseline
 [[ "$(kubectl get crd -o json | jq '[.items[] | select(.spec.group | endswith("istio.io"))] | length')" == 0 ]] || fail 'preexisting Istio CRDs'
 [[ "$(kubectl get crd -o json | jq '[.items[] | select(.spec.group == "gateway.networking.k8s.io")] | length')" == 0 ]] || fail 'unexpected Gateway API CRDs'
 export EXT_AUTHZ_IMAGE="ext-authz-sim:$id"
-docker build --build-arg "BASE_IMAGE=$EXT_AUTHZ_BASE_IMAGE" -t "$EXT_AUTHZ_IMAGE" "$ROOT/cmd/ext-authz-sim" >"$work/build.log" 2>&1
-k3d image import "$EXT_AUTHZ_IMAGE" -c capacity-cascade-local >"$work/import.log" 2>&1
+build_rc=0 import_rc=0
+docker build --build-arg "BASE_IMAGE=$EXT_AUTHZ_BASE_IMAGE" -t "$EXT_AUTHZ_IMAGE" "$ROOT/cmd/ext-authz-sim" >"$work/build.log" 2>&1 || build_rc=$?
+printf '%s\n' "$build_rc" >"$work/build.exit"
+[[ "$build_rc" == 0 ]] || fail 'fixture image build failed'
 docker image inspect "$EXT_AUTHZ_IMAGE" --format '{{.Id}}' | jq -Rs --arg base "$EXT_AUTHZ_BASE_IMAGE" '{image_id:(.|rtrimstr("\n")),base_image:$base}' >"$out/app-image.json"
+python3 "$validator" image-config "$out" "$work"
+k3d image import "$EXT_AUTHZ_IMAGE" -c capacity-cascade-local >"$work/import.log" 2>&1 || import_rc=$?
+printf '%s\n' "$import_rc" >"$work/import.exit"
+[[ "$import_rc" == 0 ]] || fail 'fixture image import failed'
+# k3d v5.9.0 tools-node can return zero after per-node import errors.
+# No retry or alternate import: require kubelet's exact reference in the owned node CRI.
+python3 "$validator" image-check "$out"
 python3 "$validator" render "$work"
 "$istioctl" manifest generate -f "$work/istio.yaml" >"$work/control-plane.yaml"
 kubectl create namespace shared-gate >/dev/null
@@ -103,6 +116,7 @@ cp "$work/owned.json" "$out/owned-resources.json"
 for deploy in p4-ingress haproxy ext-authz-sim; do
   kubectl -n shared-gate rollout status "deployment/$deploy" --timeout=300s
 done
+python3 "$validator" image-check "$out" scheduled
 cp "$work/istio.yaml" "$out/istio-source.yaml"
 cp "$work/resources.yaml" "$out/fixture-source.yaml"
 phase install

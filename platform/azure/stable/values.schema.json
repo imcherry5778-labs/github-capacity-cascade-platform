@@ -28,7 +28,7 @@
     },
     "producer_image": {
       "type": "string",
-      "pattern": "^code\\.forgejo\\.org/forgejo/forgejo:15\\.0\\.9-rootless@sha256:[0-9a-f]{64}$"
+      "pattern": "^code\\.forgejo\\.org/forgejo/forgejo:15\\.0\\.10-rootless@sha256:[0-9a-f]{64}$"
     }
   }
 }

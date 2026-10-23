@@ -65,6 +65,10 @@ Selected [Istio 1.30.5 source의 header/body 설정](https://github.com/istio/is
 
 ### Evidence / removal contract
 
+P6-W1 CI 조사에서는 `9b64beb`의 attempt 1(Redis registry rate limit)과 attempt 2(P4 `ErrImageNeverPull`)를 별도 실패로 유지한다. Attempt 2는 build/import 로그가 임시 directory와 함께 삭제되어 원인이 아직 확정되지 않았다. Pinned [k3d v5.9.0 tools-node 구현](https://github.com/k3d-io/k3d/blob/v5.9.0/pkg/client/tools.go#L100-L168)은 per-node import 오류를 반환하지 않으므로 exit 0만으로 availability를 증명할 수 없다([upstream issue](https://github.com/k3d-io/k3d/issues/1484), [미병합 수정 PR](https://github.com/k3d-io/k3d/pull/1694)). 이 결함의 존재와 해당 CI 실패의 원인은 구분한다.
+
+Fixture는 import 직후 invocation-owned 단일 node의 CRI에서 normalized exact reference와 built image의 config digest를 확인하고, rollout 후 Pod의 node/reference/`Never` policy를 다시 확인한다. Docker inspect의 image ID(OCI index/manifest일 수 있음)는 별도로 남기고, local image export의 config bytes SHA256을 CRI ID와 비교한다([OCI manifest/config 구분](https://github.com/opencontainers/image-spec/blob/v1.1.1/manifest.md)). Import mode 변경, 재시도, registry push/pull은 추가하지 않는다. 실패 시 cleanup 전에 fixed credential-free build/import command의 exit code와 path-redacted 로그, CRI ID/tag 및 containerd reference, fixture Pod image/node/wait reason, event reason/count와 고정 message hint를 보존한다. Node/containerd 원문 log는 보존하지 않고 고정 hint만 추출한다. CI artifact allowlist는 이 `image-*` 파일만 추가하며 Secret/ConfigMap/env/image config/kubeconfig는 포함하지 않는다. 진단은 bounded read-only이며 원래 실패 및 owned cleanup 결과를 바꾸지 않는다. 새 exact-head CI의 실행 결과는 PR evidence에 별도로 기록한다.
+
 Gated journey는 P3의 9개 operation, single command attempt, retry 없음, fixture/assertion 밖 latency boundary를 그대로 사용한다. Measured API/Git command를 준비할 때 `x-operation-id`, `x-attempt-id`를 넣는다. Assertion/seed 요청에는 measured attempt ID를 넣지 않는다. 하나의 Git attempt에서 복수 HTTP check가 생길 수 있으므로 validator는 attempt별 **한 개 이상** ALLOW check를 요구하고 실제 개수를 기록한다.
 
 Gated Git transport에는 `http.followRedirects=false`를 적용해 canonical direct endpoint로 redirect되면 성공으로 처리하지 않는다. curl API command도 redirect를 따라가지 않는다. 기존 direct Git transport 설정은 유지한다.
@@ -103,7 +107,7 @@ Retry amplification은 같은 logical demand의 attempt/check/shared-path reques
 
 ## P3-W3 patch upgrade / state-aware rollback
 
-`make upgrade`는 `scripts/local-recover.sh upgrade`를 사용한다. 기존 W2의 developer fixture, coordinated checkpoint, Secret/DB/full `/data` restore와 doctor validator를 재사용한다. 이번 drill은 linux/amd64에서 `15.0.8-rootless`(A) → stable `15.0.9-rootless`(B) 한 pair만 검증한다. Official OCI index와 amd64 manifest digest는 `versions.env`의 W3 inventory로 구분한다. Kubernetes의 actual imageID와 init/application image도 비교하며, tag만으로 runtime identity를 주장하지 않는다.
+`make upgrade`는 `scripts/local-recover.sh upgrade`를 사용한다. 기존 W2의 developer fixture, coordinated checkpoint, Secret/DB/full `/data` restore와 doctor validator를 재사용한다. 현재 drill은 P6-W1 revalidation에 따라 linux/amd64에서 `15.0.9-rootless`(A) → stable `15.0.10-rootless`(B) 한 pair만 검증한다. Official OCI index와 amd64 manifest digest는 `versions.env`의 W3 inventory로 구분한다. Kubernetes의 actual imageID와 init/application image도 비교하며, tag만으로 runtime identity를 주장하지 않는다.
 
 Fresh A와 rollback target은 PostgreSQL/Argo만 먼저 준비한다. Application은 autosync를 끈 상태에서 기존 chart/source revision에 `image.tag`와 `image.digest`만 maintenance override하고 bounded manual sync한다. Fresh A의 empty database와 Forgejo PVC 부재를 시작 전에 검사한다. Stable Git values는 계속 B다.
 
@@ -135,6 +139,14 @@ Doctor inventory와 selected `check-db-version`, `check-db-consistency`, `check-
 [15.0.8 release notes](https://codeberg.org/forgejo/forgejo/src/branch/forgejo/release-notes-published/15.0.8.md), [15.0.9 release notes](https://codeberg.org/forgejo/forgejo/src/branch/forgejo/release-notes-published/15.0.9.md), [v15 upgrade guide](https://forgejo.org/docs/v15.0/admin/upgrade/)를 확인했다. 당시 official v15 LTS는 15.0.9였다. 두 release note에는 이 pair의 manual migration, Core config 변경, rootless 특이사항 또는 PAT/native session 재발급 요구가 명시되지 않았다. 이것은 runtime continuity를 대신하는 보장이 아니다.
 
 15.0.8은 repository template 초기화와 API authorization reducer 등의 보안 수정을, 15.0.9는 ApplyDiffPatch/OpenID CSRF 보안 수정과 push mirror 수정 등을 포함한다. Core에서 OpenID와 mirror는 이번 fixture가 사용하지 않는 기능이다. A는 disposable loopback drill에서만 사용하는 이전 patch다. Guide의 queue backward compatibility 주의, pre-upgrade full backup, old binary/newer database 금지 요구를 적용한다. 매 실행은 실제로 읽은 official raw release-note hash를 재확인하고 변경/접근 실패 시 중단한다. [v15 migration README](https://codeberg.org/forgejo/forgejo/src/tag/v15.0.8/models/forgejo_migrations/README.md)는 세 DB authority의 근거다.
+
+### P6-W1 pair revalidation (2026-10-21)
+
+위 2026-09-30 preflight와 기존 P3 evidence는 `15.0.8 → 15.0.9`의 역사적 기록이다.
+현재 pair의 security/release/digest 근거는 [P6-W1 reconciliation](p5-preflight.md#p6-w1-securityversion-reconciliation--2026-10-21)에 있다.
+`15.0.9` A는 disposable loopback maintenance에서만 쓰며 stable/Azure source는 `15.0.10` B다.
+현재 pair도 release-note hash 변경, doctor/config/inventory 변화, DB authority/credential continuity 실패를
+그대로 거부한다. 새 pair의 runtime 결과는 새 exact-head CI에서 확인하며 과거 evidence를 재사용하지 않는다.
 
 ### Regression / evidence
 

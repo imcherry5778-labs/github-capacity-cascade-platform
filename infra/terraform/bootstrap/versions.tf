@@ -1,5 +1,5 @@
 terraform {
-  required_version = "= 1.16.4"
+  required_version = "= 1.16.6"
 
   # bootstrap만 implicit local state를 사용한다. 자신의 state backend를 참조하지 않는다.
   required_providers {

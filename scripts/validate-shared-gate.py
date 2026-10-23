@@ -7,8 +7,10 @@ import io
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
+import tarfile
 
 sys.dont_write_bytecode = True
 
@@ -54,6 +56,130 @@ def render(directory):
             source = source.replace(f"@{key}@", value)
         require("@ISTIO_" not in source and "@EXT_AUTHZ_" not in source and "@HAPROXY_" not in source, "unrendered pin")
         (out / name).write_text(source)
+
+
+def owned_image_node():
+    """Read-only diagnostics must have the same ownership proof as the fixture."""
+    owner = Path(os.environ["LOCAL_CLUSTER_OWNERSHIP_MARKER"]).read_text().strip()
+    current = command("docker", "ps", "-aq", "--no-trunc", "--filter",
+                      "label=k3d.cluster=capacity-cascade-local", "--filter", "label=k3d.role=server").strip()
+    require(owner and current == owner, "image inspection requires invocation-owned server")
+    node = command("docker", "inspect", "--format", "{{.Name}}", owner).strip().lstrip("/")
+    nodes = json.loads(kube("get", "nodes", "-o", "json"))["items"]
+    require([n["metadata"]["name"] for n in nodes] == [node], "fixture requires one owned Kubernetes node")
+    return node
+
+
+def image_inventory(node):
+    images = json.loads(command("docker", "exec", node, "crictl", "images", "-o", "json"))["images"]
+    # Never retain full CRI inspect output (image config/environment).
+    return [{"id": i["id"], "tags": i.get("repoTags", [])} for i in images]
+
+
+def archive_config_digest(path, reference):
+    # Docker's containerd store can report an index/manifest ID from inspect.
+    # CRI reports the image config digest. Hash that same config from the local export.
+    with tarfile.open(path) as archive:
+        manifests = json.load(archive.extractfile("manifest.json"))
+        selected = [m for m in manifests if reference in m.get("RepoTags", [])]
+        require(len(selected) == 1, "built image export reference absent/ambiguous")
+        config = archive.extractfile(selected[0]["Config"]).read()
+        platform = json.loads(config)
+        require(platform["os"] == "linux" and platform["architecture"] == "amd64", "fixture platform differs")
+        return "sha256:" + hashlib.sha256(config).hexdigest()
+
+
+def image_config(directory, workdir):
+    path = Path(workdir) / "app-image.tar"
+    reference = os.environ["EXT_AUTHZ_IMAGE"]
+    command("docker", "image", "save", reference, "-o", str(path))
+    out = Path(directory) / "app-image.json"
+    data = json.loads(out.read_text())
+    data["config_digest"] = archive_config_digest(path, reference)
+    out.write_text(json.dumps(data, indent=2))
+
+
+def match_image(images, reference, image_id):
+    matches = [i for i in images if reference in i["tags"]]
+    require(len(matches) == 1, "exact fixture image reference absent/ambiguous in node CRI")
+    require(matches[0]["id"] == image_id, "fixture Docker/CRI image ID mismatch")
+    return matches[0]
+
+
+def image_check(directory, scheduled=False):
+    out = Path(directory)
+    node = owned_image_node()
+    reference = "docker.io/library/" + os.environ["EXT_AUTHZ_IMAGE"]
+    data = {"node": node, "reference": reference, "images": image_inventory(node)}
+    if scheduled:
+        target = pod("app=ext-authz-sim")
+        app = next(c for c in target["spec"]["containers"] if c["name"] == "app")
+        data["pod"] = {"name": target["metadata"]["name"], "node": target["spec"]["nodeName"],
+                       "image": app["image"], "pull_policy": app["imagePullPolicy"]}
+    # Write observations even if validation fails; no successful result is synthesized.
+    (out / ("image-scheduled.json" if scheduled else "image-import.json")).write_text(json.dumps(data, indent=2))
+    match_image(data["images"], reference, json.loads((out / "app-image.json").read_text())["config_digest"])
+    if scheduled:
+        require(data["pod"]["node"] == node and data["pod"]["image"] == os.environ["EXT_AUTHZ_IMAGE"] and
+                data["pod"]["pull_policy"] == "Never", "scheduled fixture image/node/pull policy differs")
+
+
+IMAGE_HINTS = ("ErrImageNeverPull", "not present with pull policy of Never", "no such file or directory",
+               "not found", "failed to import", "Successfully imported", "naming to", "exporting to image",
+               "unpacking", "image garbage collection", "ImageGCFailed", "FreeDiskSpaceFailed",
+               "DiskPressure", "eviction", "no space left", "failed to get image", "RemoveImage")
+
+
+def image_hints(message):
+    return [hint for hint in IMAGE_HINTS if hint.lower() in (message or "").lower()]
+
+
+def image_diagnostics(directory, workdir):
+    out, work = Path(directory), Path(workdir)
+    node = owned_image_node()
+    data = {"node": node, "image": os.environ.get("EXT_AUTHZ_IMAGE"), "logs": {}}
+    # Only these fixed, credential-free build/import commands are retained. No Pod/app logs,
+    # environment, Docker inspect config, kubeconfig or raw node log is exported.
+    for name in ("build", "import"):
+        path = work / f"{name}.log"
+        if path.exists():
+            text = path.read_text(errors="replace")
+            text = text.replace(str(ROOT), "<repository>")
+            text = re.sub(r"/(?:home|Users|tmp|var|run|k3d)/[^\s\"'<>]*", "<path>", text)
+            text = re.sub(r"\x1b\[[0-9;]*m", "", text)
+            (out / f"image-{name}.log").write_text(text)
+            exit_path = work / f"{name}.exit"
+            data["logs"][name] = {"exit_code": int(exit_path.read_text()) if exit_path.exists() else None,
+                                  "hints": image_hints(text)}
+    # Persist each stage independently so a later diagnostic failure cannot erase earlier evidence.
+    def save():
+        (out / "image-failure.json").write_text(json.dumps(data, indent=2))
+    save()
+    data["images"] = image_inventory(node)
+    data["ctr_references"] = command("docker", "exec", node, "ctr", "-n", "k8s.io", "images", "ls", "-q").splitlines()
+    save()
+    pods = json.loads(kube("-n", "shared-gate", "get", "pods", "-l", "app=ext-authz-sim", "-o", "json"))
+    data["pods"] = [{"name": p["metadata"]["name"], "node": p["spec"].get("nodeName"),
+                     "images": [{"name": c["name"], "image": c["image"], "pull_policy": c["imagePullPolicy"]}
+                                for c in p["spec"]["containers"]],
+                     "waiting": [{"name": c["name"], "reason": c.get("state", {}).get("waiting", {}).get("reason"),
+                                  "hints": image_hints(c.get("state", {}).get("waiting", {}).get("message"))}
+                                 for c in p["status"].get("containerStatuses", [])]}
+                    for p in pods["items"]]
+    events = json.loads(kube("-n", "shared-gate", "get", "events", "-o", "json"))["items"]
+    data["events"] = [{"reason": e.get("reason"), "object": e["involvedObject"]["name"],
+                       "timestamp": e.get("lastTimestamp"), "count": e.get("count"),
+                       "hints": image_hints(e.get("message"))} for e in events
+                      if e["involvedObject"]["name"].startswith("ext-authz-sim-")]
+    save()
+    # Project node/containerd messages onto fixed hints; never retain raw node logs.
+    for label, args in (("kubelet", ("docker", "logs", "--since", "10m", node)),
+                        ("containerd", ("docker", "exec", node, "tail", "-n", "1000",
+                                        "/var/lib/rancher/k3s/agent/containerd/containerd.log"))):
+        log = subprocess.run(args, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=10)
+        data[label] = [{"hints": image_hints(line), "fixture_reference": data["image"] in line if data["image"] else False}
+                       for line in log.stdout.splitlines() if image_hints(line)]
+        save()
 
 
 def auth_filter(listeners):
@@ -263,6 +389,12 @@ if __name__ == "__main__":
         mode = sys.argv[1]
         if mode == "render":
             render(sys.argv[2])
+        elif mode == "image-check":
+            image_check(sys.argv[2], "scheduled" in sys.argv[3:])
+        elif mode == "image-config":
+            image_config(sys.argv[2], sys.argv[3])
+        elif mode == "image-diagnostics":
+            image_diagnostics(sys.argv[2], sys.argv[3])
         elif mode == "runtime":
             print(json.dumps(runtime(), indent=2))
         elif mode == "capture":

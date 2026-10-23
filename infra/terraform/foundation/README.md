@@ -103,10 +103,12 @@ make static
 Test는 [mock provider](https://developer.hashicorp.com/terraform/language/tests/mocking)와 `command=plan`만 사용하며 remote backend에 접속하지 않는다.
 Source guard는 exact inventory, `foundation.tfstate` OIDC/Entra ID backend, OIDC-only provider, committed credential 부재,
 Key Vault security/lifecycle 속성, access policy/network ACL 부재, DNS name server와 Key Vault ID/name/URI output을 검사한다.
-Provider pin은 bootstrap과 같은 Terraform `1.16.4` / AzureRM `5.7.0`이며 `.terraform.lock.hcl`을 commit한다.
+Provider pin은 bootstrap과 같은 Terraform `1.16.6` / AzureRM `5.7.0`이며 `.terraform.lock.hcl`을 commit한다.
 
 ## Not verified
 
 Remote backend 인증/locking, GitHub OIDC token exchange, Azure plan/provisioning, Resource Group 존재/접근,
 DNS zone 생성, public delegation/resolution, Key Vault runtime/data-plane access, private endpoint connectivity,
 effective RBAC propagation, Azure cost.
+
+P6-W1 version 재검증 근거는 [aggregate preflight](../../../docs/p5-preflight.md#p6-w1-securityversion-reconciliation--2026-10-21)에 있다.

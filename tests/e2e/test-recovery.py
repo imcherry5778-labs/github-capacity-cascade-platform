@@ -58,7 +58,7 @@ class RecoveryValidationTest(unittest.TestCase):
             "source_sha": "a" * 40, "source_server_id": "server-a",
             "argo_values_revision": "b" * 40, "forgejo_image_id": "sha256:f",
             "postgres_image_id": "sha256:p", "forgejo_chart_digest": "sha256:c",
-            "forgejo_version": "15.0.9", "source_storage": storage("a"),
+            "forgejo_version": "15.0.10", "source_storage": storage("a"),
             "components": components,
             "fixture": {key: "present" for key in (
                 "user", "repository", "main_sha", "feature_sha",
@@ -164,7 +164,7 @@ class RecoveryValidationTest(unittest.TestCase):
         (directory / "app.ini").write_text("APP_NAME = Forgejo\n[server]\nDISABLE_SSH = true\n[log]\n")
         (directory / "env.txt").write_text("PATH=/usr/bin\n")
         (directory / "metadata.json").write_text(json.dumps({
-            "forgejo_version": "15.0.9+gitea-1.22.0", "forgejo_image_id": "sha256:test"
+            "forgejo_version": "15.0.10+gitea-1.22.0", "forgejo_image_id": "sha256:test"
         }))
         inventory = ["Default\tName\t\t\t\t\tTitle"]
         for name in ("gc-lfs", "paths", *validator.DOCTOR_CHECKS, "authorized-keys"):
@@ -197,12 +197,12 @@ class RecoveryValidationTest(unittest.TestCase):
 
     def test_upgrade_pair_keeps_checks_and_w2_version_guard(self):
         directory = self.doctor_fixture()
-        meta = {"forgejo_version": "15.0.8+gitea-1.22.0", "forgejo_image_id": "sha256:a"}
+        meta = {"forgejo_version": "15.0.9+gitea-1.22.0", "forgejo_image_id": "sha256:a"}
         (directory / "metadata.json").write_text(json.dumps(meta))
         with self.assertRaisesRegex(ValueError, "doctor runtime version/image"):
             validator.validate_doctor(directory)
         baseline = validator.validate_doctor(directory, upgrade=True)
-        meta.update(forgejo_version="15.0.9+gitea-1.22.0", forgejo_image_id="sha256:b")
+        meta.update(forgejo_version="15.0.10+gitea-1.22.0", forgejo_image_id="sha256:b")
         (directory / "metadata.json").write_text(json.dumps(meta))
         validator.validate_doctor(directory, baseline, upgrade=True)
         (directory / "check-db-consistency.exit").write_text("1\n")

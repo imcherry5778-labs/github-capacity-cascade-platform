@@ -118,9 +118,17 @@ static() {
   expect_line platform/argocd/forgejo-local.yaml "targetRevision: $FORGEJO_CHART_VERSION"
   expect_line platform/argocd/forgejo-local.yaml "targetRevision: $FORGEJO_VALUES_REVISION"
   [[ "$(grep -c 'image:' "$ROOT/platform/local/postgres.yaml")" == 1 ]] || fail "unexpected extra image in postgres.yaml"
+  # Argo fetches values from the pinned Git object, not the working tree.
+  # Refuse a pin that still deploys a previous patch despite updated local values.
+  if ! git cat-file -e "$FORGEJO_VALUES_REVISION^{commit}" 2>/dev/null; then
+    git fetch --no-tags --depth=1 origin "$FORGEJO_VALUES_REVISION" || fail "pinned Git values unavailable"
+  fi
+  for f in platform/forgejo/values-common.yaml platform/forgejo/values-local.yaml; do
+    git show "$FORGEJO_VALUES_REVISION:$f" | cmp -s - "$ROOT/$f" || fail "pinned Git values differ: $f"
+  done
   pass "source pins match versions.env"
 
-  [[ "$ARGOCD_VERSION" == v3.5.3 && "$ARGOCD_COMMIT" =~ ^[0-9a-f]{40}$ ]] || fail "Argo CD release/commit pin"
+  [[ "$ARGOCD_VERSION" == v3.5.6 && "$ARGOCD_COMMIT" =~ ^[0-9a-f]{40}$ ]] || fail "Argo CD release/commit pin"
   local core_manifest="$ROOT/.tmp/rendered/argocd-core.yaml"
   mkdir -p "$ROOT/.tmp/rendered"
   curl -fsSL --retry 3 "https://raw.githubusercontent.com/argoproj/argo-cd/$ARGOCD_COMMIT/manifests/core-install.yaml" -o "$core_manifest"
