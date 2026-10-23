@@ -4,7 +4,7 @@ mock_provider "azurerm" {
 
   mock_resource "azurerm_dns_zone" {
     defaults = {
-      id           = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/test-foundation/providers/Microsoft.Network/dnsZones/project.example.test"
+      id           = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/test-foundation/providers/Microsoft.Network/dnsZones/example.test"
       name_servers = ["ns1-01.azure-dns.com.", "ns2-01.azure-dns.net.", "ns3-01.azure-dns.org.", "ns4-01.azure-dns.info."]
     }
   }
@@ -23,7 +23,7 @@ variables {
   ci_client_id        = "11111111-1111-1111-1111-111111111111"
   resource_group_name = "test-foundation"
   location            = "test-location"
-  dns_zone_name       = "project.example.test"
+  dns_zone_name       = "example.test"
   key_vault_name      = "test-foundation-kv"
 }
 
@@ -32,14 +32,14 @@ run "shared_resource_contract" {
 
   assert {
     condition = (
-      azurerm_dns_zone.project.name == "project.example.test" &&
+      azurerm_dns_zone.project.name == "example.test" &&
       azurerm_dns_zone.project.resource_group_name == "test-foundation" &&
       output.dns_zone.id == azurerm_dns_zone.project.id &&
-      output.dns_zone.name == "project.example.test" &&
+      output.dns_zone.name == "example.test" &&
       output.dns_zone.name_servers == azurerm_dns_zone.project.name_servers &&
       length(output.dns_zone.name_servers) == 4
     )
-    error_message = "기존 foundation RG의 public zone과 delegation용 Azure name server output이 필요하다."
+    error_message = "기존 foundation RG에 apex zone 이름을 그대로 전달하고 registrar delegation용 Azure name server 4개를 출력해야 한다."
   }
 
   assert {

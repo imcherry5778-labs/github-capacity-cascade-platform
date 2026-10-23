@@ -158,7 +158,7 @@ variables {
   resource_group_name            = "test-environment"
   location                       = "test-location"
   foundation_resource_group_name = "test-foundation"
-  dns_zone_id                    = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/test-foundation/providers/Microsoft.Network/dnsZones/platform.example.com"
+  dns_zone_id                    = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/test-foundation/providers/Microsoft.Network/dnsZones/example.com"
   names = {
     virtual_network         = "test-vnet"
     kubernetes_cluster      = "test-aks"

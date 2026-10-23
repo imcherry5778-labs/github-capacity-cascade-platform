@@ -1,5 +1,5 @@
 output "dns_zone" {
-  description = "Project public zone. name_servers는 parent authority delegation 입력이며 delegation 완료 증거가 아니다."
+  description = "Public apex zone. name_servers는 Gabia registrar NS 설정 입력이며 delegation 완료 증거가 아니다."
   value = {
     id           = azurerm_dns_zone.project.id
     name         = azurerm_dns_zone.project.name

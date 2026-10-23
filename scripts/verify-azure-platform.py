@@ -22,7 +22,7 @@ def run(*args):
 
 def fixture():
     # Parser-only data; this full SHA does not prove a deployable merged source.
-    return dict(source_revision="a" * 40, hostname="forgejo.platform.example.com", dns_zone="platform.example.com",
+    return dict(source_revision="a" * 40, hostname="forgejo.example.com", dns_zone="example.com",
                 subscription_id="00000000-0000-0000-0000-000000000000", tenant_id="00000000-0000-0000-0000-000000000000",
                 foundation_resource_group="test-foundation", key_vault_name="test-vault",
                 forgejo_secrets_client_id="11111111-1111-1111-1111-111111111111",
@@ -37,7 +37,8 @@ def static():
     output = renderer.render(data)
     assert output == renderer.render(data), "deterministic render required"
     for key, value in [("source_revision", "main"), ("source_revision", "a" * 7),
-                       ("source_revision", "A" * 40), ("hostname", "forgejo.other.example.com"),
+                       ("source_revision", "A" * 40), ("hostname", "forgejo.other.example.net"),
+                       ("hostname", data["dns_zone"]), ("hostname", "forgejo.notexample.com"),
                        ("hostname", "127.0.0.1"), ("ingress_ip", "10.0.0.1"),
                        ("postgresql_fqdn", "localhost"), ("pvc_size", "0Gi"),
                        ("istio_revision", "asm-1-21"), ("acme_environment", "prod")]:
@@ -84,7 +85,19 @@ def static():
     assert output["mesh-config.json"]["metadata"]["namespace"] == "aks-istio-system"
     mesh = json.loads(output["mesh-config.json"]["data"]["mesh"])
     assert set(json.loads(mesh["accessLogFormat"])) == {"status", "detail", "duration_ms", "cluster"}
-    assert output["dns-record.json"]["record_name"] == "forgejo"
+    assert output["dns-record.json"] == {
+        "record_name": "forgejo", "zone": "example.com", "resource_group": data["foundation_resource_group"],
+        "subscription_id": data["subscription_id"], "record_type": "A",
+        "body": {"properties": {"TTL": 300, "ARecords": [{"ipv4Address": data["ingress_ip"]}]}}}
+    # Apex + deeper hostname and the previous child-zone shape use the same renderer.
+    for zone, hostname, relative in [("example.com", "forgejo.dev.example.com", "forgejo.dev"),
+                                     ("platform.example.com", "forgejo.platform.example.com", "forgejo")]:
+        rendered = renderer.render(data | {"dns_zone": zone, "hostname": hostname})
+        assert rendered["dns-record.json"] == output["dns-record.json"] | {"zone": zone, "record_name": relative}
+        test_issuer, test_cert = rendered["tls.json"]["items"]
+        test_solver = test_issuer["spec"]["acme"]["solvers"][0]
+        assert test_solver["dns01"]["azureDNS"] == solver["dns01"]["azureDNS"] | {"hostedZoneName": zone}
+        assert test_solver["selector"]["dnsNames"] == test_cert["spec"]["dnsNames"] == [hostname]
 
     with tempfile.TemporaryDirectory(prefix="p5-static-") as temp:
         directory = Path(temp)

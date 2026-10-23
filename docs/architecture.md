@@ -293,7 +293,14 @@ AppProject restriction과 Argo controller의 Kubernetes RBAC는 같은 security 
 
 ## 10. DNS / TLS / secret boundary
 
-Parent domain은 기존 registrar/DNS authority에 유지하고 project subdomain만 Azure DNS에 delegate한다.
+DECIDED: domain registration은 Gabia에 유지하고, registrar-level NS 설정으로 apex zone 전체를
+Azure DNS의 해당 zone에 할당된 authoritative NS 4개에 delegate한다. Foundation은 public apex zone을
+소유하고 external operator는 registrar delegation과 rollback을 소유한다. 실제 domain/account/naming은
+local/CI input으로만 전달하며 Forgejo hostname은 해당 zone 아래에 둔다.
+
+Azure zone 제거 전에는 유효한 대체 authoritative DNS로 delegation을 복구하고 전파 결과를 확인한다.
+미완료 시 zone 삭제와 cleanup 성공 선언을 중단하며, 임시 보존은 별도 승인 대상이다.
+전환·teardown gate와 same-day cleanup blocker는 [P6 aggregate preflight](p5-preflight.md#dns-apex-delegation-gate)를 따른다.
 
 Public TLS automation은 cert-manager + DNS-01을 기본 방향으로 유지하되, exact managed-Istio ingress credential namespace/contract는 Azure implementation preflight에서 다시 확인한다.
 

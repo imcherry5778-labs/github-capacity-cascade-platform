@@ -10,10 +10,10 @@ Resource 2개만 정의한다. Module, data source, AzureAD provider는 없다.
 
 | Resource | 역할 |
 | --- | --- |
-| `azurerm_dns_zone.project` | parent authority가 나중에 delegate할 project public zone |
+| `azurerm_dns_zone.project` | Gabia registrar NS로 delegate할 public apex zone |
 | `azurerm_key_vault.project` | 후속 persistent application secret 저장소 |
 
-Resource Group, DNS record, parent NS delegation, Key Vault secret/key/certificate, access policy,
+Resource Group, DNS record, registrar NS delegation, Key Vault secret/key/certificate, access policy,
 role assignment, managed identity, private endpoint/private DNS, VNet/subnet은 만들지 않는다.
 Resource Group은 bootstrap이 소유하며 이 stack은 이름만 input으로 받는다.
 
@@ -44,9 +44,21 @@ Operator inputs: `subscription_id`, `tenant_id`, `ci_client_id`, `resource_group
 
 ## Azure DNS
 
-Parent domain은 기존 registrar/DNS authority에 남는다. 이 stack은 project subdomain public zone만 만든다.
-`dns_zone.name_servers` output은 Azure가 zone에 할당한 name server이며 parent authority에 NS delegation을 만들 **입력**이다.
-Output이 존재해도 delegation이나 resolution이 완료됐다는 뜻이 아니다. Delegation은 이후 paid gate의 external DNS action이다.
+Domain registration은 Gabia에 유지하고 이 stack은 public apex zone을 만든다.
+기존 `azurerm_dns_zone.project`는 `dns_zone_name`을 그대로 사용하므로 apex 지원을 위한 resource/module 변경은 없다.
+[AzureRM 5.7.0 DNS zone contract](https://github.com/hashicorp/terraform-provider-azurerm/blob/v5.7.0/website/docs/r/dns_zone.html.markdown)도
+apex domain 이름을 지원한다. Zone 이름 변경은 replacement이므로 기존 zone이 있는 실행에서는 별도 lifecycle 검토 없이 바꾸지 않는다.
+
+`dns_zone.name_servers`는 Azure가 해당 zone에 할당한 authoritative NS 4개이며 Gabia registrar NS 설정의 **입력**이다.
+이는 [Azure의 registrar-level delegation 방식](https://learn.microsoft.com/en-us/azure/dns/dns-delegate-domain-azure-dns)을 따른다.
+실제 zone 이름은 local/CI input으로 전달한다. 예시 fixture는 `example.test`이며 운영 domain을 source에 저장하지 않는다.
+Output이 존재해도 delegation이나 resolution이 완료됐다는 뜻이 아니다. Delegation/rollback은 external operator의 별도 승인 action이다.
+
+Gabia NS가 Azure를 가리키거나 전파가 미완료인 동안에는 이 zone을 삭제하지 않는다.
+Foundation destroy와 foundation RG를 제거하는 bootstrap cleanup 전에
+[DNS apex delegation gate](../../../docs/p5-preflight.md#dns-apex-delegation-gate)의 대체 DNS 복구/검증을 완료해야 한다.
+기존 Terraform destroy에는 registrar 확인 기능이 없으므로 operator가 이 gate를 확인한다.
+임시 보존이 필요하면 owner/기간/비용과 별도 승인을 남기고 same-day cleanup blocker로 보고한다.
 
 ## Key Vault
 
@@ -102,7 +114,8 @@ make static
 `fmt -check -recursive`, `init -backend=false -input=false -lockfile=readonly`, `validate`, `test`를 실행한다.
 Test는 [mock provider](https://developer.hashicorp.com/terraform/language/tests/mocking)와 `command=plan`만 사용하며 remote backend에 접속하지 않는다.
 Source guard는 exact inventory, `foundation.tfstate` OIDC/Entra ID backend, OIDC-only provider, committed credential 부재,
-Key Vault security/lifecycle 속성, access policy/network ACL 부재, DNS name server와 Key Vault ID/name/URI output을 검사한다.
+Key Vault security/lifecycle 속성, access policy/network ACL 부재, apex zone 이름 전달과 DNS name server,
+Key Vault ID/name/URI output을 검사한다. Mock NS는 delegation runtime 증거가 아니다.
 Provider pin은 bootstrap과 같은 Terraform `1.16.6` / AzureRM `5.7.0`이며 `.terraform.lock.hcl`을 commit한다.
 
 ## Not verified
