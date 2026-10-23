@@ -190,7 +190,7 @@ variables {
     sku_tier       = "Free"
     system_node_pool = {
       vm_size    = "test-vm-size"
-      node_count = 1
+      node_count = 2
     }
     api_server_authorized_ip_ranges = []
   }
@@ -310,7 +310,7 @@ run "environment_contract" {
     condition = (
       azurerm_kubernetes_cluster.this.default_node_pool[0].vnet_subnet_id == azurerm_subnet.aks_nodes.id &&
       azurerm_kubernetes_cluster.this.default_node_pool[0].auto_scaling_enabled == false &&
-      azurerm_kubernetes_cluster.this.default_node_pool[0].node_count == 1 &&
+      azurerm_kubernetes_cluster.this.default_node_pool[0].node_count == 2 &&
       azurerm_kubernetes_cluster.this.network_profile[0].network_plugin == "azure" &&
       azurerm_kubernetes_cluster.this.network_profile[0].network_plugin_mode == "overlay" &&
       azurerm_kubernetes_cluster.this.network_profile[0].outbound_type == "loadBalancer" &&
@@ -398,7 +398,7 @@ run "restricted_api_server_ranges" {
       sku_tier       = "Free"
       system_node_pool = {
         vm_size    = "test-vm-size"
-        node_count = 1
+        node_count = 2
       }
       api_server_authorized_ip_ranges = ["203.0.113.0/24"]
     }
@@ -408,6 +408,23 @@ run "restricted_api_server_ranges" {
     condition     = azurerm_kubernetes_cluster.this.api_server_access_profile[0].authorized_ip_ranges == toset(["203.0.113.0/24"])
     error_message = "Operator가 준 API server authorized range만 적용해야 한다."
   }
+}
+
+run "reject_single_node_system_pool" {
+  command = plan
+  variables {
+    kubernetes = {
+      version        = "1.36"
+      istio_revision = "asm-1-30"
+      sku_tier       = "Free"
+      system_node_pool = {
+        vm_size    = "test-vm-size"
+        node_count = 1
+      }
+      api_server_authorized_ip_ranges = []
+    }
+  }
+  expect_failures = [var.kubernetes]
 }
 
 run "reject_overlapping_subnets" {
@@ -555,7 +572,7 @@ run "reject_unmanaged_istio_revision" {
       sku_tier       = "Free"
       system_node_pool = {
         vm_size    = "test-vm-size"
-        node_count = 1
+        node_count = 2
       }
       api_server_authorized_ip_ranges = []
     }

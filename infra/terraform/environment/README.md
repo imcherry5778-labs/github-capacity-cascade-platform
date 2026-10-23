@@ -38,7 +38,7 @@ SAS token, CLI/MSI fallback은 없고 Resource Provider 자동 등록은 `resour
 | `location` | DEFERRED | 단일 region |
 | `kubernetes.version`, `kubernetes.istio_revision` | REVALIDATE | 후보 `1.36` / `asm-1-30`. 선택 region에서 확인 전에는 후보일 뿐이다 |
 | `kubernetes.sku_tier` | DEFERRED | `Free` 또는 `Standard` |
-| `kubernetes.system_node_pool` | DEFERRED | VM SKU/count. 측정 전 capacity baseline이 아니다 |
+| `kubernetes.system_node_pool` | DEFERRED | node count는 정수 ≥ 2. VM SKU와 실제 수량/headroom은 P6에서 확인 |
 | `kubernetes.api_server_authorized_ip_ranges` | DEFERRED | 빈 set이면 IP 제한 없음(Entra ID 인증은 유지) |
 | `network` | operator input | VNet/subnet/pod/service CIDR. 중첩/범위/형식 validation |
 | `postgresql.version/sku_name/storage_mb` | DEFERRED | compute/storage SKU |
@@ -124,6 +124,11 @@ Private DB와 Key Vault 경로가 있다고 AKS egress 전체가 private한 것�
 - Managed Grafana endpoint와 Azure Monitor/Log Analytics ingestion/query endpoint는 public endpoint이며 Entra ID 인증을 사용한다.
 
 ## AKS managed capability
+
+[AKS system pool minimum](https://learn.microsoft.com/en-us/azure/aks/use-system-pools)에 따라
+`system_node_pool.node_count`는 2 이상의 정수만 허용한다. Node당 최소 4 vCPU/4 GB와
+B-series 제외 조건은 실제 VM SKU로 P6 account-scoped preflight에서 확인한다.
+Region availability, quota와 addon/Forgejo headroom은 별도 검증 대상이며 node 2개로 충분하다고 가정하지 않는다.
 
 | Capability | Source | 상태 |
 | --- | --- | --- |
@@ -300,8 +305,8 @@ make static
 `scripts/terraform-verify.sh`가 bootstrap/foundation과 같은 방식으로 fresh temp copy, empty CLI config, credential-free environment에서
 `fmt -check -recursive`, `init -backend=false -input=false -lockfile=readonly`, `validate`, `test`를 실행한다.
 Test는 [mock provider](https://developer.hashicorp.com/terraform/language/tests/mocking)와 `command=plan`만 사용한다.
-Positive contract 2개와 negative 11개(subnet 중첩/VNet 밖 subnet/pod CIDR 중첩/`/29` DB subnet/service CIDR 밖 DNS IP/
-malformed CIDR/Key Vault가 아닌 ID/Premium ACR/non-managed Istio revision/reserved DB admin/짧은 password)를 검사한다.
+Positive contract 3개와 negative 14개(1-node system pool/subnet 중첩/VNet 밖 subnet/pod CIDR 중첩/`/29` DB subnet/service CIDR 밖 DNS IP/
+malformed CIDR/Key Vault가 아닌 ID/Premium ACR/non-managed Istio revision/reserved DB admin/짧은 password/foundation 밖 DNS·Key Vault)를 검사한다.
 Source guard는 exact inventory, OIDC-only backend/provider, credential 부재, private PostgreSQL, write-only password,
 Key Vault 참조 전용, AKS managed capability, ACR admin 비활성, role assignment 6개, non-secret output을 검사하고,
 대표 위반을 주입한 mutation이 guard에 거부되는지 확인한다.
