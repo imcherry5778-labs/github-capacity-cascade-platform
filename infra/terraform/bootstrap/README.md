@@ -40,7 +40,7 @@ Federated Identity Credential 1개, role assignment 5개다. Terraform module/Az
 
 State는 HTTPS/TLS 1.2, private container, public blob 금지, Shared Key 비활성화, Entra ID 인증을 사용한다.
 AzureRM은 `storage_use_azuread=true`, `resource_provider_registrations="none"`으로 고정한다.
-5.7.0의 [storage container implementation](https://github.com/hashicorp/terraform-provider-azurerm/blob/v5.7.0/internal/services/storage/storage_container_resource.go)은 `storage_account_id`에서 ARM container ID를 만들고 Resource Manager API를 사용한다.
+5.11.0의 [storage container implementation](https://github.com/hashicorp/terraform-provider-azurerm/blob/v5.11.0/internal/services/storage/storage_container_resource.go)은 `storage_account_id`에서 ARM container ID를 만들고 Resource Manager API를 사용한다.
 Container 문서의 Shared Key 관련 설명을 runtime 검증 결과로 해석하지 않는다.
 
 ## Inspected GitHub trust
@@ -91,8 +91,9 @@ gh api repos/imcherry5778-labs/github-capacity-cascade-platform/rulesets/2416325
 2026-10-01 공식 latest stable release를 확인했다:
 [Terraform 1.16.4](https://github.com/hashicorp/terraform/releases/tag/v1.16.4),
 [AzureRM 5.7.0](https://github.com/hashicorp/terraform-provider-azurerm/releases/tag/v5.7.0).
-P6-W1에서는 Terraform `1.16.6`으로 보정하고 AzureRM `5.7.0`은 유지한다.
-[재검증 근거](../../../docs/p5-preflight.md#p6-w1-securityversion-reconciliation--2026-10-21)는 P5의 당시 selection과 구분한다.
+P6-W1에서는 Terraform `1.16.6`으로 보정했으며, P6 Security Pin Refresh에서는
+Terraform `1.16.7` / AzureRM `5.11.0`을 선택한다.
+[재검증 근거](../../../docs/p5-preflight.md#p6-security-pin-refresh--2026-10-25)는 P5의 당시 selection과 구분한다.
 `versions.env`와 `versions.tf`의 exact pin을 검사하며 `.terraform.lock.hcl`에 provider checksum을 commit한다.
 Tool installer는 upstream release archive의 SHA-256을 확인하고 repository-local `.tmp/bin`에 설치한다.
 

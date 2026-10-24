@@ -92,8 +92,8 @@ Pinned release를 현재 latest라고 일반화하지 않는다. P6 직전 secur
 
 ## P6-W1 security/version reconciliation — 2026-10-21
 
-위 2026-10-14 표는 P5 source selection의 역사적 기록이다. P6-W1의 현재 pin authority는
-`versions.env`와 아래 공식 upstream 재조회다. Azure runtime/support/cost 검증으로 승격하지 않는다.
+위 2026-10-14 표와 아래 P6-W1 표는 각 시점의 역사적 기록이다. 현재 pin authority는
+`versions.env`와 후속 [Security Pin Refresh](#p6-security-pin-refresh--2026-10-25)다. Azure runtime/support/cost 검증으로 승격하지 않는다.
 
 | Component | P6-W1 결정 / 공식 근거 |
 | --- | --- |
@@ -143,6 +143,48 @@ P6-W1은 public upstream/GitHub 조회와 credential-free static/mock/render/Loc
 Azure subscription/credentialed plan/OIDC exchange/paid resource/DNS/secret action은 범위 밖이다.
 P6 후속 gate의 actual account/region/quota/cost/RBAC, exact AKS/managed Istio runtime,
 secret/private reachability/TLS/observability와 merged deployment SHA는 계속 **not verified**다.
+
+## P6 Security Pin Refresh — 2026-10-25
+
+2026-10-23 UTC까지 발표된 공식 maintenance release를 재조회했다. P6-W1의 세 pin 결정만
+다음과 같이 갱신하며 Argo CD/Forgejo, Terraform stack/resource inventory, RBAC/ownership과 approval gate는 유지한다.
+
+| Component | 선택 / security relevance | Official artifact |
+| --- | --- | --- |
+| Terraform | `1.16.6 → 1.16.7`; [release](https://github.com/hashicorp/terraform/releases/tag/v1.16.7)는 Go 1.26.10의 compromised eMudhra intermediate CA 신뢰 제거(`CVE-2026-111943`)와 deprecated schema mock-test panic 수정을 포함한다. | [SHA256SUMS](https://releases.hashicorp.com/terraform/1.16.7/terraform_1.16.7_SHA256SUMS)의 linux/amd64 archive SHA256 `5454efcf7fc87f0c2113111b9a5c7182f0ca1c6f0f23a1e110a50770a8fe473b`; 기존 installer가 `versions.env`를 읽어 archive checksum을 대조한다. |
+| AzureRM | `5.7.0 → 5.11.0`; [release](https://github.com/hashicorp/terraform-provider-azurerm/releases/tag/v5.11.0)의 Go 1.26.10 갱신을 같은 CA 신뢰 제거 근거로 선택한다. Provider 고유 취약점 advisory 수정이라고 확대 해석하지 않는다. | [SHA256SUMS](https://releases.hashicorp.com/terraform-provider-azurerm/5.11.0/terraform-provider-azurerm_5.11.0_SHA256SUMS)의 linux/amd64 archive SHA256 `2345a6104bb485141afb8f0047a48a5f27c3bb4e6eeb360c7955f381227d88dd`; isolated `init`이 생성한 signed checksum 기반 lockfile을 세 stack에 반영한다. |
+| cert-manager | `v1.21.2 → v1.21.3`; [release](https://github.com/cert-manager/cert-manager/releases/tag/v1.21.3)는 compromised CA 제거, Go/dependency security maintenance, 다른 Certificate가 소유한 private-key Secret 복사 방지, ACME ARI renewal loop와 Helm proxy quoting 수정을 포함한다. | [공식 OCI manifest](https://quay.io/v2/jetstack/charts/cert-manager/manifests/v1.21.3)의 `Docker-Content-Digest`와 response bytes SHA256은 `sha256:e482675aec32862d323a9218293ff7de81192337998615e4378c56498473f240`으로 일치한다. Chart content layer SHA256은 `9ec67938b2981d8b333af61b3fcf53e26b4f6f5deb7ccda3de4ea116bb373a17`이며 Helm pull에서도 대조한다. |
+
+### Provider source compatibility / state risk
+
+Empty CLI config/environment의 isolated provider-only directory에서 `providers schema -json`으로
+5.7.0/5.11.0을 비교했다. 현재 세 stack이 사용하는 24 resource type의 schema version과 provider
+configuration schema는 같다. 사용 resource schema의 차이는 `azurerm_monitor_data_collection_rule`의
+computed-only `logs_ingestion_endpoint` / `metrics_ingestion_endpoint` 추가다. 기존 configured argument의
+제거/required 전환은 없으며 source 동작 변경 없이 exact pin/lockfile만 갱신한다.
+
+[5.8.0–5.11.0 changelog](https://github.com/hashicorp/terraform-provider-azurerm/blob/v5.11.0/CHANGELOG.md)와
+관련 source에서 다음 위험을 구분했다.
+
+- **Migration/serialization:** `azurerm_storage_container`와 `azurerm_monitor_workspace`에 Resource Identity schema v0가 추가됐다. 기존 Bootstrap container의 resource schema v2와 v0/v1 StateUpgraders는 유지되지만, [5.11.0 container Read](https://github.com/hashicorp/terraform-provider-azurerm/blob/v5.11.0/internal/services/storage/storage_container_resource.go)는 identity metadata를 기록한다. 이는 resource replacement 요구의 증거가 아니며 actual 5.7.0 state 해석/identity 저장은 **not verified**다. Bootstrap/Foundation의 실제 local/remote state를 읽거나 복사하지 않았다.
+- **Refresh:** Monitor DCR computed endpoint와 container identity/flatten 결과가 state에 추가될 수 있다. SDK/API read normalization, Azure drift, permissions의 영향은 mock/schema 검증으로 확인할 수 없다. Key Vault의 [5.11.0 source](https://github.com/hashicorp/terraform-provider-azurerm/blob/v5.11.0/internal/services/keyvault/key_vault_resource.go)는 기존 schema v2, recover/purge opt-out과 deleted-vault 403 처리 의미를 유지한다. Actual refresh와 live no-op은 **not verified**다.
+- **Diff:** AKS minor-alias perpetual diff와 subnet endpoint ordering 수정은 향후 Environment plan 결과에 영향을 줄 수 있다. Grafana SMTP 미사용, PostgreSQL PremiumV22_LRS 미선택, StorageV2 고정은 유지한다. Provider schema JSON은 ForceNew/CustomizeDiff와 live API 응답 전체를 증명하지 않는다.
+
+cert-manager chart의 manifest diff는 proxy env quoting과 Certificate CRD의 optional
+`status.acme.ari.certID` 추가다. 기존 issuer/Certificate 입력 field 제거는 없으며 controller와 CRDs를
+같은 새 chart로 bootstrap한다. Renderer의 cert-manager values와 operator Helm bootstrap은 central pin을 사용하며 새 chart의 CRDs,
+controller/webhook/cainjector/startupapicheck image version, Workload Identity, ambient credential 제한과
+aggregate RBAC OFF를 static render로 확인한다. 실제 AKS admission/DNS-01/issuance/renewal은 **not verified**다.
+
+Credential-free `make static`은 PASS다: 세 stack의 fmt/init(`-backend=false -lockfile=readonly`)/
+validate와 20개 mock test, 기존 static/security regression, Azure platform/새 cert-manager chart render를
+확인했다. 세 lockfile의 모든 `zh` checksum을 공식 SHA256SUMS와 대조했고, Terraform archive checksum과
+Helm chart의 Kubernetes `1.36.4` render도 확인했다. Exact source HEAD와 full Local CI 결과는 PR의
+commit/check 및 최종 보고에서 확인한다. Azure runtime/provider migration은 **not verified**다.
+
+후속 paid campaign은 merge 후 새 `main` SHA로 current preflight와 approval을 다시 받아야 한다.
+기존 P6 approval의 `source_sha`를 재사용하지 않는다. 기존 Bootstrap/Foundation 14개 resource의 승인 보존
+만료 `2026-10-28 00:33:00 KST`와 execution approval 범위는 이 작업으로 변경되지 않는다.
 
 ## DNS apex delegation gate
 

@@ -1,5 +1,5 @@
 terraform {
-  required_version = "= 1.16.6"
+  required_version = "= 1.16.7"
 
   # bootstrap의 state container에 별도 key로 저장한다. account/container/tenant/client는
   # bootstrap backend_config output을 -backend-config runtime input으로 전달한다.
@@ -15,7 +15,7 @@ terraform {
   required_providers {
     azurerm = {
       source  = "hashicorp/azurerm"
-      version = "= 5.7.0"
+      version = "= 5.11.0"
     }
   }
 }

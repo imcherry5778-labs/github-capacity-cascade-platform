@@ -310,7 +310,7 @@ malformed CIDR/Key Vault가 아닌 ID/Premium ACR/non-managed Istio revision/res
 Source guard는 exact inventory, OIDC-only backend/provider, credential 부재, private PostgreSQL, write-only password,
 Key Vault 참조 전용, AKS managed capability, ACR admin 비활성, role assignment 6개, non-secret output을 검사하고,
 대표 위반을 주입한 mutation이 guard에 거부되는지 확인한다.
-Provider pin은 bootstrap/foundation과 같은 Terraform `1.16.6` / AzureRM `5.7.0`이며 `.terraform.lock.hcl`은 foundation과 동일하다.
+Provider pin은 bootstrap/foundation과 같은 Terraform `1.16.7` / AzureRM `5.11.0`이며 `.terraform.lock.hcl`은 foundation과 동일하다.
 2026-10-13 upstream latest는 Terraform `1.16.5`, AzureRM `5.9.0`이지만 5.8.0/5.9.0 changelog에 W3 필요 변경이 없어 pin을 유지했다.
 
 Mock validation은 runtime proof가 아니다.
