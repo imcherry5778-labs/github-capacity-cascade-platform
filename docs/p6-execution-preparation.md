@@ -66,7 +66,7 @@ P6 Bootstrap local state는 승인된 operator가 최종 cleanup까지 책임진
 
 1. 장기간 유지되는 primary Git checkout의 `infra/terraform/bootstrap/`에서 implicit local backend를 사용한다. `terraform.tfstate`와 `terraform.tfstate.backup`은 해당 디렉터리에 둔다. 일회성 Agent worktree나 GitHub runner로 옮기지 않는다. Foundation/Environment는 기존 Azure Blob remote backend를 유지한다.
 2. Terraform 실행마다 `umask 077`을 적용하고 state/backup/local input/crash 파일의 owner-only `0600` 권한을 확인한다. 기존 `.gitignore`의 `*.tfstate`, `*.tfstate.*`, `*.tfvars`, `.terraform/` 제외 규칙을 사용한다. State가 존재하는 checkout에서는 `git clean -fdx`처럼 ignored 파일을 지우는 정리 명령을 사용하지 않는다.
-3. **추가 GnuPG 암호화 백업, passphrase·pinentry 설정, 별도 백업 경로·복호화 점검을 P6 실행 조건으로 요구하지 않는다.** 사용자는 개인 실습 환경에서 local state 유실·노출 위험을 수용했다. 기존 파일시스템 스냅샷이 이 경로를 포함하는지와 state 복구 가능성은 **not verified**다. 스냅샷의 존재만으로 실제 state 보존·복구 성공을 주장하지 않는다.
+3. **추가 GnuPG 암호화 백업, passphrase·pinentry 설정, 별도 백업 경로·복호화 점검을 P6 실행 조건으로 요구하지 않는다.** 사용자는 개인 실습에서 추가 GnuPG 백업을 생략하기로 선택했다. 로컬 state 유실·노출 위험은 남는다. 기존 파일시스템 스냅샷이 이 경로를 포함하는지와 state 복구 가능성은 **not verified**다. 스냅샷의 존재만으로 실제 state 보존·복구 성공을 주장하지 않는다.
 4. 실제 apply 후에는 state 파일이 생성됐는지와 Git 추적 제외·파일 권한을 확인한다. 최종 destroy까지 **동일한 최신 local state**를 보존한다. State가 유실·손상되면 Terraform 자동 destroy를 성공으로 가정하거나 임의로 재생성하지 않는다. Azure actual resource/RBAC inventory를 확인하고 별도 복구·정리 판단을 받는다.
 
 이전 `tests/e2e/test-bootstrap-state-protection.py`의 GnuPG dummy 암호화·복호화 시험은 과거의 **dummy 절차 점검**이다. Operator의 실제 백업 수행, 별도 passphrase 입력 또는 Azure resource recovery를 검증한 것이 아니며 이번 P6의 필수 preflight가 아니다.
