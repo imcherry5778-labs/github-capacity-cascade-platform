@@ -22,7 +22,7 @@ foundation/environment는 bootstrap의 `backend_config` output을 소비하고 �
 실제 account/naming 값은 commit하지 않는 local input으로 전달한다. region/SKU/cost 선택은 후속 paid-run preflight에서 한다.
 bootstrap 실행 권한은 operator가 별도로 확인해야 한다. 아래 CI identity에는 bootstrap RG 관리 권한이 없어 자신의 trust/backend를 관리할 수 없다.
 Local state에는 provider가 보관하는 민감 값이 포함될 수 있으므로 보호하고 Git에 넣지 않는다.
-현재 operator의 저장 위치/권한, 암호화 백업·복구·dummy 점검과 CI 경계는
+현재 operator의 local state 저장 위치·파일 권한, 유실·복구 미검증 위험과 CI 경계는
 [P6 local-state 보호 절차](../../../docs/p6-execution-preparation.md#bootstrap-local-state-보호와-dummy-복구-점검)를 따른다.
 foundation/environment를 제거하더라도 bootstrap state/backend/trust는 후속 stack 정리와 state 보존 확인이 끝날 때까지 유지한다.
 실제 생성/변경/삭제, role/principal inventory, destroy 순서와 residual resource 검증은 P6 이후 승인된 실행에서 확인한다.
