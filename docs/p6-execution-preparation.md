@@ -65,27 +65,36 @@ Region/Terraform source를 변경하지 않았으며, 공식 regional evidence �
 현재 trusted operator가 생성부터 보관·복구·최종 cleanup까지 책임진다. CI identity에 bootstrap 관리 권한을 주지 않는다.
 실제 state는 아직 없다. 아래는 운영자가 유료 승인 뒤 사용할 절차이며 실제 backup/restore 성공 기록이 아니다.
 
-1. Git checkout/sync folder/CI runner 밖의 operator 전용 저장소를 선택한다. 논리적 위치는
-   `$XDG_DATA_HOME/capacity-cascade/bootstrap` (미설정 시 `$HOME/.local/share/capacity-cascade/bootstrap`)이다.
-   실제 절대 경로는 operator의 비공개 inventory에만 기록한다. 해당 volume의 OS 암호화
-   (예: 기존 LUKS/BitLocker)와 복구 권한을 paid preflight에서 확인한다. 이번 세션은 활성 volume의 암호화를
-   확인하지 않았으므로 **not verified**다. 파일 권한을 암호화의 증거로 사용하지 않는다.
-2. `umask 077`; owner-only directory `0700`, state/backup/input/lock/crash 파일 `0600`을 확인한다.
-   Bootstrap source/committed lockfile만 그 디렉터리에 복사하고 거기서 실행한다. 승인된 operator의 기존
-   인증을 사용하며 bootstrap state를 GitHub runner/remote backend로 migrate하지 않는다.
-3. 암호화 백업 위치는 operator 저장소의 `encrypted-backups/<UTC>-<source-SHA>/bootstrap.tar.gpg`다.
-   실제 state, `.backup`, 필수 복구 input, source SHA/Terraform/provider version 및 checksum manifest를
-   하나의 private staging directory에서 묶는다. `tar ... | gpg --symmetric --cipher-algo AES256 --output ...`로
+1. Bootstrap Terraform은 장기간 유지되는 primary Git checkout의 `infra/terraform/bootstrap/`에서 실행한다.
+   기존 backend block 없는 implicit local backend를 유지하며, 기본 `terraform.tfstate`를 해당 디렉터리에 저장한다.
+   이는 [Terraform local backend의 기본 경로](https://developer.hashicorp.com/terraform/language/backend/local#path)를 따른다.
+   일회성 Local Agent worktree에는 실제 state를 생성하지 않는다. 승인된 operator의 기존 인증을 사용하며
+   bootstrap state를 GitHub runner/remote backend로 migrate하지 않는다. Foundation/Environment는 기존 Azure Blob remote backend를 유지한다.
+2. Terraform 실행마다 `umask 077`을 사용하고 state와 `terraform.tfstate.backup`, 로컬 input/crash 파일의
+   owner-only 권한 `0600`을 확인한다. 기존 파일은 필요 시 `chmod 600`으로 보정한다.
+   `terraform.tfstate`, `terraform.tfstate.backup`은 기존 `.gitignore`의 `*.tfstate`, `*.tfstate.*`로,
+   `.terraform/`과 로컬 `*.tfvars`/`*.tfvars.json`도 기존 규칙으로 Git에서 제외한다.
+   Bootstrap state가 존재하는 checkout에는 `git clean -fdx` 등 무시 파일을 삭제하는 정리 작업을 실행하지 않는다.
+3. Git 저장소 밖에 최신 state와 복구 input/metadata의 암호화 백업을 하나 이상 유지한다.
+   암호화 백업 위치는 operator 전용 저장소의 `encrypted-backups/<UTC>-<source-SHA>/bootstrap.tar.gpg`다.
+   실제 state, 존재하는 `.backup`, 필수 복구 input, source SHA/committed lockfile/Terraform/provider version 및
+   checksum manifest를 저장소 밖의 private staging directory(`0700`, 파일 `0600`)에서 묶는다.
+   백업·복구에도 `umask 077`을 사용한다. `tar ... | gpg --symmetric --cipher-algo AES256 --output ...`로
    기존 GnuPG와 terminal pinentry를 사용한다. Passphrase는 기존 OS credential/password 보관 수단에 별도로
    유지하고 argv/env/Git/문서에 넣지 않는다. 암호문과 key를 같은 bundle에 넣지 않는다.
-   각 승인된 bootstrap 변경 및 downstream 정리 후 새 UTC 파일을 만든다. 기존 backup을 덮어쓰지 않는다.
+   각 승인된 bootstrap 변경 및 downstream 정리 후 새 UTC 파일로 백업을 갱신한다. 기존 backup을 덮어쓰지 않는다.
+   최종 destroy 전에는 최신 원본 state와 이에 대응하는 백업, 복구 input/metadata 및 복호화 수단을 확인한다.
 4. 복구 시 automation과 기존 operator writer를 정지하고 state/backend lock과 actual Azure inventory를 확인한다.
-   검증된 암호화 volume에 별도 `0700` directory를 만들어 암호문을 `0600` archive로 복호화하고 integrity/checksum을
+   Git 저장소 밖에 별도 `0700` directory를 만들어 암호문을 `0600` archive로 복호화하고 integrity/checksum을
    대조한다. Archive member path를 확인한 뒤 복원하고 source/lockfile/version/lineage/serial과 Azure resource IDs를
    대조한다. 기존 state를 바로 덮어쓰거나 apply하지 않는다. 더 최신 state/불확실한 ownership이면 중단한다.
-   기존 directory로 전환하기 전 operator가 복구본과 실제 자원 일치를 확인한다.
+   Primary checkout의 `infra/terraform/bootstrap/`에 복구본을 반영하기 전 operator가 복구본과 실제 자원 일치를 확인한다.
 5. 정상 종료 후 plaintext staging/archive를 제거하고 암호화 백업은 승인된 보존 기간/복구 검증까지 유지한다.
-   SSD/CoW에서 파일 삭제를 secure erase로 주장하지 않는다. Runtime 중 state/crash/log도 encrypted volume 안에 둔다.
+   SSD/CoW에서 파일 삭제를 secure erase로 주장하지 않는다.
+
+로컬 원본 state와 `.backup`, input/crash/log는 암호화되지 않을 수 있다. `.gitignore`와 owner-only 파일 권한은
+암호화가 아니며, 로컬 디스크 접근·유실에 따른 민감정보 노출 위험이 남는다. 암호화 백업은 원본을 암호화하지 않는다.
+실제 bootstrap state backup/restore와 Azure resource recovery는 실행 전까지 **not verified**로 유지한다.
 
 `python3 tests/e2e/test-bootstrap-state-protection.py`는 실제 state 형식이 아닌 명시적 dummy JSON으로
 `0700`/`0600` → dummy/checksum manifest tar bundle → GnuPG AES256 암호화 → 원본 삭제 →
@@ -93,7 +102,7 @@ Region/Terraform source를 변경하지 않았으며, 공식 regional evidence �
 임시 test key만 사용하고 일반 operator gpg-agent를 건드리지 않는다. 이것은 **dummy 절차 점검**이며 actual bootstrap
 state 복구, encrypted volume 보장, off-device 재해복구, Azure resource 복원 evidence가 아니다.
 
-`.gitignore`의 state/plan/tfvars/crash 제외는 실수 방지 보조다. State를 repository에 저장하지 않는 경계가 우선이다.
+`.gitignore`의 state/plan/tfvars/crash 제외는 실수 방지 보조다. Checkout에 보관하는 state를 Git에 추적·commit하지 않는다.
 CI에는 allowlisted non-secret backend coordinates만 수동 전달한다. `terraform output -json` 전체/state pull,
 credential/password, state snapshot, plan binary/JSON, `.terraform`, provider log를 Git/CI artifact/log로 보내지 않는다.
 
@@ -196,7 +205,7 @@ Job timeout(120분)도 paid environment 전체 수명이 아니다. Operator가 
 - Grafana: Korea Central Standard + 12/13 조합은 not verified. 과거 URL/API version 부재 자체를 별도 blocker로 삼지 않는다.
 - DNS: PR #24의 대체 authoritative DNS, Gabia 전환·복구 지연, observed TTL 및 same-day teardown 충돌이 미해결이다.
   이번에는 zone 생성/Gabia/Cloudflare mutation을 하지 않았다.
-- Operator storage: actual encrypted volume/복구 key 접근과 실제 bootstrap state 보관은 paid preflight에서 확인한다.
+- Operator storage: primary checkout의 실제 bootstrap state 보관·파일 권한, 최신 암호화 백업과 복호화 수단 접근은 paid preflight에서 확인한다.
 - Runtime/OIDC/RBAC/backend/잔존·실제 비용은 실행 전/후 별도 evidence가 필요하다.
 
 사용자는 blocker 해소 근거와 exact merged source/config를 본 뒤 **P6 campaign**의 비용(추정 범위와 세전 $50 상한),
