@@ -63,7 +63,52 @@ def fixture():
 class ApprovalTest(unittest.TestCase):
     def test_explicit_approved_fixture(self):
         a, c, e = fixture()
-        self.assertEqual(execution.validate(a, c, e, NOW), ("foundation", "plan"))
+        for stack in ("foundation", "environment"):
+            for operation in ("plan", "apply", "destroy"):
+                with self.subTest(stack=stack, operation=operation):
+                    self.assertEqual(execution.validate(a, c, e | {"P6_STACK": stack, "P6_OPERATION": operation}, NOW),
+                                     (stack, operation))
+
+    def test_foundation_only_approved_operations_and_digest(self):
+        a, c, e = fixture()
+        del c["environment"]
+        with self.assertRaisesRegex(ValueError, "approved input digest mismatch"):
+            execution.validate(a, c, e, NOW)
+        a.update(config_sha256=execution.digest(c),
+                 allowed_operations=[f"foundation:{operation}" for operation in ("plan", "apply", "destroy")])
+        for operation in ("plan", "apply", "destroy"):
+            with self.subTest(operation=operation):
+                self.assertEqual(execution.validate(a, c, e | {"P6_OPERATION": operation}, NOW),
+                                 ("foundation", operation))
+                with self.assertRaisesRegex(ValueError, "operation is not approved"):
+                    execution.validate(a | {"allowed_operations": []}, c, e | {"P6_OPERATION": operation}, NOW)
+
+    def test_missing_environment_refused_even_with_approved_operation(self):
+        a, c, e = fixture()
+        del c["environment"]
+        a["config_sha256"] = execution.digest(c)
+        for operation in ("plan", "apply", "destroy"):
+            with self.subTest(operation=operation), self.assertRaisesRegex(ValueError, "selected stack inputs required"):
+                execution.validate(a, c, e | {"P6_STACK": "environment", "P6_OPERATION": operation}, NOW)
+
+    def test_unknown_config_keys_and_incomplete_stack_inputs_refused(self):
+        a, c, e = fixture()
+        invalid = [c | {"extra": {}}, c | {"bootstrap": {}},
+                   {key: value for key, value in c.items() if key != "foundation"}]
+        for selected in ("foundation", "environment"):
+            for field in c[selected]:
+                changed = copy.deepcopy(c)
+                del changed[selected][field]
+                invalid.append(changed)
+            invalid.append(c | {selected: c[selected] | {"extra": "dummy"}})
+        foundation_only = {key: value for key, value in c.items() if key != "environment"}
+        invalid.extend([foundation_only | {"extra": {}},
+                        foundation_only | {"foundation": {}}, foundation_only | {"backend": {}}])
+        for index, changed in enumerate(invalid):
+            for stack in ("foundation", "environment"):
+                with self.subTest(config=index, stack=stack), self.assertRaises(ValueError):
+                    execution.validate(a | {"config_sha256": execution.digest(changed)}, changed,
+                                       e | {"P6_STACK": stack}, NOW)
 
     def test_missing_approval_fails_cli_without_subprocess_or_credentials(self):
         result = subprocess.run([sys.executable, str(ROOT / "scripts/azure-execution.py"), "execute"],
@@ -82,6 +127,7 @@ class ApprovalTest(unittest.TestCase):
                              ("expires_at", NOW.isoformat()), ("expires_at", "2026-10-24T10:00:00"),
                              ("allowed_operations", []), ("prerequisite_evidence", {}),
                              ("allowed_operations", "foundation:plan"),
+                             ("allowed_operations", ["foundation:plan", "bootstrap:apply"]),
                              ("config_sha256", "0" * 64), ("approval_evidence", ""),
                              ("preflight_evidence", ""), ("source_pr", 0)):
             with self.subTest(field=field, value=value):
@@ -112,7 +158,14 @@ class ApprovalTest(unittest.TestCase):
         for target, field, value in (("backend", "access_key", "dummy"),
                                      ("backend", "use_oidc", False), ("backend", "key", "bootstrap.tfstate"),
                                      ("environment", "postgresql_administrator_password", "dummy"),
+                                     ("foundation", "tenant_id", "00000000-0000-0000-0000-000000000002"),
+                                     ("foundation", "ci_client_id", "00000000-0000-0000-0000-000000000002"),
+                                     ("foundation", "location", "eastus"),
+                                     ("environment", "tenant_id", "00000000-0000-0000-0000-000000000002"),
+                                     ("environment", "ci_client_id", "00000000-0000-0000-0000-000000000002"),
                                      ("environment", "location", "eastus"),
+                                     ("environment", "subscription_id", "00000000-0000-0000-0000-000000000002"),
+                                     ("environment", "foundation_resource_group_name", "other"),
                                      ("environment", "resource_group_name", "foundation"),
                                      ("environment", "resource_group_name", "FOUNDATION")):
             with self.subTest(field=field):
@@ -122,6 +175,25 @@ class ApprovalTest(unittest.TestCase):
                 changed_approval = a | {"config_sha256": execution.digest(changed)}
                 with self.assertRaises(ValueError):
                     execution.validate(changed_approval, changed, e, NOW)
+
+    def test_foundation_only_security_checks_remain_required(self):
+        a, c, e = fixture()
+        del c["environment"]
+        a["config_sha256"] = execution.digest(c)
+        for field, value in (("config_sha256", "0" * 64), ("operator", "someone"),
+                             ("source_sha", "b" * 40), ("status", "pending"),
+                             ("budget_usd", 51), ("expires_at", NOW.isoformat()),
+                             ("prerequisite_evidence", {})):
+            with self.subTest(approval=field), self.assertRaises(ValueError):
+                execution.validate(a | {field: value}, c, e, NOW)
+        for target, field, value in (("backend", "access_key", "dummy"), ("backend", "use_oidc", False),
+                                     ("foundation", "tenant_id", "00000000-0000-0000-0000-000000000002"),
+                                     ("foundation", "ci_client_id", "00000000-0000-0000-0000-000000000002"),
+                                     ("foundation", "location", "eastus")):
+            changed = copy.deepcopy(c)
+            changed[target][field] = value
+            with self.subTest(config=field), self.assertRaises(ValueError):
+                execution.validate(a | {"config_sha256": execution.digest(changed)}, changed, e, NOW)
 
     def test_dns_zone_change_requires_approved_config_digest(self):
         a, c, e = fixture()
@@ -161,10 +233,14 @@ class CommandIsolationTest(unittest.TestCase):
         self.addCleanup(clock.stop)
 
     def test_plan_apply_destroy_and_secret_isolation(self):
-        for stack in ("foundation", "environment"):
+        for stack, foundation_only in (("foundation", False), ("environment", False), ("foundation", True)):
             for operation in ("plan", "apply", "destroy"):
-                with self.subTest(stack=stack, operation=operation):
+                with self.subTest(stack=stack, operation=operation, foundation_only=foundation_only):
                     a, c, e = fixture()
+                    if foundation_only:
+                        del c["environment"]
+                        del e["P6_POSTGRESQL_ADMINISTRATOR_PASSWORD"]
+                        a.update(config_sha256=execution.digest(c), allowed_operations=[f"foundation:{operation}"])
                     now = dt.datetime.now(dt.timezone.utc)
                     a.update(starts_at=now.isoformat(), expires_at=(now + dt.timedelta(hours=1)).isoformat())
                     e.update(P6_STACK=stack, P6_OPERATION=operation, TF_LOG="TRACE", ARM_CLIENT_SECRET="dummy",
@@ -175,10 +251,14 @@ class CommandIsolationTest(unittest.TestCase):
                         calls.append(command[2:])
                         directories.append(Path(command[1].removeprefix("-chdir=")))
                         self.assertFalse(set(env) & {"TF_LOG", "ARM_CLIENT_SECRET", "TF_CLI_ARGS", "ARM_ACCESS_KEY", "TF_VAR_extra"})
+                        self.assertEqual(env["ARM_USE_OIDC"], "true")
+                        self.assertEqual(env["ARM_USE_CLI"], "false")
+                        self.assertEqual(env["ARM_USE_MSI"], "false")
                         self.assertEqual("TF_VAR_postgresql_administrator_password" in env, stack == "environment")
                         self.assertEqual(directories[-1].stat().st_mode & 0o777, 0o700)
                         inputs = directories[-1] / "execution.tfvars.json"
                         self.assertEqual(inputs.stat().st_mode & 0o777, 0o600)
+                        self.assertEqual(json.loads(inputs.read_text()), c[stack])
                         self.assertNotIn("postgresql_administrator_password", inputs.read_text())
                         body = b'{"resource_changes": []}' if command[2] == "show" else b""
                         return subprocess.CompletedProcess(command, 0, body, b"")
@@ -193,6 +273,31 @@ class CommandIsolationTest(unittest.TestCase):
                     self.assertEqual("-destroy" in calls[2], operation == "destroy")
                     self.assertFalse(any("-auto-approve" in call for call in calls))
                     self.assertTrue(all(not directory.exists() for directory in directories))
+
+    def test_foundation_only_cannot_execute_environment(self):
+        a, c, e = fixture()
+        del c["environment"]
+        a["config_sha256"] = execution.digest(c)
+        for operation in ("plan", "apply", "destroy"):
+            with self.subTest(operation=operation), \
+                 patch.dict(os.environ, e | {"P6_STACK": "environment", "P6_OPERATION": operation}, clear=True), \
+                 patch.object(execution, "check_source") as source, \
+                 patch.object(execution.subprocess, "run") as run:
+                with self.assertRaisesRegex(ValueError, "selected stack inputs required"):
+                    execution.execute(a, c)
+                source.assert_not_called()
+                run.assert_not_called()
+
+    def test_foundation_only_requires_oidc_context_before_terraform(self):
+        a, c, e = fixture()
+        del c["environment"]
+        a["config_sha256"] = execution.digest(c)
+        for field in ("ACTIONS_ID_TOKEN_REQUEST_URL", "ACTIONS_ID_TOKEN_REQUEST_TOKEN"):
+            with self.subTest(field=field), patch.dict(os.environ, e | {field: ""}, clear=True), \
+                 patch.object(execution, "check_source"), patch.object(execution.subprocess, "run") as run:
+                with self.assertRaisesRegex(ValueError, "GitHub OIDC request context missing"):
+                    execution.execute(a, c)
+                run.assert_not_called()
 
     def test_failure_diagnoses_without_apply_or_raw_output(self):
         a, c, e = fixture()
