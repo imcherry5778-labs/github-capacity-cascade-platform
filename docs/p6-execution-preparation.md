@@ -131,11 +131,14 @@ Workflow는 Azure login action, long-lived credential, bootstrap state를 사용
 Trusted operator는 별도 명시적 P6 user approval을 받은 뒤에만 repository variable 두 개를 설정한다.
 이번 준비 세션에서는 variable/secret을 설정하지 않고 workflow도 dispatch하지 않는다.
 
-- `P6_EXECUTION_CONFIG`: `backend`, `foundation`, `environment`를 가진 JSON object.
+- `P6_EXECUTION_CONFIG`: `backend`, `foundation`을 가진 JSON object. Foundation operation에서는
+  `environment`를 생략할 수 있고, Environment operation에서는 세 object가 모두 필요하다.
   Backend에는 bootstrap output에서 `storage_account_name`, `container_name`, `tenant_id`, `client_id` 네 필드만 옮긴다.
-  나머지 두 object는 각 stack `variables.tf`의 모든 non-secret input을 정확히 포함한다.
+  포함한 stack object는 각 `variables.tf`의 모든 non-secret input을 정확히 포함한다. 허용되지 않은 key나
+  불완전한 stack 입력은 거부하며, `environment`가 있으면 operation에 관계없이 cross-stack identity/RG도 검증한다.
   `postgresql_administrator_password`는 포함하지 않는다. Backend key/auth flag는 source가 고정한다.
   Account/resource names, SKU, versions, CIDR, authorized IPs, observability 값은 실제 승인 inventory와 대조한다.
+  Config 구성이 바뀌면 전체 config SHA256과 해당 exact inputs/operation의 승인을 다시 받아야 한다.
 - `P6_CAMPAIGN_APPROVAL`: 아래 **비활성 template**을 actual user approval/evidence로 채운 JSON object.
   Repository/Environment에 같은 이름의 variable을 중복 정의하지 않는다. Config digest는 canonical JSON
   (sorted keys, compact separators, ASCII encoding)의 SHA256이며

@@ -73,6 +73,9 @@ def validate(approval, config, env, now):
     require(isinstance(evidence, str) and evidence.startswith("https://"),
             "operation-specific predecessor/cleanup evidence required")
     require(type(approval["source_pr"]) is int and approval["source_pr"] > 0, "merged source PR required")
+    require(set(config) in ({"backend", "foundation"}, {"backend", "foundation", "environment"}),
+            "config requires backend/foundation and only optional environment inputs")
+    require(stack in config, "selected stack inputs required")
     backend = config["backend"]
     require(set(backend) == {"storage_account_name", "container_name", "tenant_id", "client_id"},
             "only non-secret bootstrap backend coordinates are accepted")
@@ -82,6 +85,8 @@ def validate(approval, config, env, now):
     for field in ("tenant_id", "client_id"):
         require(re.fullmatch(r"[0-9a-fA-F-]{36}", backend[field]), "invalid identity coordinate")
     for selected in ("foundation", "environment"):
+        if selected not in config:
+            continue
         variables = config[selected]
         allowed = set(re.findall(r'^variable "([^"]+)"',
                                  (ROOT / f"infra/terraform/{selected}/variables.tf").read_text(), re.M))
@@ -90,10 +95,11 @@ def validate(approval, config, env, now):
         require(variables["tenant_id"] == backend["tenant_id"] and
                 variables["ci_client_id"] == backend["client_id"] and
                 variables["location"] == "koreacentral", "identity/region mismatch")
-    require(config["foundation"]["subscription_id"] == config["environment"]["subscription_id"] and
-            config["foundation"]["resource_group_name"].lower() != config["environment"]["resource_group_name"].lower() and
-            config["foundation"]["resource_group_name"] == config["environment"]["foundation_resource_group_name"],
-            "subscription/RG boundaries mismatch")
+    if "environment" in config:
+        require(config["foundation"]["subscription_id"] == config["environment"]["subscription_id"] and
+                config["foundation"]["resource_group_name"].lower() != config["environment"]["resource_group_name"].lower() and
+                config["foundation"]["resource_group_name"] == config["environment"]["foundation_resource_group_name"],
+                "subscription/RG boundaries mismatch")
     return stack, operation
 
 
