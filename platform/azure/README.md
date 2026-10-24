@@ -44,7 +44,7 @@ Platform A/TXT cleanup과 Azure zone 삭제는 [DNS apex delegation gate](../../
 | `argocd/kustomization.yaml` | operator bootstrap; exact upstream Core + narrow controller cluster read RBAC |
 | `argocd/forgejo-rbac.json`, `namespaces.json` | operator bootstrap; `forgejo` namespace write Role, three project namespaces |
 | `argocd-application.json` | operator bootstrap; in-cluster SA authentication, AppProject/Application |
-| `cert-manager-values.json` | operator Helm bootstrap `oci://quay.io/jetstack/charts/cert-manager` `v1.21.2` (CRDs 포함) |
+| `cert-manager-values.json` | operator Helm bootstrap `oci://quay.io/jetstack/charts/cert-manager` `v1.21.3` (CRDs 포함; version/digest authority는 `versions.env`) |
 | `tls.json` | operator-owned ClusterIssuer + Certificate in existing `aks-istio-ingress`; Secret/account key는 cert-manager |
 | `stable/` + common/Azure Forgejo values | Argo-owned `forgejo` namespaced resources |
 | `mesh-config.json` | operator-owned revision-specific managed shared ConfigMap; safe access-log format |

@@ -13,6 +13,9 @@ import json, re, sys
 root, terraform, azurerm = Path(sys.argv[1]), *sys.argv[2:]
 base = root / "infra/terraform"
 assert {p.name for p in base.iterdir()} == {"bootstrap", "foundation", "environment"}, "P5 Terraform stacks are bootstrap/foundation/environment only"
+locks = [(base / name / ".terraform.lock.hcl").read_text() for name in ("bootstrap", "foundation", "environment")]
+assert len(set(locks)) == 1, "all three stacks must share the exact provider lockfile"
+assert re.search(r'version\s*=\s*"' + re.escape(azurerm) + '"', locks[0]), "locked AzureRM pin mismatch"
 stack = base / "bootstrap"
 source = "\n".join(p.read_text() for p in stack.glob("*.tf"))
 assert not list(stack.glob("*.tf.json")), "unexpected alternative Terraform source"

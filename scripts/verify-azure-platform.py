@@ -164,6 +164,10 @@ def static():
 
         cert_render = run(HELM, "template", "cert-manager", PIN["CERT_MANAGER_CHART"], "--version", PIN["CERT_MANAGER_VERSION"],
                           "--namespace", "cert-manager", "-f", str(directory / "cert-manager-values.json"))
+        for component in ("controller", "webhook", "cainjector", "startupapicheck"):
+            assert f"quay.io/jetstack/cert-manager-{component}:{PIN['CERT_MANAGER_VERSION']}" in cert_render, \
+                f"cert-manager {component} image must match the selected security patch"
+        assert "kind: CustomResourceDefinition" in cert_render, "operator bootstrap must include cert-manager CRDs"
         assert 'azure.workload.identity/use: "true"' in cert_render
         assert data["cert_manager_client_id"] in cert_render and 'serviceAccountName: cert-manager' in cert_render
         assert 'aggregationRule:' not in cert_render and 'rbac.authorization.k8s.io/aggregate-to-' not in cert_render

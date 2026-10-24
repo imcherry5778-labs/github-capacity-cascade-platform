@@ -46,7 +46,7 @@ Operator inputs: `subscription_id`, `tenant_id`, `ci_client_id`, `resource_group
 
 Domain registration은 Gabia에 유지하고 이 stack은 public apex zone을 만든다.
 기존 `azurerm_dns_zone.project`는 `dns_zone_name`을 그대로 사용하므로 apex 지원을 위한 resource/module 변경은 없다.
-[AzureRM 5.7.0 DNS zone contract](https://github.com/hashicorp/terraform-provider-azurerm/blob/v5.7.0/website/docs/r/dns_zone.html.markdown)도
+[AzureRM 5.11.0 DNS zone contract](https://github.com/hashicorp/terraform-provider-azurerm/blob/v5.11.0/website/docs/r/dns_zone.html.markdown)도
 apex domain 이름을 지원한다. Zone 이름 변경은 replacement이므로 기존 zone이 있는 실행에서는 별도 lifecycle 검토 없이 바꾸지 않는다.
 
 `dns_zone.name_servers`는 Azure가 해당 zone에 할당한 authoritative NS 4개이며 Gabia registrar NS 설정의 **입력**이다.
@@ -65,7 +65,7 @@ Foundation destroy와 foundation RG를 제거하는 bootstrap cleanup 전에
 | 속성 | 값 | 이유 |
 | --- | --- | --- |
 | `sku_name` | `standard` | HSM-backed key 요구가 없다 |
-| `rbac_authorization_enabled` | `true` | Azure RBAC data-plane model. AzureRM 5.7.0에서 required이며 legacy access policy를 쓰지 않는다 |
+| `rbac_authorization_enabled` | `true` | Azure RBAC data-plane model. AzureRM 5.11.0에서 required이며 legacy access policy를 쓰지 않는다 |
 | `public_network_access_enabled` | `false` | Provider default는 `true`라 명시한다 |
 | `soft_delete_retention_days` | `7` | Azure 허용 범위 7–90일의 최소값. 생성 후 변경 불가 |
 | `purge_protection_enabled` | `false` | 한번 켜면 끌 수 없고 retention 동안 purge/name reuse를 막는다 |
@@ -78,7 +78,7 @@ foundation RG `Role Based Access Control Administrator` 범위 안에서 필요�
 ### Destroy lifecycle
 
 [Azure soft-delete 문서](https://learn.microsoft.com/en-us/azure/key-vault/general/soft-delete-overview)에 따르면 vault purge는
-subscription owner 또는 `Key Vault Purge Operator` 권한이 필요하다. AzureRM 5.7.0 provider는 기본적으로
+subscription owner 또는 `Key Vault Purge Operator` 권한이 필요하다. AzureRM 5.11.0 provider는 기본적으로
 destroy 뒤 purge를 호출하고 같은 이름의 soft-deleted vault를 자동 recover하지만, CI identity는 foundation/environment RG 권한만 가진다.
 따라서 provider feature를 다음처럼 고정한다.
 
@@ -98,8 +98,8 @@ features {
 - Terraform `destroy` 성공은 soft-deleted vault 같은 Azure residual object가 모두 사라졌다는 증거가 아니다.
 
 이 설정은 lifecycle hardening이며 Azure runtime permission 문제의 검증된 해결이 아니다.
-AzureRM 5.7.0은 자동 recover를 꺼도 생성 전에 subscription-scope deleted-vault API를 조회한다
-([source](https://github.com/hashicorp/terraform-provider-azurerm/blob/v5.7.0/internal/services/keyvault/key_vault_resource.go)).
+AzureRM 5.11.0은 자동 recover를 꺼도 생성 전에 subscription-scope deleted-vault API를 조회한다
+([source](https://github.com/hashicorp/terraform-provider-azurerm/blob/v5.11.0/internal/services/keyvault/key_vault_resource.go)).
 이 feature는 그 조회를 없애거나 subscription-scope 권한을 주지 않으며, 그 조회의 403/409 등 실제 생성/삭제/RBAC/residual 동작은 **not verified**다.
 실제 destroy/residual 확인은 P6 이후 승인된 실행에서 한다.
 
@@ -116,7 +116,7 @@ Test는 [mock provider](https://developer.hashicorp.com/terraform/language/tests
 Source guard는 exact inventory, `foundation.tfstate` OIDC/Entra ID backend, OIDC-only provider, committed credential 부재,
 Key Vault security/lifecycle 속성, access policy/network ACL 부재, apex zone 이름 전달과 DNS name server,
 Key Vault ID/name/URI output을 검사한다. Mock NS는 delegation runtime 증거가 아니다.
-Provider pin은 bootstrap과 같은 Terraform `1.16.6` / AzureRM `5.7.0`이며 `.terraform.lock.hcl`을 commit한다.
+Provider pin은 bootstrap과 같은 Terraform `1.16.7` / AzureRM `5.11.0`이며 `.terraform.lock.hcl`을 commit한다.
 
 ## Not verified
 

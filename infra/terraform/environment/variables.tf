@@ -317,6 +317,6 @@ variable "monitoring" {
 
   validation {
     condition     = contains(["12", "13"], var.monitoring.grafana_major_version)
-    error_message = "grafana_major_version은 AzureRM 5.7.0이 허용하는 12 또는 13이어야 한다."
+    error_message = "grafana_major_version은 AzureRM 5.11.0이 허용하는 12 또는 13이어야 한다."
   }
 }
