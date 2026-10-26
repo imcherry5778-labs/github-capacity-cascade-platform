@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Credential-free approval/source/command isolation regression. Never invokes Azure/Terraform."""
+import base64
 import copy
 import contextlib
 import datetime as dt
+import hashlib
 import importlib.util
 import json
 import io
@@ -224,6 +226,88 @@ class ApprovalTest(unittest.TestCase):
             execution.check_source(a)
 
 
+class EncodedInputTest(unittest.TestCase):
+    def test_digest_preserves_original_canonical_json(self):
+        _, config, env = fixture()
+        config["foundation"]["resource_group_name"] = "fixture-한글"
+        expected = hashlib.sha256(json.dumps(config, sort_keys=True, separators=(",", ":"),
+                                             ensure_ascii=True).encode("ascii")).hexdigest()
+        # Different key order, whitespace and UTF-8 representation keep the same approved digest.
+        for raw in (json.dumps(config), json.dumps(dict(reversed(list(config.items()))),
+                                                   indent=2, ensure_ascii=False)):
+            encoded = base64.b64encode(raw.encode("utf-8")).decode("ascii")
+            result = subprocess.run([sys.executable, str(ROOT / "scripts/azure-execution.py"), "digest-config"],
+                                    env=env | {"P6_EXECUTION_CONFIG_B64": encoded}, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0)
+            self.assertEqual(result.stdout, expected + "\n")
+            self.assertEqual(result.stderr, "")
+
+    def test_gate_and_execute_decode_validate_before_external_calls(self):
+        approval, config, env = fixture()
+        raw = json.dumps(config)
+        encoded = base64.b64encode(raw.encode()).decode("ascii")
+        env.update(P6_EXECUTION_CONFIG_B64=encoded, P6_CAMPAIGN_APPROVAL=json.dumps(approval),
+                   P6_EXECUTION_CONFIG='{"obsolete": "must-not-be-read"}')
+        for mode in ("gate", "execute"):
+            for failure in (None, "base64", "json", "utf8", "digest", "operation", "exact-inputs"):
+                with self.subTest(mode=mode, failure=failure):
+                    changed = dict(env)
+                    if failure == "base64":
+                        changed["P6_EXECUTION_CONFIG_B64"] = encoded + "!"
+                    elif failure in ("json", "utf8"):
+                        changed["P6_EXECUTION_CONFIG_B64"] = base64.b64encode(
+                            b'{"private-input":' if failure == "json" else b"\xff").decode("ascii")
+                    elif failure in ("digest", "operation"):
+                        changed["P6_CAMPAIGN_APPROVAL"] = json.dumps(approval | (
+                            {"config_sha256": "0" * 64} if failure == "digest" else {"allowed_operations": []}))
+                    elif failure == "exact-inputs":
+                        invalid = config | {"extra": "private-input"}
+                        changed["P6_EXECUTION_CONFIG_B64"] = base64.b64encode(json.dumps(invalid).encode()).decode("ascii")
+                        changed["P6_CAMPAIGN_APPROVAL"] = json.dumps(approval | {"config_sha256": execution.digest(invalid)})
+                    output, errors = io.StringIO(), io.StringIO()
+                    with patch.dict(os.environ, changed, clear=True), patch.object(sys, "argv", ["execution", mode]), \
+                         patch.object(execution.dt, "datetime", FixedDateTime), \
+                         patch.object(execution, "check_source") as source, \
+                         patch.object(execution, "execute") as execute, \
+                         patch.object(execution.os, "umask"), \
+                         patch.object(execution.subprocess, "run") as run, \
+                         contextlib.redirect_stdout(output), contextlib.redirect_stderr(errors):
+                        if failure:
+                            with self.assertRaises(ValueError):
+                                execution.main()
+                            source.assert_not_called()
+                            execute.assert_not_called()
+                        else:
+                            execution.main()
+                            source.assert_called_once_with(approval, merged_pr=mode == "gate")
+                            if mode == "execute":
+                                execute.assert_called_once_with(approval, config)
+                            else:
+                                execute.assert_not_called()
+                        run.assert_not_called()
+                    for value in (encoded, raw, "private-input", env["P6_POSTGRESQL_ADMINISTRATOR_PASSWORD"]):
+                        self.assertNotIn(value, output.getvalue() + errors.getvalue())
+
+    def test_cli_rejects_malformed_or_obsolete_input_without_echo(self):
+        _, config, env = fixture()
+        raw = json.dumps(config)
+        encoded = base64.b64encode(raw.encode()).decode("ascii")
+        for mode in ("gate", "execute", "digest-config"):
+            for value in (None, "", "not-base64!", "e30", encoded + "\n",
+                          base64.b64encode(b'{"private-input":').decode("ascii"),
+                          base64.b64encode(b"\xff").decode("ascii"), "한글"):
+                with self.subTest(mode=mode, value=value):
+                    changed = env | {"P6_EXECUTION_CONFIG": raw}
+                    if value is not None:
+                        changed["P6_EXECUTION_CONFIG_B64"] = value
+                    result = subprocess.run([sys.executable, str(ROOT / "scripts/azure-execution.py"), mode],
+                                            env=changed, capture_output=True, text=True)
+                    self.assertEqual(result.returncode, 1)
+                    self.assertEqual(result.stdout, "")
+                    self.assertEqual(result.stderr, "P6 execution refused/failed; check approval, exact main, config, "
+                                     "prerequisites and operator inventory\n")
+
+
 class CommandIsolationTest(unittest.TestCase):
     def setUp(self):
         # Fixture 생성과 execute()의 재검사 모두 같은 낮 시각을 사용한다.
@@ -244,13 +328,15 @@ class CommandIsolationTest(unittest.TestCase):
                     now = dt.datetime.now(dt.timezone.utc)
                     a.update(starts_at=now.isoformat(), expires_at=(now + dt.timedelta(hours=1)).isoformat())
                     e.update(P6_STACK=stack, P6_OPERATION=operation, TF_LOG="TRACE", ARM_CLIENT_SECRET="dummy",
-                             TF_CLI_ARGS="-target=danger", ARM_ACCESS_KEY="dummy", TF_VAR_extra="dummy")
+                             TF_CLI_ARGS="-target=danger", ARM_ACCESS_KEY="dummy", TF_VAR_extra="dummy",
+                             P6_EXECUTION_CONFIG_B64=base64.b64encode(json.dumps(c).encode()).decode("ascii"))
                     calls, directories = [], []
 
                     def fake(command, *, env, **kwargs):
                         calls.append(command[2:])
                         directories.append(Path(command[1].removeprefix("-chdir=")))
-                        self.assertFalse(set(env) & {"TF_LOG", "ARM_CLIENT_SECRET", "TF_CLI_ARGS", "ARM_ACCESS_KEY", "TF_VAR_extra"})
+                        self.assertFalse(set(env) & {"TF_LOG", "ARM_CLIENT_SECRET", "TF_CLI_ARGS", "ARM_ACCESS_KEY",
+                                                     "TF_VAR_extra", "P6_EXECUTION_CONFIG", "P6_EXECUTION_CONFIG_B64"})
                         self.assertEqual(env["ARM_USE_OIDC"], "true")
                         self.assertEqual(env["ARM_USE_CLI"], "false")
                         self.assertEqual(env["ARM_USE_MSI"], "false")
@@ -260,13 +346,21 @@ class CommandIsolationTest(unittest.TestCase):
                         self.assertEqual(inputs.stat().st_mode & 0o777, 0o600)
                         self.assertEqual(json.loads(inputs.read_text()), c[stack])
                         self.assertNotIn("postgresql_administrator_password", inputs.read_text())
-                        body = b'{"resource_changes": []}' if command[2] == "show" else b""
+                        body = json.dumps({"resource_changes": [{"address": "azurerm_dns_zone.project",
+                                           "change": {"actions": ["no-op"], "before": c, "after": c}}]}).encode() \
+                            if command[2] == "show" and stack == "foundation" else b'{"resource_changes": []}'
+                        if command[2] != "show":
+                            body = json.dumps(c).encode() + e.get("P6_POSTGRESQL_ADMINISTRATOR_PASSWORD", "").encode()
                         return subprocess.CompletedProcess(command, 0, body, b"")
 
-                    with contextlib.redirect_stdout(io.StringIO()), \
+                    output, errors = io.StringIO(), io.StringIO()
+                    with contextlib.redirect_stdout(output), contextlib.redirect_stderr(errors), \
                          patch.dict(os.environ, e, clear=True), patch.object(execution, "check_source"), \
                          patch.object(execution.subprocess, "run", side_effect=fake):
                         execution.execute(a, c)
+                    for value in (json.dumps(c), c["backend"]["storage_account_name"],
+                                  e["P6_EXECUTION_CONFIG_B64"], e.get("P6_POSTGRESQL_ADMINISTRATOR_PASSWORD", "absent-password")):
+                        self.assertNotIn(value, output.getvalue() + errors.getvalue())
                     names = [call[0] for call in calls]
                     self.assertEqual(names, ["init", "validate", "plan", "show"] +
                                      (["apply"] if operation != "plan" else []) + ["state"])
@@ -301,20 +395,26 @@ class CommandIsolationTest(unittest.TestCase):
 
     def test_failure_diagnoses_without_apply_or_raw_output(self):
         a, c, e = fixture()
+        raw = json.dumps(c)
+        encoded = base64.b64encode(raw.encode()).decode("ascii")
+        e["P6_EXECUTION_CONFIG_B64"] = encoded
         now = dt.datetime.now(dt.timezone.utc)
         a.update(starts_at=now.isoformat(), expires_at=(now + dt.timedelta(hours=1)).isoformat())
         calls = []
 
         def fake(command, **kwargs):
             calls.append(command[2])
-            return subprocess.CompletedProcess(command, int(command[2] == "plan"), b"sensitive-dummy", b"sensitive-dummy")
+            body = (raw + encoded + e["P6_POSTGRESQL_ADMINISTRATOR_PASSWORD"]).encode()
+            return subprocess.CompletedProcess(command, int(command[2] == "plan"), body, body)
 
-        with contextlib.redirect_stdout(io.StringIO()), \
+        output, errors = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(output), contextlib.redirect_stderr(errors), \
              patch.dict(os.environ, e, clear=True), patch.object(execution, "check_source"), \
              patch.object(execution.subprocess, "run", side_effect=fake), self.assertRaises(ValueError) as error:
             execution.execute(a, c)
         self.assertEqual(calls, ["init", "validate", "plan", "state"])
-        self.assertNotIn("sensitive-dummy", str(error.exception))
+        for value in (raw, encoded, e["P6_POSTGRESQL_ADMINISTRATOR_PASSWORD"]):
+            self.assertNotIn(value, output.getvalue() + errors.getvalue() + str(error.exception))
 
     def test_main_moving_after_plan_prevents_apply(self):
         a, c, e = fixture()
@@ -336,6 +436,21 @@ class CommandIsolationTest(unittest.TestCase):
 
 
 class WorkflowBoundaryTest(unittest.TestCase):
+    def test_config_secret_is_scoped_to_python_steps_without_shell_decode(self):
+        workflow = (ROOT / ".github/workflows/azure-execution.yml").read_text()
+        self.assertNotRegex(workflow, r"\bP6_EXECUTION_CONFIG\b")
+        self.assertNotIn("P6_EXECUTION_CONFIG_B64", workflow.split("\njobs:", 1)[0])
+        uses = []
+        for step in re.split(r"^      - ", workflow, flags=re.M)[1:]:
+            if "P6_EXECUTION_CONFIG_B64" in step:
+                self.assertIn("        env:\n          P6_EXECUTION_CONFIG_B64: ${{ secrets.P6_EXECUTION_CONFIG_B64 }}", step)
+                self.assertEqual(step.count("P6_EXECUTION_CONFIG_B64"), 2)
+                command = re.search(r"^        run: (.+)$", step, re.M).group(1)
+                uses.append(command)
+        self.assertEqual(uses, ["python3 scripts/azure-execution.py gate", "python3 scripts/azure-execution.py execute"])
+        self.assertNotIn("GITHUB_ENV", workflow)
+        self.assertNotIn("GITHUB_OUTPUT", workflow)
+
     def test_dispatch_only_gate_before_oidc_and_no_state_artifact(self):
         workflow = (ROOT / ".github/workflows/azure-execution.yml").read_text()
         trigger = workflow.split("\non:\n", 1)[1].split("\npermissions:", 1)[0]
