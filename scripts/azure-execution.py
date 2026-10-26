@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """P6 dispatch gate and one approved remote-state operation. No bootstrap execution."""
+import base64
 import datetime as dt
 import hashlib
 import json
@@ -211,7 +212,9 @@ def execute(approval, config):
 def main():
     require(len(sys.argv) == 2 and sys.argv[1] in ("gate", "execute", "digest-config"),
             "usage: azure-execution.py gate|execute|digest-config")
-    config = json.loads(os.environ["P6_EXECUTION_CONFIG"])
+    # Decode only in Python memory; never export/print the JSON or encoded secret.
+    config = json.loads(base64.b64decode(os.environ["P6_EXECUTION_CONFIG_B64"],
+                                       validate=True).decode("utf-8"))
     if sys.argv[1] == "digest-config":
         print(digest(config))
         return

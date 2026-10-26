@@ -95,10 +95,11 @@ repo:imcherry5778-labs@273613742/github-capacity-cascade-platform@1384941385:env
 Workflow는 Azure login action, long-lived credential, bootstrap state를 사용하지 않고 provider/backend의 OIDC 자동 탐색을 쓴다.
 실제 OIDC 발급/exchange/backend locking/effective RBAC는 **not verified**다.
 
-Trusted operator는 별도 명시적 P6 user approval을 받은 뒤에만 repository variable 두 개를 설정한다.
-이번 준비 세션에서는 variable/secret을 설정하지 않고 workflow도 dispatch하지 않는다.
+Trusted operator는 별도 명시적 P6 user approval을 받은 뒤에만 아래 repository secret과 variable을 설정한다.
+이 source-only log exposure fix에서는 variable/secret을 설정하지 않고 workflow도 dispatch하지 않는다.
 
-- `P6_EXECUTION_CONFIG`: `backend`, `foundation`을 가진 JSON object. Foundation operation에서는
+- Repository secret `P6_EXECUTION_CONFIG_B64`: `backend`, `foundation`을 가진 UTF-8 JSON object를
+  줄바꿈 없는 standard Base64로 인코딩한 문자열. Foundation operation에서는
   `environment`를 생략할 수 있고, Environment operation에서는 세 object가 모두 필요하다.
   Backend에는 bootstrap output에서 `storage_account_name`, `container_name`, `tenant_id`, `client_id` 네 필드만 옮긴다.
   포함한 stack object는 각 `variables.tf`의 모든 non-secret input을 정확히 포함한다. 허용되지 않은 key나
@@ -106,12 +107,36 @@ Trusted operator는 별도 명시적 P6 user approval을 받은 뒤에만 reposi
   `postgresql_administrator_password`는 포함하지 않는다. Backend key/auth flag는 source가 고정한다.
   Account/resource names, SKU, versions, CIDR, authorized IPs, observability 값은 실제 승인 inventory와 대조한다.
   Config 구성이 바뀌면 전체 config SHA256과 해당 exact inputs/operation의 승인을 다시 받아야 한다.
-- `P6_CAMPAIGN_APPROVAL`: 아래 **비활성 template**을 actual user approval/evidence로 채운 JSON object.
+- Repository variable `P6_CAMPAIGN_APPROVAL`: 아래 **비활성 template**을 actual user approval/evidence로 채운 JSON object.
   Repository/Environment에 같은 이름의 variable을 중복 정의하지 않는다. Config digest는 canonical JSON
   (sorted keys, compact separators, ASCII encoding)의 SHA256이며
-  `P6_EXECUTION_CONFIG='<non-secret JSON>' python3 scripts/azure-execution.py digest-config`로 계산한다.
+  아래 local command로 계산한다. Digest는 Base64 문자열이 아닌 decoded JSON에 대해 계산하므로
+  같은 JSON의 key 순서/공백/인코딩 표현을 바꿔도 기존 canonical digest를 유지한다.
   Approval link를 적는 행위 자체가 user approval은 아니다. 관리 operator가 원문 승인과 exact scope를 대조할 책임이 있다.
   Variable write 권한은 trusted operator 경계이며 workflow가 링크 내용의 승인 의사를 판정하지는 않는다.
+
+Operator가 보관한 private JSON 파일을 `$config_file`로 지정하고 shell tracing을 끈 local shell에서
+다음 형식으로 digest만 확인한다. JSON/encoded 문자열을 command argument, shell history, CI log에 붙여 넣지 않는다.
+
+```sh
+P6_EXECUTION_CONFIG_B64="$(base64 -w0 < "$config_file")" python3 scripts/azure-execution.py digest-config
+```
+
+새 reviewed/merged main과 current preflight에 대한 **새 campaign 승인 후**, 동일한 파일을
+`base64 -w0 < "$config_file" | gh secret set P6_EXECUTION_CONFIG_B64 --repo imcherry5778-labs/github-capacity-cascade-platform`
+형식으로 repository secret에 전달한다. 같은 이름의 Environment/organization secret으로 덮어쓰지 않는다.
+Obsolete repository variable `P6_EXECUTION_CONFIG`는 새 dispatch 전에 trusted operator가 삭제하고 삭제 결과를 확인한다.
+Workflow/Python은 이 variable을 참조하거나 fallback하지 않으며 새 secret이 없거나 malformed이면 실패한다.
+이 변경은 variable/secret 실제 수정 권한이나 기존 Plan-only campaign의 재사용을 승인하지 않는다.
+
+Base64는 암호화나 비밀 보호 수단이 아니다. Encoded 문자열의 runner env 표시는 GitHub Secret masking에 의존한다.
+원본 JSON을 secret 값으로 직접 넣는 방법도 structured data redaction 한계가 있다
+([GitHub secure use](https://docs.github.com/en/actions/reference/security/secure-use)).
+따라서 secret은 gate/execute Python step에만 주입하고 Python 안에서 strict Base64/UTF-8/JSON으로 디코딩한다.
+Decoded JSON은 env/job output/artifact/log로 내보내지 않고 기존 exact-input/digest/approval 검증 뒤에만 사용한다.
+Terraform stdout/stderr와 payload exception은 계속 비공개로 처리한다. Credential-free regression은 이 source 경계를
+검사하지만 실제 GitHub-hosted runner의 Secret masking은 **not verified**이며 별도 승인된 runtime 확인이 남는다.
+과거 노출 로그의 retention/redaction 처리도 이 source fix로 완료됐다고 주장하지 않는다.
 
 ```json
 {
