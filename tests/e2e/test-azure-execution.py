@@ -714,8 +714,103 @@ class RotationTest(unittest.TestCase):
 
         lines = execution.drift_diagnostics({"resource_drift": plan["resource_changes"],
                                             "resource_changes": plan["resource_changes"]}, addresses)
-        self.assertEqual(len(lines), 70)  # Two count lines and at most 34 entries each.
+        self.assertEqual(len(lines), 73)  # Two counts, at most 68 entries, three fixed AKS lines.
         self.assertEqual(sum(" resource=" in line for line in lines), 68)
+
+    def test_aks_candidate_paths_and_other_change_count(self):
+        _, _, _, plan, addresses = rotation_fixture()
+        resource = next(entry for entry in plan["resource_changes"]
+                        if entry["address"] == "azurerm_kubernetes_cluster.this")
+        sentinel = "private-sensitive-value-resource-id-arbitrary-path-sentinel"
+        empty, block = [], [{"max_surge": sentinel, "drain_timeout_in_minutes": 0}]
+        prefix = "aks planned diagnostic: "
+        path = "default_node_pool[0].upgrade_settings"
+        cases = [
+            (empty, block, True, "added", True),
+            (block, empty, True, "removed", True),
+            (block, [{"max_surge": "other-private-value"}], True, "changed", True),
+            (block, [block[0] | {"drain_timeout_in_minutes": 1}], True, "changed", False),
+            (block, block, False, "unchanged", False),
+            (empty, empty, False, "unchanged", False),
+        ]
+        for before, after, changed, category, surge_changed in cases:
+            with self.subTest(category=category, surge_changed=surge_changed):
+                resource["change"].update(
+                    actions=["update"],
+                    before={"id": sentinel, "default_node_pool": [{"upgrade_settings": before}]},
+                    after={"id": sentinel, "default_node_pool": [{"upgrade_settings": after}]},
+                    before_sensitive={"default_node_pool": True}, after_sensitive={"default_node_pool": True})
+                lines = execution.drift_diagnostics({"resource_changes": [resource]}, addresses)
+                self.assertIn("drift diagnostic: resource_changes resource=azurerm_kubernetes_cluster.this "
+                              "actions=update", lines)
+                self.assertEqual(lines[-3:], [
+                    prefix + f"path={path} changed={str(changed).lower()} block={category}",
+                    prefix + f"path={path}[0].max_surge changed={str(surge_changed).lower()}",
+                    prefix + "other_changed_paths=0 status=KNOWN"])
+                self.assertNotIn(sentinel, "\n".join(lines))
+
+        # Same-named fields outside the exact candidate subtree must still count.
+        resource["change"]["before"].update({sentinel: [{"max_surge": "old"}], "upgrade_settings": [],
+                                             "typed": 1, "removed": {sentinel: sentinel}})
+        resource["change"]["after"].update({sentinel: [{"max_surge": "new"}], "upgrade_settings": [sentinel],
+                                            "typed": True, "added": {sentinel: sentinel}})
+        resource["change"]["before"]["default_node_pool"][0][sentinel] = "old"
+        resource["change"]["after"]["default_node_pool"][0][sentinel] = "new"
+        lines = execution.drift_diagnostics({"resource_changes": [resource]}, addresses)
+        self.assertEqual(lines[-1], prefix + "other_changed_paths=6 status=KNOWN")
+        self.assertNotIn(sentinel, "\n".join(lines))
+        # The drift list must never be used as a planned attribute diff.
+        self.assertFalse(any(line.startswith(prefix) for line in execution.drift_diagnostics(
+            {"resource_drift": [resource]}, addresses)))
+        self.assertFalse(any(line.startswith(prefix) for line in execution.drift_diagnostics(
+            {"resource_changes": [resource, resource]}, addresses)))
+        invalid = [resource | {"provider_name": sentinel}, resource | {"address": sentinel},
+                   resource | {"change": resource["change"] | {"actions": [sentinel]}}]
+        for entry in invalid:
+            lines = execution.drift_diagnostics({"resource_changes": [entry]}, addresses)
+            self.assertFalse(any(line.startswith(prefix) for line in lines))
+            self.assertNotIn(sentinel, "\n".join(lines))
+
+    def test_aks_unknown_and_malformed_values_are_not_reported_as_removal(self):
+        base = {"before": {"default_node_pool": [{"upgrade_settings": [{"max_surge": "private"}]}]},
+                "after": {"default_node_pool": [{"upgrade_settings": []}]}, "after_unknown": {}}
+        prefix = "aks planned diagnostic: "
+        expected = [prefix + "path=default_node_pool[0].upgrade_settings changed=unknown block=unknown",
+                    prefix + "path=default_node_pool[0].upgrade_settings[0].max_surge changed=unknown",
+                    prefix + "other_changed_paths=unknown status=UNKNOWN"]
+        sentinel = "private-unknown-path-value-sentinel"
+        masks = [True, None, sentinel, {"default_node_pool": True},
+                 {"default_node_pool": [{"upgrade_settings": True}]},
+                 {"default_node_pool": [{"upgrade_settings": [{"max_surge": True}]}]}]
+        changes = [base | {"after_unknown": mask} for mask in masks]
+        changes.append({key: value for key, value in base.items() if key != "after_unknown"})
+        for side in ("before", "after"):
+            changes.extend(base | {side: value} for value in (None, [], sentinel, {}))
+            changes.extend(base | {side: {"default_node_pool": value}} for value in
+                           (None, {}, [], [None], [{}, {}], sentinel))
+            changes.extend(base | {side: {"default_node_pool": [{"upgrade_settings": value}]}} for value in
+                           (True, {}, sentinel, [None], [{}, {}], [{}], [{"max_surge": None}]))
+        changes.append(base | {"before": base["before"] | {sentinel: [sentinel] * 10001},
+                               "after": base["after"] | {sentinel: ["changed"] * 10001}})
+        for index, change in enumerate(changes):
+            with self.subTest(case=index):
+                lines = execution.aks_planned_diagnostics(change)
+                self.assertEqual(lines, expected)
+                self.assertNotIn(sentinel, "\n".join(lines))
+        for absent in (None, []):
+            change = base | {"after": {"default_node_pool": [{"upgrade_settings": absent}]}}
+            self.assertIn("block=removed", execution.aks_planned_diagnostics(change)[0])
+        self.assertIn("block=removed", execution.aks_planned_diagnostics(
+            base | {"after": {"default_node_pool": [{}]}})[0])
+        # An unrelated computed unknown must not hide the known candidate removal,
+        # and its null placeholder must not be counted as a confirmed difference.
+        for mask in ({sentinel: True}, {"default_node_pool": [{sentinel: True}]}):
+            lines = execution.aks_planned_diagnostics(base | {"after_unknown": mask})
+            self.assertEqual(lines, [
+                prefix + "path=default_node_pool[0].upgrade_settings changed=true block=removed",
+                prefix + "path=default_node_pool[0].upgrade_settings[0].max_surge changed=true",
+                prefix + "other_changed_paths=unknown status=UNKNOWN"])
+            self.assertNotIn(sentinel, "\n".join(lines))
 
     def test_drift_summary_keeps_refusal_and_never_calls_apply(self):
         a, c, e, plan, addresses = rotation_fixture()
@@ -725,8 +820,14 @@ class RotationTest(unittest.TestCase):
                                 "after": {sentinel: sentinel}})
         plan["resource_drift"] = [drift, {"address": sentinel, "change": {"actions": [sentinel]}}]
         plan["resource_changes"][-1] = {"address": sentinel, "change": {"actions": [sentinel]}}
+        aks = next(entry for entry in plan["resource_changes"]
+                   if entry["address"] == "azurerm_kubernetes_cluster.this")
+        aks["change"].update(actions=["update"],
+                             before={"id": sentinel, "default_node_pool": [
+                                 {"upgrade_settings": [{"max_surge": sentinel}]}]},
+                             after={"id": sentinel, "default_node_pool": [{"upgrade_settings": []}]})
         for operation in ("plan", "apply"):
-            for fail_diagnostic in (False, True):
+            for fail_diagnostic in (False, True, "aks"):
                 with self.subTest(operation=operation, fail_diagnostic=fail_diagnostic):
                     calls, directories = [], []
                     output, errors = io.StringIO(), io.StringIO()
@@ -744,7 +845,9 @@ class RotationTest(unittest.TestCase):
                          patch.object(execution.dt, "datetime", FixedDateTime), \
                          patch.object(execution, "check_source"), \
                          patch.object(execution, "drift_diagnostics", side_effect=RuntimeError(sentinel)
-                                      if fail_diagnostic else diagnostic), \
+                                      if fail_diagnostic is True else diagnostic), \
+                         patch.object(execution, "aks_planned_diagnostics", side_effect=RuntimeError(sentinel)
+                                      if fail_diagnostic == "aks" else execution.aks_planned_diagnostics), \
                          patch.object(execution.subprocess, "run", side_effect=fake), \
                          self.assertRaises(execution.PlanGuardError) as refused:
                         execution.execute(a, c)
@@ -760,9 +863,17 @@ class RotationTest(unittest.TestCase):
                             "drift diagnostic: resource_changes entries=34 shown=33 withheld=1 status=WITHHELD",
                         ])
                         for entry in plan["resource_changes"][:-1]:
-                            action = "update" if entry["address"] == execution.POSTGRESQL else "no-op"
+                            action = "update" if entry["address"] in (
+                                execution.POSTGRESQL, "azurerm_kubernetes_cluster.this") else "no-op"
                             expected.append("drift diagnostic: resource_changes resource=" + entry["address"] +
                                             " actions=" + action)
+                        expected.extend([
+                            "aks planned diagnostic: path=default_node_pool[0].upgrade_settings "
+                            "changed=true block=removed",
+                            "aks planned diagnostic: path=default_node_pool[0].upgrade_settings[0].max_surge "
+                            "changed=true",
+                            "aks planned diagnostic: other_changed_paths=0 status=KNOWN",
+                        ])
                     self.assertEqual(errors.getvalue(), "\n".join(expected) + "\n")
                     self.assertEqual(calls, ["init", "validate", "plan", "show", "state"])
                     self.assertTrue(all(not path.exists() for path in directories))

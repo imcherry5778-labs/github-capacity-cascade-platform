@@ -175,7 +175,7 @@ def known(value):
 
 
 def drift_diagnostics(plan, addresses):
-    """Project bounded address/action summaries only; never inspect attribute values or paths."""
+    """Project bounded summaries; only the fixed AKS candidate paths may be named."""
     lines = []
     for key in ("resource_drift", "resource_changes"):
         entries = plan.get(key)
@@ -187,7 +187,7 @@ def drift_diagnostics(plan, addresses):
         if count > DRIFT_DIAGNOSTIC_LIMIT:
             lines.append(f"{prefix} entries={count} shown=0 withheld={count} status=LIMIT")
             continue
-        records, seen = [], set()
+        records, seen, aks = [], set(), []
         duplicate = False
         for entry in entries:
             if not isinstance(entry, dict):
@@ -211,14 +211,89 @@ def drift_diagnostics(plan, addresses):
             action = DRIFT_DIAGNOSTIC_ACTIONS.get(tuple(actions))
             if action is not None:
                 records.append(f"{prefix} resource={address} actions={action}")
+                if key == "resource_changes" and address == "azurerm_kubernetes_cluster.this":
+                    aks = aks_planned_diagnostics(change)
         # Duplicate source addresses cannot be interpreted as a unique resource inventory.
         if duplicate:
             records = []
+            aks = []
         shown = len(records)
         status = "WITHHELD" if shown != count else "OK"
         lines.append(f"{prefix} entries={count} shown={shown} withheld={count - shown} status={status}")
         lines.extend(records)
+        lines.extend(aks)
     return lines
+
+
+def aks_planned_diagnostics(change):
+    """Compare the default-pool candidate privately; never return values or discovered paths."""
+    prefix = "aks planned diagnostic: "
+    candidate = ("default_node_pool", 0, "upgrade_settings")
+    path = "default_node_pool[0].upgrade_settings"
+    unknown = [prefix + f"path={path} changed=unknown block=unknown",
+               prefix + f"path={path}[0].max_surge changed=unknown",
+               prefix + "other_changed_paths=unknown status=UNKNOWN"]
+    if "after_unknown" not in change:
+        return unknown
+    mask = change["after_unknown"]
+    for key in candidate:
+        if mask is False:
+            break
+        if isinstance(key, str) and isinstance(mask, dict):
+            mask = mask.get(key, False)
+        elif isinstance(key, int) and isinstance(mask, list):
+            mask = mask[key] if key < len(mask) else False
+        else:
+            return unknown
+    if not known(mask):
+        return unknown
+    blocks = []
+    for side in ("before", "after"):
+        value = change.get(side)
+        pool = value.get("default_node_pool") if isinstance(value, dict) else None
+        if not isinstance(pool, list) or len(pool) != 1 or not isinstance(pool[0], dict):
+            return unknown
+        block = pool[0].get("upgrade_settings")
+        if block is None:
+            block = []
+        if (not isinstance(block, list) or len(block) > 1 or
+                (block and (not isinstance(block[0], dict) or
+                            not isinstance(block[0].get("max_surge"), str)))):
+            return unknown
+        blocks.append(block)
+
+    # Count changed leaf paths outside this one subtree, including sensitive fields,
+    # without collecting their names. Added/removed containers count as one path.
+    missing, visited = object(), 0
+
+    def count(before, after, current=()):
+        nonlocal visited
+        visited += 1
+        if visited > 10000 or len(current) > 64:
+            raise ValueError()
+        if current == candidate:
+            return 0
+        if isinstance(before, dict) and isinstance(after, dict):
+            return sum(count(before.get(key, missing), after.get(key, missing), current + (key,))
+                       for key in before.keys() | after.keys())
+        if isinstance(before, list) and isinstance(after, list):
+            return sum(count(before[i] if i < len(before) else missing,
+                             after[i] if i < len(after) else missing, current + (i,))
+                       for i in range(max(len(before), len(after))))
+        return int(type(before) is not type(after) or before != after)
+
+    try:
+        other = count(change["before"], change["after"]) if known(change["after_unknown"]) else "unknown"
+    except ValueError:
+        return unknown
+    before, after = blocks
+    changed = json.dumps(before, sort_keys=True) != json.dumps(after, sort_keys=True)
+    category = ("added" if not before else "removed" if not after else "changed") if changed else "unchanged"
+    surge_before = before[0]["max_surge"] if before else missing
+    surge_after = after[0]["max_surge"] if after else missing
+    return [prefix + f"path={path} changed={str(changed).lower()} block={category}",
+            prefix + f"path={path}[0].max_surge changed={str(surge_before != surge_after).lower()}",
+            prefix + f"other_changed_paths={other} status={'UNKNOWN' if other == 'unknown' else 'KNOWN'}"]
 
 
 def validate_plan(approval, stack, operation, plan, addresses):
