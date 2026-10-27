@@ -567,6 +567,18 @@ class RotationTest(unittest.TestCase):
             identity = {"name": resource["name"], "subscription_id": "dummy-private-plan-value"}
             change.update(before_identity=identity, after_identity=copy.deepcopy(identity))
         cases.append(("23 refresh updates with provider identities", identities, True))
+        # Synthetic/source-derived, not extracted from an Azure plan: Terraform v1.16.7
+        # context_plan.go driftedResources() omits identities even with a provider schema.
+        # AzureRM v5.11.0 application_insights/resource.go registers that schema.
+        asymmetric = copy.deepcopy(refreshed)
+        for resource in asymmetric["resource_changes"]:
+            if resource["type"] == "azurerm_application_insights":
+                identity = {"name": resource["name"], "subscription_id": "dummy-private-plan-value",
+                            "resource_group_name": "dummy-private-plan-value"}
+                resource["change"].update(before_identity=identity, after_identity=copy.deepcopy(identity))
+        self.assertEqual(sum("before_identity" in resource["change"]
+                             for resource in asymmetric["resource_changes"]), 1)
+        cases.append(("drift omits planned provider identity (synthetic/source-derived)", asymmetric, True))
 
         drift = ["resource_drift", 0]
         dc = drift + ["change"]
@@ -603,8 +615,22 @@ class RotationTest(unittest.TestCase):
         for side in ("before_identity", "after_identity"):
             mutate("missing drift provider identity", dc + [side], remove=True, base=identities)
             mutate("changed drift provider identity", dc + [side], {"name": "changed"}, base=identities)
-        mutate("drift omits planned provider identity", ["resource_drift"],
-               refreshed["resource_drift"], base=identities)
+            for value in (None, {}, [], {"name": None}, {"name": " "}, {"name": True}):
+                mutate("null/malformed drift provider identity", dc + [side], value, base=identities)
+        ai_index = next(i for i, resource in enumerate(asymmetric["resource_changes"])
+                        if resource["type"] == "azurerm_application_insights")
+        ai_change = ["resource_changes", ai_index, "change"]
+        for side in ("before_identity", "after_identity"):
+            mutate("missing planned provider identity with omitted drift identities",
+                   ai_change + [side], remove=True, base=asymmetric)
+            for value in (None, {}, [], {"name": None}, {"name": " "}, {"name": True},
+                          {"name": "different-private-identity"}):
+                mutate("null/malformed/changed planned provider identity with omitted drift identities",
+                       ai_change + [side], value, base=asymmetric)
+        for value in (None, {}, [], {"name": None}, {"name": " "}, {"name": True}):
+            malformed = copy.deepcopy(asymmetric)
+            malformed["resource_changes"][ai_index]["change"].update(before_identity=value, after_identity=value)
+            cases.append(("both planned identities null/malformed with omitted drift identities", malformed, False))
         mutate("planned omits drift provider identity", ["resource_changes"],
                valid["resource_changes"], base=identities)
         # Drift acceptance must still reach every existing saved-plan safety check.
@@ -619,6 +645,12 @@ class RotationTest(unittest.TestCase):
                          if resource["type"] == "azurerm_kubernetes_cluster")
         mutate("AKS update despite valid drift", ["resource_changes", aks_index, "change", "actions"],
                ["update"], base=refreshed)
+        for path, value in ((["resource_drift", 0, "change", "after", "id"], "dummy-other-id"),
+                            (["resource_changes", aks_index, "change", "actions"], ["update"]),
+                            (["resource_changes", other_index, "change", "actions"], ["update"]),
+                            (["resource_changes", pg_index, "change", "after", "administrator_password_wo_version"], True),
+                            (["resource_changes", pg_index, "change", "after", "administrator_password_wo_version"], 3)):
+            mutate("unsafe plan despite omitted drift identities", path, value, base=asymmetric)
 
         for index in (pg_index, other_index):
             resource = ["resource_changes", index]

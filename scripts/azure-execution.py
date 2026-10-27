@@ -341,8 +341,7 @@ def aks_planned_diagnostics(change):
 
 
 def stable_identity(change):
-    # Terraform 1.16.7 omits both fields when the provider has no resource identity.
-    # The legacy resource ID is independently mandatory even in that case.
+    # Both omitted means unavailable; the legacy resource ID remains mandatory.
     if "before_identity" not in change and "after_identity" not in change:
         return True
     before, after = change.get("before_identity"), change.get("after_identity")
@@ -429,10 +428,12 @@ def validate_plan(approval, stack, operation, plan, addresses):
         if address in drift_by_address:
             refreshed = drift_by_address[address]
             # This is a narrow rotation exception, not a benign-drift classification.
-            # Refreshed identity must also be the identity in the validated saved plan.
+            # Terraform v1.16.7 context_plan.go:driftedResources() leaves identities unset;
+            # plans/changes.go:Change.Encode() and jsonplan/plan.go:marshalResourceChange() omit them.
+            # Omission supplies no historical identity evidence. Compare only if provided.
             plan_require(refreshed["after"]["id"] == before["id"] and
-                    ("after_identity" in refreshed) == ("before_identity" in change) and
-                    refreshed.get("after_identity") == change.get("before_identity"), "RESOURCE_DRIFT")
+                    ("after_identity" not in refreshed or
+                     refreshed["after_identity"] == change.get("before_identity")), "RESOURCE_DRIFT")
         expected = dict(before)
         if address == POSTGRESQL:
             version = "administrator_password_wo_version"
