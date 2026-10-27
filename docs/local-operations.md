@@ -39,6 +39,28 @@ Command exit가 0이어도 semantic assertion이 틀리면 operation은 `failed`
 
 ## Evidence lifecycle
 
+### GitHub CI Redis image supply
+
+PR #31의 `38f6850`에서 run `40453911056` attempt 1·2는 Argo CD Redis
+`public.ecr.aws/docker/library/redis:8.2.3-alpine`의 `ImagePullBackOff` / `registry-rate-limited`와
+rollout timeout으로 실패했다. 두 attempt의 owned cleanup은 PASS였고 후속 recovery/upgrade/ownership은 skipped였다.
+이 실패 evidence는 이후 성공 run으로 대체하지 않는다. 별도 read-only registry 조회에서도 ECR Public HTTP 429를 관측했다.
+
+`local-up.sh`는 checksum을 검증한 upstream Core를 설치한 뒤 `GITHUB_ACTIONS=true`에서만 Redis image를
+`versions.env`의 Docker Official Image digest로 지정한다. 동일 경로가 fresh lifecycle/recovery/upgrade/ownership의
+각 새 cluster에 적용된다. GitHub 밖의 기본 실행, Core checksum, Redis `8.2.3-alpine` 버전,
+upstream `imagePullPolicy: Always`, 기존 rollout/cleanup gate는 유지한다. Host Docker cache와 k3d node의
+containerd store는 별개이며 `Always`는 사전 적재 후에도 registry resolution을 요구하므로 단순 preload를 사용하지 않는다.
+새 credential/registry service, 무제한 backoff, runtime skip은 추가하지 않는다. Docker Hub가 실패해도 gate를 우회하지 않는다.
+
+2026-10-27 `docker buildx imagetools inspect --raw`로 두 registry의 tag index bytes가 같고 SHA256이
+`08ad0b1d280850169a790dba1393ff7a90aef951fc19632cf4d3ce4f78e679ba`임을 확인했다.
+양쪽 index의 linux/amd64 manifest는 `sha256:e499175dfb27569cd40010c2eee346113db95fdd0efc88ab9fd70a9e807f4542`다.
+따라서 registry만 바꾸고 같은 content를 digest로 고정한다. OCI index가 platform manifest와 config/layer digest를
+연결한다. 비교 명령은 token/config/layer 원문을 출력하지 않으며 실제 runtime/CI 결과는 exact source HEAD별 PR evidence로 남긴다.
+
+### Run evidence
+
 `results/local/`은 Git에서 제외하되 `.tmp/journey` 및 credential-bearing runtime state와 분리해 `local-down.sh` 이후에도 남긴다. 실패한 run도 덮어쓰지 않는다. CI는 JSONL/summary 파일만 명시적으로 upload하고 `.tmp`, raw response, kubeconfig, credential, diagnostics를 upload하지 않는다. `request` 오류도 raw API body를 출력하지 않는다. 테스트는 API status/timeout, Git failure, incomplete record와 secret exclusion을 검증한다.
 
 Ownership marker를 받은 `local-up.sh`가 직접 만든 cluster에서 bootstrap이 실패하면, owned cleanup 전에 create/delete lock 안에서 현재 server ID가 그 cluster와 같은지 다시 확인한 뒤 `local-verify.sh bootstrap-diagnostics`를 bounded 실행해 CI step log에 남긴다. 이 mode 자체도 marker의 server ID와 현재 server ID가 같지 않으면 조회하지 않으며, marker가 없는 guard setup(`make up`) 실패에는 workflow 진단 step을 두지 않는다. 출력은 node condition/allocatable/taint, workload replica/condition reason, healthy Pod 수(Ready condition, main/init container status, restart 포함), unhealthy Pod의 condition reason과 init/main container의 image·ready·started·restart·state/last termination reason·exit code, Warning 및 `argocd` event의 reason/count다. Pod/event는 Kubernetes API에서 전체 object JSON(Pod spec 포함)을 받지만 위 status/metadata field만 출력한다. Secret/ConfigMap은 조회하지 않는다. Container log와 condition/container/termination/event message 원문은 출력하지 않는다. Reason/type은 identifier 형식일 때만 출력하고, message에서는 고정 allowlist의 hint token(예: `insufficient-memory`, `image-not-found`, `object-not-found`, `readiness-probe`)만 남긴다. Ownership이 없거나 확인되지 않으면 조회하지 않으며, 진단 실패는 원래 exit code와 cleanup을 바꾸지 않는다. `tests/e2e/test-local-bootstrap-diagnostics.py`가 stub과 fake credential sentinel로 이 순서와 경계를 검증한다.
