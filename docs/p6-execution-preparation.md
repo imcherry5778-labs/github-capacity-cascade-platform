@@ -196,6 +196,12 @@ Resource ID 변경, create/delete/replace/import/move, drift, unknown/deferred a
 provider diagnostics를 출력하지 않으며 자동 재시도·우회하지 않는다. 정책 없는 기존 PostgreSQL mutation도
 `environment:apply`에서 거부한다. 초기 create와 destroy의 기존 승인 경계는 유지한다.
 
+실패 진단은 `scripts/azure-execution.py`의 고정 `PLAN_FAILURE_CODES` 사유 코드와 source allowlist에서
+확인한 resource address만 출력한다. 예를 들어 `PASSWORD_VERSION`, `UNKNOWN_VALUES`, `ATTRIBUTE_DIFF`,
+`RESOURCE_DRIFT`로 거부 범주를 구분하며 version/attribute 값과 raw JSON은 출력하지 않는다.
+JSON decode 실패는 `PLAN_JSON_INVALID`, 예상하지 못한 검증 예외는 원문 없이 `VALIDATION_EXCEPTION`으로
+표시한다. 이 진단은 Apply 거부와 기존 최상위 generic error/실패 exit를 유지하며 live 실패 원인을 소급 확정하지 않는다.
+
 검증 근거는 [Terraform JSON format](https://developer.hashicorp.com/terraform/internals/json-format)과
 [AzureRM 5.11.0 PostgreSQL resource](https://github.com/hashicorp/terraform-provider-azurerm/blob/v5.11.0/internal/services/postgres/postgresql_flexible_server_resource.go)다.
 Source pin은 Terraform `1.16.7` / AzureRM `5.11.0`이며 provider의 version 변경 update 경로를 확인했다.
