@@ -202,6 +202,23 @@ provider diagnostics를 출력하지 않으며 자동 재시도·우회하지 �
 JSON decode 실패는 `PLAN_JSON_INVALID`, 예상하지 못한 검증 예외는 원문 없이 `VALIDATION_EXCEPTION`으로
 표시한다. 이 진단은 Apply 거부와 기존 최상위 generic error/실패 exit를 유지하며 live 실패 원인을 소급 확정하지 않는다.
 
+`RESOURCE_DRIFT` 거부 때만 `drift diagnostic:` 요약을 추가한다. `resource_drift`는 saved state와
+refresh 결과의 차이이고 `resource_changes`는 실제 planned action이므로 별도 목록으로 표시한다.
+각 목록은 entry 개수와 `shown`/`withheld` 개수, source allowlist의 정확한 resource address와
+고정 action(`no-op`, `create`, `read`, `update`, `delete`, `delete,create`, `create,delete`)만 출력한다.
+이 action 목록은 **진단용 어휘**이며 rotation 허용 조건을 확장하지 않는다.
+각 목록은 최대 34 entries만 검사·출력한다(합계 최대 70줄). 초과 목록은 개수와 `LIMIT`만 기록한다.
+Malformed/unallowlisted address·metadata·action은 원문 없이 `withheld`에 합산하고,
+중복 source address가 있으면 해당 목록 전체를 숨긴다. 목록 구조가 잘못되면 개수도 `unknown`으로 표시한다.
+`OK`는 해당 목록의 address/action 투영이 모두 출력됐다는 뜻이며 guard 통과를 의미하지 않는다.
+진단 자체가 실패해도 고정 `unavailable`만 출력하고 원래 `RESOURCE_DRIFT` 거부를 유지한다.
+
+변경 attribute 이름/path와 before/after 값은 검사·출력하지 않는다. 민감하지 않은 필드 allowlist를
+추가하지 않으며, version boolean도 drift 이후의 전체 guard 조건을 중복 구현하지 않도록 제외한다.
+따라서 이 요약만으로 password version 1→2 충족, 다른 attribute 불변 또는 rotation 안전성을 주장할 수 없다.
+JSON 계약은 [Terraform 1.16.7 JSON plan 구현](https://github.com/hashicorp/terraform/blob/v1.16.7/internal/command/jsonplan/plan.go)과
+공식 JSON format의 drift/change 구조 및 action 어휘를 재확인했다. Raw plan/state/JSON이나 artifact는 추가하지 않는다.
+
 검증 근거는 [Terraform JSON format](https://developer.hashicorp.com/terraform/internals/json-format)과
 [AzureRM 5.11.0 PostgreSQL resource](https://github.com/hashicorp/terraform-provider-azurerm/blob/v5.11.0/internal/services/postgres/postgresql_flexible_server_resource.go)다.
 Source pin은 Terraform `1.16.7` / AzureRM `5.11.0`이며 provider의 version 변경 update 경로를 확인했다.

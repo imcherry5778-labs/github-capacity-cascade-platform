@@ -18,6 +18,12 @@ REPOSITORY = "imcherry5778-labs/github-capacity-cascade-platform"
 SHA = re.compile(r"[0-9a-f]{40}")
 ROTATION_POLICY = "postgresql-password-rotation-1-to-2"
 POSTGRESQL = "azurerm_postgresql_flexible_server.this"
+# Diagnostic vocabulary only; these actions do not grant permission to apply.
+DRIFT_DIAGNOSTIC_LIMIT = 34
+DRIFT_DIAGNOSTIC_ACTIONS = {
+    ("no-op",): "no-op", ("create",): "create", ("read",): "read", ("update",): "update",
+    ("delete",): "delete", ("delete", "create"): "delete,create", ("create", "delete"): "create,delete",
+}
 PLAN_FAILURE_CODES = frozenset({
     "PLAN_JSON_INVALID", "VALIDATION_EXCEPTION", "RESOURCE_CHANGES", "POLICY_REQUIRED",
     "POLICY_OPERATION", "FORMAT_VERSION", "PLAN_STATUS", "RESOURCE_DRIFT", "DEFERRED_CHANGES",
@@ -166,6 +172,53 @@ def known(value):
     if isinstance(value, list):
         return all(known(item) for item in value)
     return value is False
+
+
+def drift_diagnostics(plan, addresses):
+    """Project bounded address/action summaries only; never inspect attribute values or paths."""
+    lines = []
+    for key in ("resource_drift", "resource_changes"):
+        entries = plan.get(key)
+        prefix = "drift diagnostic: " + key
+        if not isinstance(entries, list):
+            lines.append(prefix + " entries=unknown shown=0 withheld=unknown status=INVALID")
+            continue
+        count = len(entries)
+        if count > DRIFT_DIAGNOSTIC_LIMIT:
+            lines.append(f"{prefix} entries={count} shown=0 withheld={count} status=LIMIT")
+            continue
+        records, seen = [], set()
+        duplicate = False
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            address = entry.get("address")
+            if not isinstance(address, str) or address not in addresses:
+                continue
+            if address in seen:
+                duplicate = True
+            seen.add(address)
+            kind, name = address.split(".")
+            if (entry.get("mode") != "managed" or entry.get("type") != kind or entry.get("name") != name or
+                    entry.get("provider_name") != "registry.terraform.io/hashicorp/azurerm" or
+                    any(field in entry for field in ("previous_address", "deposed", "index", "module_address"))):
+                continue
+            change = entry.get("change")
+            actions = change.get("actions") if isinstance(change, dict) else None
+            if not isinstance(actions, list) or not 1 <= len(actions) <= 2 or not all(
+                    isinstance(action, str) for action in actions):
+                continue
+            action = DRIFT_DIAGNOSTIC_ACTIONS.get(tuple(actions))
+            if action is not None:
+                records.append(f"{prefix} resource={address} actions={action}")
+        # Duplicate source addresses cannot be interpreted as a unique resource inventory.
+        if duplicate:
+            records = []
+        shown = len(records)
+        status = "WITHHELD" if shown != count else "OK"
+        lines.append(f"{prefix} entries={count} shown={shown} withheld={count - shown} status={status}")
+        lines.extend(records)
+    return lines
 
 
 def validate_plan(approval, stack, operation, plan, addresses):
@@ -322,6 +375,12 @@ def execute(approval, config):
                         address = error.address
                 print("plan guard refused: " + code + (" resource=" + address if address else ""),
                       file=sys.stderr, flush=True)
+                if code == "RESOURCE_DRIFT":
+                    try:
+                        print("\n".join(drift_diagnostics(changes, addresses)), file=sys.stderr, flush=True)
+                    except Exception:
+                        # Diagnostic failures must preserve the original refusal, without exception payloads.
+                        print("drift diagnostic: unavailable", file=sys.stderr, flush=True)
                 raise PlanGuardError(code, address) from None
             for change in changes.get("resource_changes", []):
                 require(change["address"] in addresses, "plan contains an unexpected resource address")

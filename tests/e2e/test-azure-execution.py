@@ -642,8 +642,10 @@ class RotationTest(unittest.TestCase):
                         self.assertNotEqual(code, "VALIDATION_EXCEPTION")
                         if label in expected_codes:
                             self.assertEqual(code, expected_codes[label])
-                        self.assertEqual(errors.getvalue(), "plan guard refused: " + code +
-                                         (" resource=" + address if address else "") + "\n")
+                        expected = "plan guard refused: " + code + (" resource=" + address if address else "") + "\n"
+                        if code == "RESOURCE_DRIFT":
+                            expected += "\n".join(execution.drift_diagnostics(plan, addresses)) + "\n"
+                        self.assertEqual(errors.getvalue(), expected)
                         self.assertTrue(address is None or address in addresses)
                         self.assertNotIn("planned:", output.getvalue())
                 self.assertEqual([call[0] for call in calls],
@@ -656,6 +658,118 @@ class RotationTest(unittest.TestCase):
                 for private in ("dummy-private-plan-value", "dummy-provider-diagnostic", json.dumps(plan),
                                 e["P6_POSTGRESQL_ADMINISTRATOR_PASSWORD"], e["ACTIONS_ID_TOKEN_REQUEST_TOKEN"]):
                     self.assertNotIn(private, output.getvalue() + errors.getvalue())
+
+    def test_drift_diagnostic_projection_is_bounded_and_fail_closed(self):
+        _, _, _, plan, addresses = rotation_fixture()
+        sentinel = "private-secret-token-resource-id-attribute-path-sentinel"
+        resource = copy.deepcopy(plan["resource_changes"][0])
+        address = resource["address"]
+        resource["change"].update({"before": {sentinel: sentinel}, "after": {sentinel: sentinel},
+                                  "after_unknown": {sentinel: True}, "before_sensitive": {sentinel: True},
+                                  "after_sensitive": {sentinel: True}, "replace_paths": [[sentinel]],
+                                  "importing": {"id": sentinel}})
+        resource["action_reason"] = sentinel
+        prefix = "drift diagnostic: "
+        actions = [(["no-op"], "no-op"), (["create"], "create"), (["read"], "read"),
+                   (["update"], "update"), (["delete"], "delete"),
+                   (["delete", "create"], "delete,create"), (["create", "delete"], "create,delete")]
+        for key in ("resource_drift", "resource_changes"):
+            for value, label in actions:
+                with self.subTest(key=key, actions=label):
+                    resource["change"]["actions"] = value
+                    lines = execution.drift_diagnostics({key: [resource]}, addresses)
+                    self.assertIn(prefix + key + " entries=1 shown=1 withheld=0 status=OK", lines)
+                    self.assertIn(prefix + key + f" resource={address} actions={label}", lines)
+                    self.assertNotIn(sentinel, "\n".join(lines))
+
+            invalid = [None, sentinel, [], {}, resource | {"address": sentinel},
+                       resource | {"address": address + "[" + sentinel + "]"},
+                       resource | {"address": [sentinel]}, resource | {"address": {sentinel: sentinel}},
+                       resource | {"address": address + "\n" + sentinel}]
+            invalid.extend(resource | {key: sentinel} for key in ("mode", "type", "name", "provider_name"))
+            invalid.extend(resource | {key: sentinel} for key in
+                           ("previous_address", "deposed", "index", "module_address"))
+            invalid.extend(resource | {"change": value} for value in (None, [], sentinel, {}))
+            invalid.extend(resource | {"change": {"actions": value}} for value in
+                           (None, sentinel, {}, [None], [[sentinel]], [{sentinel: sentinel}],
+                            [sentinel], [], ["update", "update"], ["read", "delete"], ["forget"],
+                            ["create", "delete", "create"]))
+            for entry in invalid:
+                with self.subTest(key=key, invalid=entry):
+                    lines = execution.drift_diagnostics({key: [entry]}, addresses)
+                    self.assertIn(prefix + key + " entries=1 shown=0 withheld=1 status=WITHHELD", lines)
+                    self.assertFalse(any(" resource=" in line for line in lines))
+                    self.assertNotIn(sentinel, "\n".join(lines))
+            for entries in (None, {}, sentinel, True, 1):
+                lines = execution.drift_diagnostics({key: entries}, addresses)
+                self.assertIn(prefix + key + " entries=unknown shown=0 withheld=unknown status=INVALID", lines)
+                self.assertNotIn(sentinel, "\n".join(lines))
+            lines = execution.drift_diagnostics({key: [resource, resource]}, addresses)
+            self.assertIn(prefix + key + " entries=2 shown=0 withheld=2 status=WITHHELD", lines)
+            self.assertFalse(any(" resource=" in line for line in lines))
+            for count in (35, 1000):
+                lines = execution.drift_diagnostics({key: [resource] * count}, addresses)
+                self.assertIn(prefix + key + f" entries={count} shown=0 withheld={count} status=LIMIT", lines)
+                self.assertFalse(any(" resource=" in line for line in lines))
+
+        lines = execution.drift_diagnostics({"resource_drift": plan["resource_changes"],
+                                            "resource_changes": plan["resource_changes"]}, addresses)
+        self.assertEqual(len(lines), 70)  # Two count lines and at most 34 entries each.
+        self.assertEqual(sum(" resource=" in line for line in lines), 68)
+
+    def test_drift_summary_keeps_refusal_and_never_calls_apply(self):
+        a, c, e, plan, addresses = rotation_fixture()
+        sentinel = "private-password-token-provider-stderr-path-version-sentinel"
+        drift = copy.deepcopy(plan["resource_changes"][0])
+        drift["change"].update({"actions": ["update"], "before": {sentinel: sentinel},
+                                "after": {sentinel: sentinel}})
+        plan["resource_drift"] = [drift, {"address": sentinel, "change": {"actions": [sentinel]}}]
+        plan["resource_changes"][-1] = {"address": sentinel, "change": {"actions": [sentinel]}}
+        for operation in ("plan", "apply"):
+            for fail_diagnostic in (False, True):
+                with self.subTest(operation=operation, fail_diagnostic=fail_diagnostic):
+                    calls, directories = [], []
+                    output, errors = io.StringIO(), io.StringIO()
+
+                    def fake(command, **kwargs):
+                        calls.append(command[2])
+                        directories.append(Path(command[1].removeprefix("-chdir=")))
+                        return subprocess.CompletedProcess(command, 0, json.dumps(plan).encode()
+                                                           if command[2] == "show" else sentinel.encode(),
+                                                           sentinel.encode())
+
+                    diagnostic = execution.drift_diagnostics
+                    with contextlib.redirect_stdout(output), contextlib.redirect_stderr(errors), \
+                         patch.dict(os.environ, e | {"P6_OPERATION": operation}, clear=True), \
+                         patch.object(execution.dt, "datetime", FixedDateTime), \
+                         patch.object(execution, "check_source"), \
+                         patch.object(execution, "drift_diagnostics", side_effect=RuntimeError(sentinel)
+                                      if fail_diagnostic else diagnostic), \
+                         patch.object(execution.subprocess, "run", side_effect=fake), \
+                         self.assertRaises(execution.PlanGuardError) as refused:
+                        execution.execute(a, c)
+                    self.assertEqual(refused.exception.code, "RESOURCE_DRIFT")
+                    expected = ["plan guard refused: RESOURCE_DRIFT"]
+                    if fail_diagnostic:
+                        expected.append("drift diagnostic: unavailable")
+                    else:
+                        # Literal expectations verify both counts independently of the implementation.
+                        expected.extend([
+                            "drift diagnostic: resource_drift entries=2 shown=1 withheld=1 status=WITHHELD",
+                            "drift diagnostic: resource_drift resource=" + drift["address"] + " actions=update",
+                            "drift diagnostic: resource_changes entries=34 shown=33 withheld=1 status=WITHHELD",
+                        ])
+                        for entry in plan["resource_changes"][:-1]:
+                            action = "update" if entry["address"] == execution.POSTGRESQL else "no-op"
+                            expected.append("drift diagnostic: resource_changes resource=" + entry["address"] +
+                                            " actions=" + action)
+                    self.assertEqual(errors.getvalue(), "\n".join(expected) + "\n")
+                    self.assertEqual(calls, ["init", "validate", "plan", "show", "state"])
+                    self.assertTrue(all(not path.exists() for path in directories))
+                    self.assertNotIn("planned:", output.getvalue())
+                    for private in (sentinel, json.dumps(plan), e["P6_POSTGRESQL_ADMINISTRATOR_PASSWORD"],
+                                    e["ACTIONS_ID_TOKEN_REQUEST_TOKEN"]):
+                        self.assertNotIn(private, output.getvalue() + errors.getvalue())
 
     def test_policy_on_plan_dispatch_and_missing_policy_on_apply(self):
         a, _, _, plan, addresses = rotation_fixture()
