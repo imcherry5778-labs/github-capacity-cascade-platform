@@ -389,14 +389,16 @@ class CommandIsolationTest(unittest.TestCase):
                                                                json.dumps(plan).encode() if command[2] == "show"
                                                                else b"", b"")
 
-                        with contextlib.redirect_stdout(io.StringIO()), patch.dict(os.environ, env, clear=True), \
+                        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()), \
+                             patch.dict(os.environ, env, clear=True), \
                              patch.object(execution, "check_source"), \
                              patch.object(execution.subprocess, "run", side_effect=fake):
                             if allowed:
                                 execution.execute(approval, config)
                             else:
-                                with self.assertRaisesRegex(ValueError, "resource changes required"):
+                                with self.assertRaises(execution.PlanGuardError) as refused:
                                     execution.execute(approval, config)
+                                self.assertEqual(refused.exception.code, "RESOURCE_CHANGES")
                         applied = allowed and operation != "plan"
                         self.assertEqual([call[0] for call in calls], ["init", "validate", "plan", "show"] +
                                          (["apply"] if applied else []) + ["state"])
@@ -593,7 +595,23 @@ class RotationTest(unittest.TestCase):
             mutate(f"missing {field}", [field], remove=True)
         mutate("changed output", ["output_changes", "postgresql", "after"], {"id": "changed"})
         mutate("unknown output", ["output_changes", "postgresql", "after_unknown"], True)
+        mutate("malformed change", ["resource_changes", pg_index, "change"], None)
+        for field in ("administrator_password", "administrator_password_wo"):
+            mutate(field, pg + ["after", field], "dummy-private-plan-value")
         cases.extend((label, plan, False) for label, plan in (("not object", []), ("empty object", {})))
+        expected_codes = {
+            "absent changes": "RESOURCE_CHANGES", "format_version": "FORMAT_VERSION",
+            "applyable": "PLAN_STATUS", "resource_drift": "RESOURCE_DRIFT",
+            "deferred_changes": "DEFERRED_CHANGES", "action_invocations": "EXTRA_ACTIONS",
+            "malformed resource": "RESOURCE_STRUCTURE", "unknown address": "RESOURCE_ADDRESS",
+            f"move {pg_index}": "RESOURCE_METADATA", "malformed change": "CHANGE_STRUCTURE",
+            f"unknown {pg_index}": "UNKNOWN_VALUES", f"import {pg_index}": "REPLACEMENT_IMPORT",
+            f"identity change {pg_index}": "RESOURCE_IDENTITY", f"changed ID before {pg_index}": "RESOURCE_ID",
+            "PG no-op": "POSTGRESQL_ACTION", "version before None": "PASSWORD_VERSION",
+            "administrator_password": "PASSWORD_PERSISTED", "other update": "RESOURCE_ACTION",
+            "nested PG setting": "ATTRIBUTE_DIFF", "missing PG": "RESOURCE_INVENTORY",
+            "output_changes": "OUTPUT_STRUCTURE", "changed output": "OUTPUT_CHANGE", "checks": "PLAN_CHECKS",
+        }
         for label, plan, allowed in cases:
             with self.subTest(case=label):
                 calls, directories = [], []
@@ -617,8 +635,17 @@ class RotationTest(unittest.TestCase):
                     if allowed:
                         execution.execute(a, c)
                     else:
-                        with self.assertRaises((ValueError, KeyError, TypeError)):
+                        with self.assertRaises(execution.PlanGuardError) as refused:
                             execution.execute(a, c)
+                        code, address = refused.exception.code, refused.exception.address
+                        self.assertIn(code, execution.PLAN_FAILURE_CODES)
+                        self.assertNotEqual(code, "VALIDATION_EXCEPTION")
+                        if label in expected_codes:
+                            self.assertEqual(code, expected_codes[label])
+                        self.assertEqual(errors.getvalue(), "plan guard refused: " + code +
+                                         (" resource=" + address if address else "") + "\n")
+                        self.assertTrue(address is None or address in addresses)
+                        self.assertNotIn("planned:", output.getvalue())
                 self.assertEqual([call[0] for call in calls],
                                  ["init", "validate", "plan", "show"] + (["apply"] if allowed else []) + ["state"])
                 if allowed:
@@ -634,10 +661,59 @@ class RotationTest(unittest.TestCase):
         a, _, _, plan, addresses = rotation_fixture()
         execution.validate_plan(a, "environment", "plan", plan, addresses)
         a.pop("plan_policy")
-        with self.assertRaises(ValueError):
+        with self.assertRaises(execution.PlanGuardError) as refused:
             execution.validate_plan(a, "environment", "apply", plan, addresses)
+        self.assertEqual(refused.exception.code, "POLICY_REQUIRED")
+        with self.assertRaises(execution.PlanGuardError) as refused:
+            execution.validate_plan(a | {"plan_policy": execution.ROTATION_POLICY},
+                                    "foundation", "apply", plan, addresses)
+        self.assertEqual(refused.exception.code, "POLICY_OPERATION")
         # An unguarded plan-only dispatch is still inspection, never mutation.
         execution.validate_plan(a, "environment", "plan", plan, addresses)
+
+    def test_cli_sanitizes_json_and_unexpected_guard_exceptions(self):
+        a, c, e, plan, _ = rotation_fixture()
+        sentinel = "private-password-token-provider-stderr-path-version-sentinel"
+        entrypoint = (ROOT / "scripts/azure-execution.py").read_text().split('if __name__ == "__main__":', 1)[1]
+        cases = [
+            (b'{"' + sentinel.encode(), None, "PLAN_JSON_INVALID"),
+            (b'\xff' + sentinel.encode(), None, "PLAN_JSON_INVALID"),
+            (json.dumps(plan).encode(), ValueError(sentinel), "VALIDATION_EXCEPTION"),
+            (json.dumps(plan).encode(), KeyError(sentinel), "VALIDATION_EXCEPTION"),
+            (json.dumps(plan).encode(), TypeError(sentinel), "VALIDATION_EXCEPTION"),
+            (json.dumps(plan).encode(), RuntimeError(sentinel), "VALIDATION_EXCEPTION"),
+            (json.dumps(plan).encode(), execution.PlanGuardError(sentinel, sentinel), "VALIDATION_EXCEPTION"),
+            (json.dumps(plan).encode(), execution.PlanGuardError("ATTRIBUTE_DIFF", sentinel), "ATTRIBUTE_DIFF"),
+        ]
+        for operation in ("plan", "apply"):
+            for body, error, expected in cases:
+                with self.subTest(operation=operation, code=expected):
+                    calls, directories = [], []
+                    output, errors = io.StringIO(), io.StringIO()
+
+                    def fake(command, **kwargs):
+                        calls.append(command[2])
+                        directories.append(Path(command[1].removeprefix("-chdir=")))
+                        return subprocess.CompletedProcess(command, 0, body if command[2] == "show"
+                                                           else sentinel.encode(), sentinel.encode())
+
+                    with contextlib.redirect_stdout(output), contextlib.redirect_stderr(errors), \
+                         patch.dict(os.environ, e | {"P6_OPERATION": operation}, clear=True), \
+                         patch.object(execution.dt, "datetime", FixedDateTime), \
+                         patch.object(execution, "check_source"), \
+                         patch.object(execution, "validate_plan", side_effect=error), \
+                         patch.object(execution.subprocess, "run", side_effect=fake), \
+                         self.assertRaises(SystemExit) as exit_status:
+                        # Exercise the real CLI exception handler as well as execute's diagnostic boundary.
+                        exec('if True:' + entrypoint, execution.__dict__ | {"main": lambda: execution.execute(a, c)})
+                    self.assertEqual(exit_status.exception.code, 1)
+                    self.assertEqual(calls, ["init", "validate", "plan", "show", "state"])
+                    self.assertTrue(all(not path.exists() for path in directories))
+                    self.assertIn("plan guard refused: " + expected + "\n", errors.getvalue())
+                    self.assertIn("P6 execution refused/failed;", errors.getvalue())
+                    self.assertNotIn("resource=", errors.getvalue())
+                    self.assertNotIn(sentinel, output.getvalue() + errors.getvalue())
+                    self.assertNotIn("Traceback", errors.getvalue())
 
 
 class WorkflowBoundaryTest(unittest.TestCase):

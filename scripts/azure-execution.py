@@ -18,6 +18,26 @@ REPOSITORY = "imcherry5778-labs/github-capacity-cascade-platform"
 SHA = re.compile(r"[0-9a-f]{40}")
 ROTATION_POLICY = "postgresql-password-rotation-1-to-2"
 POSTGRESQL = "azurerm_postgresql_flexible_server.this"
+PLAN_FAILURE_CODES = frozenset({
+    "PLAN_JSON_INVALID", "VALIDATION_EXCEPTION", "RESOURCE_CHANGES", "POLICY_REQUIRED",
+    "POLICY_OPERATION", "FORMAT_VERSION", "PLAN_STATUS", "RESOURCE_DRIFT", "DEFERRED_CHANGES",
+    "EXTRA_ACTIONS", "RESOURCE_STRUCTURE", "RESOURCE_ADDRESS", "RESOURCE_METADATA",
+    "CHANGE_STRUCTURE", "UNKNOWN_VALUES", "REPLACEMENT_IMPORT", "RESOURCE_IDENTITY", "RESOURCE_ID",
+    "POSTGRESQL_ACTION", "PASSWORD_VERSION", "PASSWORD_PERSISTED", "RESOURCE_ACTION", "ATTRIBUTE_DIFF",
+    "RESOURCE_INVENTORY", "OUTPUT_STRUCTURE", "OUTPUT_CHANGE", "PLAN_CHECKS",
+})
+
+
+class PlanGuardError(ValueError):
+    def __init__(self, code, address=None):
+        self.code = code
+        self.address = address
+        super().__init__("plan guard refused")
+
+
+def plan_require(condition, code, address=None):
+    if not condition:
+        raise PlanGuardError(code, address)
 
 
 def require(condition, message):
@@ -151,78 +171,81 @@ def known(value):
 def validate_plan(approval, stack, operation, plan, addresses):
     """Inspect the private JSON of the very saved plan passed to apply; never echo values."""
     rotation = approval.get("plan_policy") == ROTATION_POLICY
-    require(isinstance(plan, dict) and
-            isinstance(plan.get("resource_changes", None if rotation else []), list), "resource changes required")
+    plan_require(isinstance(plan, dict) and
+            isinstance(plan.get("resource_changes", None if rotation else []), list), "RESOURCE_CHANGES")
     if not rotation:
         # Creation/cleanup retain their contract. Existing server mutation needs an explicit policy.
         if stack == "environment" and operation == "apply":
             for resource in plan.get("resource_changes", []):
                 if resource["address"] == POSTGRESQL:
                     change = resource["change"]
-                    require(change["actions"] == ["no-op"] or
+                    plan_require(change["actions"] == ["no-op"] or
                             (change["actions"] == ["create"] and change.get("before") is None),
-                            "existing PostgreSQL mutation requires an approved plan policy")
+                            "POLICY_REQUIRED")
         return
-    require(stack == "environment" and operation in ("plan", "apply"), "invalid policy operation")
-    require(isinstance(plan.get("format_version"), str) and
-            re.fullmatch(r"1\.\d+", plan["format_version"]) and
-            plan.get("applyable") is True and plan.get("complete") is True and
-            plan.get("errored") is False, "complete applyable plan required")
-    require(plan.get("resource_drift", []) == [] and plan.get("deferred_changes", []) == [] and
+    plan_require(stack == "environment" and operation in ("plan", "apply"), "POLICY_OPERATION")
+    plan_require(isinstance(plan.get("format_version"), str) and
+            re.fullmatch(r"1\.\d+", plan["format_version"]), "FORMAT_VERSION")
+    plan_require(plan.get("applyable") is True and plan.get("complete") is True and
+                 plan.get("errored") is False, "PLAN_STATUS")
+    plan_require(plan.get("resource_drift", []) == [], "RESOURCE_DRIFT")
+    plan_require(plan.get("deferred_changes", []) == [], "DEFERRED_CHANGES")
+    plan_require(
             plan.get("action_invocations", []) == [] and plan.get("deferred_action_invocations", []) == [],
-            "drift or deferred/extra actions refused")
+            "EXTRA_ACTIONS")
     seen = set()
     for resource in plan["resource_changes"]:
-        require(isinstance(resource, dict), "invalid resource change")
+        plan_require(isinstance(resource, dict), "RESOURCE_STRUCTURE")
         address = resource.get("address")
-        require(isinstance(address, str) and address in addresses and address not in seen,
-                "unexpected or duplicate resource")
+        plan_require(isinstance(address, str) and address in addresses and address not in seen,
+                "RESOURCE_ADDRESS")
         seen.add(address)
         kind, name = address.split(".")
-        require(resource.get("mode") == "managed" and resource.get("type") == kind and
+        plan_require(resource.get("mode") == "managed" and resource.get("type") == kind and
                 resource.get("name") == name and
                 resource.get("provider_name") == "registry.terraform.io/hashicorp/azurerm" and
                 not any(key in resource for key in ("previous_address", "deposed", "index", "module_address")),
-                "resource identity/move refused")
+                "RESOURCE_METADATA", address)
         change = resource.get("change")
-        require(isinstance(change, dict) and "after_unknown" in change and known(change["after_unknown"]) and
-                change.get("replace_paths", []) == [] and "importing" not in change and
-                "generated_config" not in change, "unknown/replacement/import change refused")
-        require(("before_identity" in change) == ("after_identity" in change) and
+        plan_require(isinstance(change, dict), "CHANGE_STRUCTURE", address)
+        plan_require("after_unknown" in change and known(change["after_unknown"]), "UNKNOWN_VALUES", address)
+        plan_require(change.get("replace_paths", []) == [] and "importing" not in change and
+                "generated_config" not in change, "REPLACEMENT_IMPORT", address)
+        plan_require(("before_identity" in change) == ("after_identity" in change) and
                 json.dumps(change.get("before_identity"), sort_keys=True) ==
-                json.dumps(change.get("after_identity"), sort_keys=True), "resource identity change refused")
+                json.dumps(change.get("after_identity"), sort_keys=True), "RESOURCE_IDENTITY", address)
         before, after = change.get("before"), change.get("after")
-        require(isinstance(before, dict) and isinstance(after, dict) and
+        plan_require(isinstance(before, dict) and isinstance(after, dict) and
                 isinstance(before.get("id"), str) and bool(before["id"]) and
-                before["id"] == after.get("id"), "existing unchanged resource ID required")
+                before["id"] == after.get("id"), "RESOURCE_ID", address)
         expected = dict(before)
         if address == POSTGRESQL:
             version = "administrator_password_wo_version"
-            require(change.get("actions") == ["update"] and
-                    type(before.get(version)) is int and before[version] == 1 and
+            plan_require(change.get("actions") == ["update"], "POSTGRESQL_ACTION", address)
+            plan_require(type(before.get(version)) is int and before[version] == 1 and
                     type(after.get(version)) is int and after[version] == 2,
-                    "only PostgreSQL password version 1 to 2 update allowed")
-            require(all(values.get(key) is None for values in (before, after)
+                    "PASSWORD_VERSION", address)
+            plan_require(all(values.get(key) is None for values in (before, after)
                         for key in ("administrator_password", "administrator_password_wo")),
-                    "password values must not be persisted")
+                    "PASSWORD_PERSISTED", address)
             expected[version] = 2
         else:
-            require(change.get("actions") == ["no-op"], "other resource action refused")
+            plan_require(change.get("actions") == ["no-op"], "RESOURCE_ACTION", address)
         # Canonical JSON equality distinguishes bool/number and preserves every nested attribute/key.
-        require(json.dumps(expected, sort_keys=True) == json.dumps(after, sort_keys=True),
-                "unexpected attribute diff")
-    require(seen == addresses and POSTGRESQL in seen, "complete resource inventory required")
+        plan_require(json.dumps(expected, sort_keys=True) == json.dumps(after, sort_keys=True),
+                "ATTRIBUTE_DIFF", address)
+    plan_require(seen == addresses and POSTGRESQL in seen, "RESOURCE_INVENTORY")
     outputs = plan.get("output_changes", {})
-    require(isinstance(outputs, dict), "invalid output changes")
+    plan_require(isinstance(outputs, dict), "OUTPUT_STRUCTURE")
     for change in outputs.values():
-        require(isinstance(change, dict) and change.get("actions") == ["no-op"] and
+        plan_require(isinstance(change, dict) and change.get("actions") == ["no-op"] and
                 "before" in change and "after" in change and "after_unknown" in change and
                 known(change["after_unknown"]) and
                 json.dumps(change["before"], sort_keys=True) == json.dumps(change["after"], sort_keys=True),
-                "output change refused")
+                "OUTPUT_CHANGE")
     checks = plan.get("checks", [])
-    require(isinstance(checks, list) and all(isinstance(check, dict) and check.get("status") == "pass"
-                                           for check in checks), "unresolved plan checks refused")
+    plan_require(isinstance(checks, list) and all(isinstance(check, dict) and check.get("status") == "pass"
+                                           for check in checks), "PLAN_CHECKS")
 
 
 def execute(approval, config):
@@ -282,8 +305,24 @@ def execute(approval, config):
             if operation == "destroy":
                 plan.append("-destroy")
             run(*plan)
-            changes = json.loads(run("show", "-json", str(work / "execution.tfplan")))
-            validate_plan(approval, stack, operation, changes, addresses)
+            plan_json = run("show", "-json", str(work / "execution.tfplan"))
+            try:
+                changes = json.loads(plan_json)
+                validate_plan(approval, stack, operation, changes, addresses)
+            except Exception as error:
+                # Only fixed codes and source-allowlisted addresses cross this boundary.
+                # Never stringify an unexpected exception (including JSON/provider payloads).
+                code, address = "VALIDATION_EXCEPTION", None
+                if isinstance(error, (json.JSONDecodeError, UnicodeDecodeError)):
+                    code = "PLAN_JSON_INVALID"
+                elif isinstance(error, PlanGuardError):
+                    if isinstance(error.code, str) and error.code in PLAN_FAILURE_CODES:
+                        code = error.code
+                    if isinstance(error.address, str) and error.address in addresses:
+                        address = error.address
+                print("plan guard refused: " + code + (" resource=" + address if address else ""),
+                      file=sys.stderr, flush=True)
+                raise PlanGuardError(code, address) from None
             for change in changes.get("resource_changes", []):
                 require(change["address"] in addresses, "plan contains an unexpected resource address")
                 require(change["change"]["actions"] in (["no-op"], ["create"], ["read"], ["update"],
