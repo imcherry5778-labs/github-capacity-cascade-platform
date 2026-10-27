@@ -535,8 +535,8 @@ class RotationTest(unittest.TestCase):
         other_index = next(i for i in range(len(addresses)) if i != pg_index)
         cases = [("exact update", valid, True)]
 
-        def mutate(label, path, value=None, remove=False):
-            plan = copy.deepcopy(valid)
+        def mutate(label, path, value=None, remove=False, base=valid):
+            plan = copy.deepcopy(base)
             selected = plan
             for key in path[:-1]:
                 selected = selected[key]
@@ -545,6 +545,80 @@ class RotationTest(unittest.TestCase):
             else:
                 selected[path[-1]] = value
             cases.append((label, plan, False))
+
+        # Synthetic values, with the 23 drift addresses/actions observed in run 40526715230.
+        # These resource types had no drift in that run; no private plan/state is retained.
+        refreshed = copy.deepcopy(valid)
+        refreshed["resource_drift"] = [copy.deepcopy(resource) for resource in valid["resource_changes"]
+                                       if resource["type"] not in {
+                                           "azurerm_role_assignment", "azurerm_federated_identity_credential",
+                                           "azurerm_monitor_data_collection_rule_association",
+                                           "azurerm_postgresql_flexible_server_database"}]
+        self.assertEqual(len(refreshed["resource_drift"]), 23)
+        for resource in refreshed["resource_drift"]:
+            change = resource["change"]
+            change["actions"] = ["update"]
+            change["after"] = copy.deepcopy(change["before"])
+            change["before"]["tags"] = {"purpose": "dummy-old-private-plan-value"}
+        cases.append(("23 refresh updates and only PG planned update", refreshed, True))
+        identities = copy.deepcopy(refreshed)
+        for resource in identities["resource_changes"] + identities["resource_drift"]:
+            change = resource["change"]
+            identity = {"name": resource["name"], "subscription_id": "dummy-private-plan-value"}
+            change.update(before_identity=identity, after_identity=copy.deepcopy(identity))
+        cases.append(("23 refresh updates with provider identities", identities, True))
+
+        drift = ["resource_drift", 0]
+        dc = drift + ["change"]
+        for value in (None, {}, [None], refreshed["resource_drift"] * 2,
+                      refreshed["resource_drift"] + [refreshed["resource_drift"][0]]):
+            mutate("malformed/duplicate/excess drift", ["resource_drift"], value, base=refreshed)
+        for field, value in (("address", "dummy.unexpected"), ("address", []), ("mode", "data"),
+                             ("type", "dummy"), ("name", "dummy"), ("provider_name", "dummy"),
+                             ("previous_address", "dummy"), ("deposed", "dummy"), ("index", 0),
+                             ("index_unknown", True), ("module_address", "dummy"), ("change", None)):
+            mutate("drift metadata " + field, drift + [field], value, base=refreshed)
+        for actions in (["no-op"], ["create"], ["delete"], ["delete", "create"], ["create", "delete"],
+                        ["read"], ["forget"], [], ["unknown"]):
+            mutate("drift actions", dc + ["actions"], actions, base=refreshed)
+        for field, value in (("after_unknown", {"id": True}), ("after_unknown", None), ("after_unknown", []),
+                             ("replace_paths", [["id"]]), ("importing", {}), ("generated_config", "dummy"),
+                             ("before_identity", {"name": "unexpected"})):
+            mutate("drift change " + field, dc + [field], value, base=refreshed)
+        mutate("drift absent unknown mask", dc + ["after_unknown"], remove=True, base=refreshed)
+        for side in ("before", "after"):
+            for value in (None, [], {}):
+                mutate("drift malformed values", dc + [side], value, base=refreshed)
+            for value in (None, "", " ", 1, "dummy-other-id"):
+                mutate("drift ID", dc + [side, "id"], value, base=refreshed)
+        mismatch = copy.deepcopy(refreshed)
+        for side in ("before", "after"):
+            mismatch["resource_drift"][0]["change"][side]["id"] = "dummy-other-id"
+        cases.append(("stable drift ID disagrees with planned ID", mismatch, False))
+        for value in (None, {}, [], {"name": None}, {"name": ""}, {"name": True}, {"name": {}},
+                      {"name": "different-private-identity"}):
+            mismatch = copy.deepcopy(identities)
+            mismatch["resource_drift"][0]["change"].update(before_identity=value, after_identity=value)
+            cases.append(("malformed or inconsistent drift provider identity", mismatch, False))
+        for side in ("before_identity", "after_identity"):
+            mutate("missing drift provider identity", dc + [side], remove=True, base=identities)
+            mutate("changed drift provider identity", dc + [side], {"name": "changed"}, base=identities)
+        mutate("drift omits planned provider identity", ["resource_drift"],
+               refreshed["resource_drift"], base=identities)
+        mutate("planned omits drift provider identity", ["resource_changes"],
+               valid["resource_changes"], base=identities)
+        # Drift acceptance must still reach every existing saved-plan safety check.
+        for path, value in ((["resource_changes", other_index, "change", "actions"], ["update"]),
+                            (["resource_changes", pg_index, "change", "before", "administrator_password_wo_version"], 2),
+                            (["resource_changes", pg_index, "change", "after", "administrator_password_wo_version"], True),
+                            (["resource_changes", pg_index, "change", "after", "tags"], {"purpose": "changed"}),
+                            (["output_changes", "postgresql", "after"], {"id": "changed"}),
+                            (["checks"], [{"status": "fail"}]), (["deferred_changes"], [{}])):
+            mutate("unsafe planned effect despite valid drift", path, value, base=refreshed)
+        aks_index = next(i for i, resource in enumerate(refreshed["resource_changes"])
+                         if resource["type"] == "azurerm_kubernetes_cluster")
+        mutate("AKS update despite valid drift", ["resource_changes", aks_index, "change", "actions"],
+               ["update"], base=refreshed)
 
         for index in (pg_index, other_index):
             resource = ["resource_changes", index]
@@ -655,7 +729,8 @@ class RotationTest(unittest.TestCase):
                     self.assertEqual(calls[3], ["show", "-json", saved])
                     self.assertEqual(calls[4][-1], saved)
                 self.assertTrue(all(not path.exists() for path in directories))
-                for private in ("dummy-private-plan-value", "dummy-provider-diagnostic", json.dumps(plan),
+                for private in ("dummy-private-plan-value", "dummy-old-private-plan-value",
+                                "different-private-identity", "dummy-provider-diagnostic", json.dumps(plan),
                                 e["P6_POSTGRESQL_ADMINISTRATOR_PASSWORD"], e["ACTIONS_ID_TOKEN_REQUEST_TOKEN"]):
                     self.assertNotIn(private, output.getvalue() + errors.getvalue())
 

@@ -340,6 +340,17 @@ def aks_planned_diagnostics(change):
             prefix + f"other_changed_paths={other} status={'UNKNOWN' if other == 'unknown' else 'KNOWN'}"]
 
 
+def stable_identity(change):
+    # Terraform 1.16.7 omits both fields when the provider has no resource identity.
+    # The legacy resource ID is independently mandatory even in that case.
+    if "before_identity" not in change and "after_identity" not in change:
+        return True
+    before, after = change.get("before_identity"), change.get("after_identity")
+    return (isinstance(before, dict) and bool(before) and
+            all(isinstance(key, str) and bool(key) and isinstance(value, str) and bool(value.strip())
+                for key, value in before.items()) and before == after)
+
+
 def validate_plan(approval, stack, operation, plan, addresses):
     """Inspect the private JSON of the very saved plan passed to apply; never echo values."""
     rotation = approval.get("plan_policy") == ROTATION_POLICY
@@ -360,7 +371,33 @@ def validate_plan(approval, stack, operation, plan, addresses):
             re.fullmatch(r"1\.\d+", plan["format_version"]), "FORMAT_VERSION")
     plan_require(plan.get("applyable") is True and plan.get("complete") is True and
                  plan.get("errored") is False, "PLAN_STATUS")
-    plan_require(plan.get("resource_drift", []) == [], "RESOURCE_DRIFT")
+    plan_require(len(addresses) == 34 and POSTGRESQL in addresses, "RESOURCE_INVENTORY")
+    drift = plan.get("resource_drift", [])
+    plan_require(isinstance(drift, list) and len(drift) <= len(addresses), "RESOURCE_DRIFT")
+    drift_by_address = {}
+    for resource in drift:
+        plan_require(isinstance(resource, dict), "RESOURCE_DRIFT")
+        address = resource.get("address")
+        plan_require(isinstance(address, str) and address in addresses and
+                address not in drift_by_address, "RESOURCE_DRIFT")
+        kind, name = address.split(".")
+        plan_require(resource.get("mode") == "managed" and resource.get("type") == kind and
+                resource.get("name") == name and
+                resource.get("provider_name") == "registry.terraform.io/hashicorp/azurerm" and
+                not any(key in resource for key in
+                        ("previous_address", "deposed", "index", "index_unknown", "module_address")),
+                "RESOURCE_DRIFT")
+        change = resource.get("change")
+        plan_require(isinstance(change, dict) and change.get("actions") == ["update"] and
+                (change.get("after_unknown") is False or isinstance(change.get("after_unknown"), dict)) and
+                known(change["after_unknown"]) and
+                change.get("replace_paths", []) == [] and "importing" not in change and
+                "generated_config" not in change and stable_identity(change), "RESOURCE_DRIFT")
+        before, after = change.get("before"), change.get("after")
+        plan_require(isinstance(before, dict) and isinstance(after, dict) and
+                isinstance(before.get("id"), str) and bool(before["id"].strip()) and
+                before["id"] == after.get("id"), "RESOURCE_DRIFT")
+        drift_by_address[address] = change
     plan_require(plan.get("deferred_changes", []) == [], "DEFERRED_CHANGES")
     plan_require(
             plan.get("action_invocations", []) == [] and plan.get("deferred_action_invocations", []) == [],
@@ -376,20 +413,26 @@ def validate_plan(approval, stack, operation, plan, addresses):
         plan_require(resource.get("mode") == "managed" and resource.get("type") == kind and
                 resource.get("name") == name and
                 resource.get("provider_name") == "registry.terraform.io/hashicorp/azurerm" and
-                not any(key in resource for key in ("previous_address", "deposed", "index", "module_address")),
+                not any(key in resource for key in
+                        ("previous_address", "deposed", "index", "index_unknown", "module_address")),
                 "RESOURCE_METADATA", address)
         change = resource.get("change")
         plan_require(isinstance(change, dict), "CHANGE_STRUCTURE", address)
         plan_require("after_unknown" in change and known(change["after_unknown"]), "UNKNOWN_VALUES", address)
         plan_require(change.get("replace_paths", []) == [] and "importing" not in change and
                 "generated_config" not in change, "REPLACEMENT_IMPORT", address)
-        plan_require(("before_identity" in change) == ("after_identity" in change) and
-                json.dumps(change.get("before_identity"), sort_keys=True) ==
-                json.dumps(change.get("after_identity"), sort_keys=True), "RESOURCE_IDENTITY", address)
+        plan_require(stable_identity(change), "RESOURCE_IDENTITY", address)
         before, after = change.get("before"), change.get("after")
         plan_require(isinstance(before, dict) and isinstance(after, dict) and
                 isinstance(before.get("id"), str) and bool(before["id"]) and
                 before["id"] == after.get("id"), "RESOURCE_ID", address)
+        if address in drift_by_address:
+            refreshed = drift_by_address[address]
+            # This is a narrow rotation exception, not a benign-drift classification.
+            # Refreshed identity must also be the identity in the validated saved plan.
+            plan_require(refreshed["after"]["id"] == before["id"] and
+                    ("after_identity" in refreshed) == ("before_identity" in change) and
+                    refreshed.get("after_identity") == change.get("before_identity"), "RESOURCE_DRIFT")
         expected = dict(before)
         if address == POSTGRESQL:
             version = "administrator_password_wo_version"
