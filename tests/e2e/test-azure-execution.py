@@ -714,8 +714,61 @@ class RotationTest(unittest.TestCase):
 
         lines = execution.drift_diagnostics({"resource_drift": plan["resource_changes"],
                                             "resource_changes": plan["resource_changes"]}, addresses)
-        self.assertEqual(len(lines), 73)  # Two counts, at most 68 entries, three fixed AKS lines.
-        self.assertEqual(sum(" resource=" in line for line in lines), 68)
+        self.assertEqual(len(lines), 107)  # Two counts, 68 entries, 34 field summaries, three AKS lines.
+        self.assertEqual(sum(line.startswith("drift diagnostic: ") and " resource=" in line
+                             for line in lines), 68)
+
+    def test_drift_fields_are_fixed_per_resource_and_never_emit_values_or_other_names(self):
+        sentinel = "private-secret-token-resource-id-arbitrary-path"
+        for address, fields in execution.DRIFT_DIAGNOSTIC_FIELDS.items():
+            change = {"before": {field: sentinel for field in fields},
+                      "after": {field: "different-private-value" for field in fields},
+                      "after_unknown": {}, "before_sensitive": {}, "after_sensitive": {}}
+            change["before"].update({sentinel: {sentinel: sentinel}, "typed": 1, "removed": None})
+            change["after"].update({sentinel: {sentinel: "different"}, "typed": True, "added": None})
+            prefix = f"drift fields diagnostic: resource={address} "
+            with self.subTest(address=address):
+                line = execution.drift_field_diagnostic(address, change)
+                self.assertEqual(line, prefix + "named_changed_fields=" + ",".join(fields) +
+                                 " other_changed_fields=4 status=KNOWN")
+                for private in (sentinel, "different-private-value", "typed", "removed", "added"):
+                    self.assertNotIn(private, line)
+                # Sensitive or absent/malformed masks suppress names, while counts remain available.
+                for mask in (True, None, {field: True for field in fields}):
+                    self.assertEqual(execution.drift_field_diagnostic(
+                        address, change | {"after_sensitive": mask}), prefix +
+                        f"named_changed_fields=none other_changed_fields={len(fields) + 4} status=KNOWN")
+                no_mask = {key: value for key, value in change.items() if key != "before_sensitive"}
+                self.assertEqual(execution.drift_field_diagnostic(address, no_mask), prefix +
+                                 f"named_changed_fields=none other_changed_fields={len(fields) + 4} status=KNOWN")
+        # Matching field names on any other source resource are counted without being named.
+        line = execution.drift_field_diagnostic("azurerm_application_insights.this", change)
+        self.assertEqual(line, "drift fields diagnostic: resource=azurerm_application_insights.this "
+                         f"named_changed_fields=none other_changed_fields={len(fields) + 4} status=KNOWN")
+
+    def test_drift_field_unknown_malformed_and_comparison_limits(self):
+        address = "azurerm_kubernetes_cluster.this"
+        base = {"before": {"default_node_pool": [{"node_count": 2}]},
+                "after": {"default_node_pool": [{"node_count": 3}]},
+                "after_unknown": {}, "before_sensitive": {}, "after_sensitive": {}}
+        unknown = (f"drift fields diagnostic: resource={address} "
+                   "named_changed_fields=unknown other_changed_fields=unknown status=UNKNOWN")
+        deep = False
+        for _ in range(sys.getrecursionlimit() + 10):
+            deep = [deep]
+        cases = [base | {"after_unknown": mask} for mask in (True, None, [], 0, "private", {"private": True}, deep)]
+        cases += [base | {side: value} for side in ("before", "after") for value in (None, [], True)]
+        cases += [{key: value for key, value in base.items() if key != "after_unknown"},
+                  base | {"before": {str(i): False for i in range(129)}},
+                  base | {"after": {"private": "x" * 262144}}]
+        for index, change in enumerate(cases):
+            with self.subTest(case=index):
+                self.assertEqual(execution.drift_field_diagnostic(address, change), unknown)
+        with patch.object(execution.json, "dumps", side_effect=RecursionError("private")):
+            self.assertEqual(execution.drift_field_diagnostic(address, base), unknown)
+        self.assertEqual(execution.drift_field_diagnostic(address, base | {"after": base["before"]}),
+                         f"drift fields diagnostic: resource={address} "
+                         "named_changed_fields=none other_changed_fields=0 status=KNOWN")
 
     def test_aks_candidate_paths_and_other_change_count(self):
         _, _, _, plan, addresses = rotation_fixture()
@@ -827,7 +880,7 @@ class RotationTest(unittest.TestCase):
                                  {"upgrade_settings": [{"max_surge": sentinel}]}]},
                              after={"id": sentinel, "default_node_pool": [{"upgrade_settings": []}]})
         for operation in ("plan", "apply"):
-            for fail_diagnostic in (False, True, "aks"):
+            for fail_diagnostic in (False, True, "aks", "fields"):
                 with self.subTest(operation=operation, fail_diagnostic=fail_diagnostic):
                     calls, directories = [], []
                     output, errors = io.StringIO(), io.StringIO()
@@ -848,6 +901,8 @@ class RotationTest(unittest.TestCase):
                                       if fail_diagnostic is True else diagnostic), \
                          patch.object(execution, "aks_planned_diagnostics", side_effect=RuntimeError(sentinel)
                                       if fail_diagnostic == "aks" else execution.aks_planned_diagnostics), \
+                         patch.object(execution, "drift_field_diagnostic", side_effect=RuntimeError(sentinel)
+                                      if fail_diagnostic == "fields" else execution.drift_field_diagnostic), \
                          patch.object(execution.subprocess, "run", side_effect=fake), \
                          self.assertRaises(execution.PlanGuardError) as refused:
                         execution.execute(a, c)
@@ -860,6 +915,8 @@ class RotationTest(unittest.TestCase):
                         expected.extend([
                             "drift diagnostic: resource_drift entries=2 shown=1 withheld=1 status=WITHHELD",
                             "drift diagnostic: resource_drift resource=" + drift["address"] + " actions=update",
+                            "drift fields diagnostic: resource=" + drift["address"] +
+                            " named_changed_fields=none other_changed_fields=0 status=KNOWN",
                             "drift diagnostic: resource_changes entries=34 shown=33 withheld=1 status=WITHHELD",
                         ])
                         for entry in plan["resource_changes"][:-1]:

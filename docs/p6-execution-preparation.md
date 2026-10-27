@@ -213,8 +213,18 @@ Malformed/unallowlisted address·metadata·action은 원문 없이 `withheld`에
 `OK`는 해당 목록의 address/action 투영이 모두 출력됐다는 뜻이며 guard 통과를 의미하지 않는다.
 진단 자체가 실패해도 고정 `unavailable`만 출력하고 원래 `RESOURCE_DRIFT` 거부를 유지한다.
 
+유효한 각 `resource_drift` entry에 `drift fields diagnostic:` 한 줄을 추가한다. 최상위 필드 변경만
+비교하며 nested key/path는 출력하지 않는다. 고정 resource별 이름 allowlist는 AKS의
+`current_kubernetes_version`/`default_node_pool`, PostgreSQL의 `administrator_password_wo_version`,
+VNet의 `address_space`, 세 subnet의 `address_prefixes`뿐이다.
+이 이름들은 credential/임의 key가 아닌 provider의 고정 configuration/version 필드다.
+`named_changed_fields`에는 변경된 allowlisted 이름 중 양쪽 sensitive mask로 비민감성을 확인한 것만
+출력하고 나머지는 `other_changed_fields` 개수로 합산한다. 다른 resource에는 이름을 출력하지 않는다.
+Unknown/malformed 비교, 최상위 128개 필드 또는 직렬화한 양쪽 합계 262,144문자 초과는 `UNKNOWN`이다.
+`KNOWN`은 최상위 비교 완료만 뜻하며 computed-only/benign 판정이 아니다. 기존 drift 거부는 유지한다.
+
 동일 거부 경로에서 유효한 단일 AKS `resource_changes` entry가 있으면 `aks planned diagnostic:` 세 줄을
-추가한다(전체 최대 73줄). Planned action은 기존 address/action 요약을 사용한다. 출력 path allowlist는
+추가한다(field summary 포함 전체 최대 107줄). Planned action은 기존 address/action 요약을 사용한다. 출력 path allowlist는
 `default_node_pool[0].upgrade_settings`와 `default_node_pool[0].upgrade_settings[0].max_surge` 두 개뿐이다.
 각각 `changed=true/false/unknown`을 출력하고, 블록은 `added/removed/changed/unchanged/unknown`으로 구분한다.
 후보 블록 전체를 제외한 AKS before/after 차이는 `other_changed_paths` 개수만 출력한다. Dict key/list index별
@@ -231,8 +241,12 @@ absent로 취급한다. 다른 경로 비교는 최대 10,000개 위치/깊이 6
 [AzureRM 5.11.0 default-pool schema](https://github.com/hashicorp/terraform-provider-azurerm/blob/v5.11.0/internal/services/containers/helpers/kubernetes_nodepool.go#L633-L660)는
 `upgrade_settings`를 Optional TypeList/MaxItems 1, `max_surge`를 Required로 정의하며 블록은 Computed가 아니다.
 [Flatten 구현](https://github.com/hashicorp/terraform-provider-azurerm/blob/v5.11.0/internal/services/containers/helpers/kubernetes_nodepool.go#L1360-L1384)은
-비어 있지 않은 ARM `MaxSurge`를 state에 기록한다. Source의 블록 생략과 planned update 사이의 관계는
-**후보 가설**이며 다음 별도 승인 Plan의 실제 진단으로 확인해야 한다. AKS Terraform 설정은 변경하지 않는다.
+비어 있지 않은 ARM `MaxSurge`를 state에 기록한다.
+[Plan #40511783308](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/actions/runs/40511783308)에서
+AKS planned diff가 해당 블록 제거뿐임을 확인했으며,
+[독립 리뷰](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/34#issuecomment-6443505485)의
+ARM 관측값에 맞춰 source에 `upgrade_settings { max_surge = "10%" }`를 명시한다.
+Pinned schema에 없는 `max_unavailable`은 추가하지 않는다. 실제 planned update 해소 여부는 다음 별도 승인 Plan에서 확인해야 한다.
 
 [이전 Plan](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/actions/runs/40496488152)의
 drift 23건은 별도 strict blocker다. Planned AKS/PostgreSQL update 2건 및 no-op 32건과 혼동하거나,

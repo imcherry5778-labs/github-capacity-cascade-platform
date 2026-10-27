@@ -311,6 +311,7 @@ run "environment_contract" {
       azurerm_kubernetes_cluster.this.default_node_pool[0].vnet_subnet_id == azurerm_subnet.aks_nodes.id &&
       azurerm_kubernetes_cluster.this.default_node_pool[0].auto_scaling_enabled == false &&
       azurerm_kubernetes_cluster.this.default_node_pool[0].node_count == 2 &&
+      azurerm_kubernetes_cluster.this.default_node_pool[0].upgrade_settings[0].max_surge == "10%" &&
       azurerm_kubernetes_cluster.this.network_profile[0].network_plugin == "azure" &&
       azurerm_kubernetes_cluster.this.network_profile[0].network_plugin_mode == "overlay" &&
       azurerm_kubernetes_cluster.this.network_profile[0].outbound_type == "loadBalancer" &&
