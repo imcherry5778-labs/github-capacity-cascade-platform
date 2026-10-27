@@ -207,15 +207,37 @@ refresh 결과의 차이이고 `resource_changes`는 실제 planned action이므
 각 목록은 entry 개수와 `shown`/`withheld` 개수, source allowlist의 정확한 resource address와
 고정 action(`no-op`, `create`, `read`, `update`, `delete`, `delete,create`, `create,delete`)만 출력한다.
 이 action 목록은 **진단용 어휘**이며 rotation 허용 조건을 확장하지 않는다.
-각 목록은 최대 34 entries만 검사·출력한다(합계 최대 70줄). 초과 목록은 개수와 `LIMIT`만 기록한다.
+각 목록은 최대 34 entries만 검사·출력한다(기존 요약 합계 최대 70줄). 초과 목록은 개수와 `LIMIT`만 기록한다.
 Malformed/unallowlisted address·metadata·action은 원문 없이 `withheld`에 합산하고,
 중복 source address가 있으면 해당 목록 전체를 숨긴다. 목록 구조가 잘못되면 개수도 `unknown`으로 표시한다.
 `OK`는 해당 목록의 address/action 투영이 모두 출력됐다는 뜻이며 guard 통과를 의미하지 않는다.
 진단 자체가 실패해도 고정 `unavailable`만 출력하고 원래 `RESOURCE_DRIFT` 거부를 유지한다.
 
-변경 attribute 이름/path와 before/after 값은 검사·출력하지 않는다. 민감하지 않은 필드 allowlist를
-추가하지 않으며, version boolean도 drift 이후의 전체 guard 조건을 중복 구현하지 않도록 제외한다.
-따라서 이 요약만으로 password version 1→2 충족, 다른 attribute 불변 또는 rotation 안전성을 주장할 수 없다.
+동일 거부 경로에서 유효한 단일 AKS `resource_changes` entry가 있으면 `aks planned diagnostic:` 세 줄을
+추가한다(전체 최대 73줄). Planned action은 기존 address/action 요약을 사용한다. 출력 path allowlist는
+`default_node_pool[0].upgrade_settings`와 `default_node_pool[0].upgrade_settings[0].max_surge` 두 개뿐이다.
+각각 `changed=true/false/unknown`을 출력하고, 블록은 `added/removed/changed/unchanged/unknown`으로 구분한다.
+후보 블록 전체를 제외한 AKS before/after 차이는 `other_changed_paths` 개수만 출력한다. Dict key/list index별
+leaf 차이를 세며, container 자체의 추가·제거·type 변경은 해당 위치 하나로 센다. Sensitive 필드도 개수에
+포함하지만 실제 값, resource ID, 임의 attribute 이름/path, sensitive mask나 raw plan/state는 출력하지 않는다.
+`KNOWN`은 이 비교를 완료했다는 뜻이며 benign/computed-only 판정이나 Apply 허가가 아니다.
+
+AKS `after_unknown`이 없거나 후보 경로/상위 경로의 mask가 unknown/malformed이면 세 진단 모두 `unknown`이다.
+후보 외 경로에 unknown이 있으면 후보 비교는 유지하되 `other_changed_paths`는 `unknown`으로 표시한다.
+양쪽 default pool이 각각 하나가 아니거나 후보 블록/schema 형태가 맞지 않아도 추측하지 않는다. 후보 블록의 missing/null/빈 list는
+absent로 취급한다. 다른 경로 비교는 최대 10,000개 위치/깊이 64로 제한하며 초과하면 `unknown`이다.
+미허용 metadata/action, 중복 address 또는 목록 제한으로 숨긴 AKS는 추가 진단도 출력하지 않는다.
+
+[AzureRM 5.11.0 default-pool schema](https://github.com/hashicorp/terraform-provider-azurerm/blob/v5.11.0/internal/services/containers/helpers/kubernetes_nodepool.go#L633-L660)는
+`upgrade_settings`를 Optional TypeList/MaxItems 1, `max_surge`를 Required로 정의하며 블록은 Computed가 아니다.
+[Flatten 구현](https://github.com/hashicorp/terraform-provider-azurerm/blob/v5.11.0/internal/services/containers/helpers/kubernetes_nodepool.go#L1360-L1384)은
+비어 있지 않은 ARM `MaxSurge`를 state에 기록한다. Source의 블록 생략과 planned update 사이의 관계는
+**후보 가설**이며 다음 별도 승인 Plan의 실제 진단으로 확인해야 한다. AKS Terraform 설정은 변경하지 않는다.
+
+[이전 Plan](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/actions/runs/40496488152)의
+drift 23건은 별도 strict blocker다. Planned AKS/PostgreSQL update 2건 및 no-op 32건과 혼동하거나,
+drift를 근거 없이 computed-only/benign으로 분류하지 않는다. 이 진단으로 password version 1→2 충족,
+PostgreSQL 다른 attribute 불변 또는 새 credential 활성 여부를 주장할 수 없다. 기존 전체 guard가 그대로 적용된다.
 JSON 계약은 [Terraform 1.16.7 JSON plan 구현](https://github.com/hashicorp/terraform/blob/v1.16.7/internal/command/jsonplan/plan.go)과
 공식 JSON format의 drift/change 구조 및 action 어휘를 재확인했다. Raw plan/state/JSON이나 artifact는 추가하지 않는다.
 
