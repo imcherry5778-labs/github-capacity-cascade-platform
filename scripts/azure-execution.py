@@ -150,13 +150,13 @@ def known(value):
 
 def validate_plan(approval, stack, operation, plan, addresses):
     """Inspect the private JSON of the very saved plan passed to apply; never echo values."""
-    require(isinstance(plan, dict) and isinstance(plan.get("resource_changes"), list),
-            "resource changes required")
     rotation = approval.get("plan_policy") == ROTATION_POLICY
+    require(isinstance(plan, dict) and
+            isinstance(plan.get("resource_changes", None if rotation else []), list), "resource changes required")
     if not rotation:
         # Creation/cleanup retain their contract. Existing server mutation needs an explicit policy.
         if stack == "environment" and operation == "apply":
-            for resource in plan["resource_changes"]:
+            for resource in plan.get("resource_changes", []):
                 if resource["address"] == POSTGRESQL:
                     change = resource["change"]
                     require(change["actions"] == ["no-op"] or

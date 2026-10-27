@@ -368,6 +368,44 @@ class CommandIsolationTest(unittest.TestCase):
                     self.assertFalse(any("-auto-approve" in call for call in calls))
                     self.assertTrue(all(not directory.exists() for directory in directories))
 
+    def test_empty_saved_plan_compatibility_and_malformed_changes(self):
+        # Terraform 1.16.7 omits resource_changes in an empty saved plan (including -destroy).
+        empty = {"format_version": "1.2", "terraform_version": "1.16.7",
+                 "applyable": False, "complete": True, "errored": False}
+        cases = [("omitted", empty, True), ("empty", empty | {"resource_changes": []}, True)]
+        cases.extend((repr(value), empty | {"resource_changes": value}, False)
+                     for value in (None, {}, "", 0, False))
+        for stack in ("foundation", "environment"):
+            for operation in ("plan", "apply", "destroy"):
+                for label, plan, allowed in cases:
+                    with self.subTest(stack=stack, operation=operation, changes=label):
+                        approval, config, env = fixture()
+                        env.update(P6_STACK=stack, P6_OPERATION=operation)
+                        calls = []
+
+                        def fake(command, **kwargs):
+                            calls.append(command[2:])
+                            return subprocess.CompletedProcess(command, 0,
+                                                               json.dumps(plan).encode() if command[2] == "show"
+                                                               else b"", b"")
+
+                        with contextlib.redirect_stdout(io.StringIO()), patch.dict(os.environ, env, clear=True), \
+                             patch.object(execution, "check_source"), \
+                             patch.object(execution.subprocess, "run", side_effect=fake):
+                            if allowed:
+                                execution.execute(approval, config)
+                            else:
+                                with self.assertRaisesRegex(ValueError, "resource changes required"):
+                                    execution.execute(approval, config)
+                        applied = allowed and operation != "plan"
+                        self.assertEqual([call[0] for call in calls], ["init", "validate", "plan", "show"] +
+                                         (["apply"] if applied else []) + ["state"])
+                        saved = next(arg.removeprefix("-out=") for arg in calls[2] if arg.startswith("-out="))
+                        self.assertEqual(calls[3], ["show", "-json", saved])
+                        self.assertEqual("-destroy" in calls[2], operation == "destroy")
+                        if applied:
+                            self.assertEqual(calls[4][-1], saved)
+
     def test_foundation_only_cannot_execute_environment(self):
         a, c, e = fixture()
         del c["environment"]
@@ -489,6 +527,7 @@ class RotationTest(unittest.TestCase):
 
     def test_exact_saved_plan_guard_and_refusal_before_apply(self):
         a, c, e, valid, addresses = rotation_fixture()
+        self.assertEqual(len(addresses), 34)
         pg_index = next(i for i, resource in enumerate(valid["resource_changes"])
                         if resource["address"] == execution.POSTGRESQL)
         other_index = next(i for i in range(len(addresses)) if i != pg_index)
@@ -542,6 +581,7 @@ class RotationTest(unittest.TestCase):
         mutate("unknown address", ["resource_changes", other_index, "address"], "dummy.unexpected")
         mutate("malformed resource", ["resource_changes", pg_index], None)
         mutate("absent changes", ["resource_changes"], remove=True)
+        mutate("empty changes", ["resource_changes"], [])
         mutate("null changes", ["resource_changes"], None)
         for field, value in (("format_version", "2.0"), ("format_version", None), ("applyable", False),
                              ("complete", False), ("errored", True), ("resource_drift", [{}]),
