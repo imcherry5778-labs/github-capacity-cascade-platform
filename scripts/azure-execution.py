@@ -24,6 +24,16 @@ DRIFT_DIAGNOSTIC_ACTIONS = {
     ("no-op",): "no-op", ("create",): "create", ("read",): "read", ("update",): "update",
     ("delete",): "delete", ("delete", "create"): "delete,create", ("create", "delete"): "create,delete",
 }
+# Only these non-secret top-level field names may be emitted for these exact resources.
+# Never emit nested keys (including tags), endpoint values, IDs or secret-bearing field names.
+DRIFT_DIAGNOSTIC_FIELDS = {
+    "azurerm_kubernetes_cluster.this": ("current_kubernetes_version", "default_node_pool"),
+    POSTGRESQL: ("administrator_password_wo_version",),
+    "azurerm_virtual_network.this": ("address_space",),
+    "azurerm_subnet.aks_nodes": ("address_prefixes",),
+    "azurerm_subnet.postgresql": ("address_prefixes",),
+    "azurerm_subnet.private_endpoints": ("address_prefixes",),
+}
 PLAN_FAILURE_CODES = frozenset({
     "PLAN_JSON_INVALID", "VALIDATION_EXCEPTION", "RESOURCE_CHANGES", "POLICY_REQUIRED",
     "POLICY_OPERATION", "FORMAT_VERSION", "PLAN_STATUS", "RESOURCE_DRIFT", "DEFERRED_CHANGES",
@@ -175,7 +185,7 @@ def known(value):
 
 
 def drift_diagnostics(plan, addresses):
-    """Project bounded summaries; only the fixed AKS candidate paths may be named."""
+    """Project bounded summaries; only fixed field names and AKS candidate paths may be named."""
     lines = []
     for key in ("resource_drift", "resource_changes"):
         entries = plan.get(key)
@@ -187,7 +197,7 @@ def drift_diagnostics(plan, addresses):
         if count > DRIFT_DIAGNOSTIC_LIMIT:
             lines.append(f"{prefix} entries={count} shown=0 withheld={count} status=LIMIT")
             continue
-        records, seen, aks = [], set(), []
+        records, fields, seen, aks = [], [], set(), []
         duplicate = False
         for entry in entries:
             if not isinstance(entry, dict):
@@ -211,18 +221,52 @@ def drift_diagnostics(plan, addresses):
             action = DRIFT_DIAGNOSTIC_ACTIONS.get(tuple(actions))
             if action is not None:
                 records.append(f"{prefix} resource={address} actions={action}")
+                if key == "resource_drift":
+                    fields.append(drift_field_diagnostic(address, change))
                 if key == "resource_changes" and address == "azurerm_kubernetes_cluster.this":
                     aks = aks_planned_diagnostics(change)
         # Duplicate source addresses cannot be interpreted as a unique resource inventory.
         if duplicate:
             records = []
+            fields = []
             aks = []
         shown = len(records)
         status = "WITHHELD" if shown != count else "OK"
         lines.append(f"{prefix} entries={count} shown={shown} withheld={count - shown} status={status}")
         lines.extend(records)
+        lines.extend(fields)
         lines.extend(aks)
     return lines
+
+
+def drift_field_diagnostic(address, change):
+    """Count top-level differences privately; no schema inference or benign classification."""
+    prefix = f"drift fields diagnostic: resource={address} "
+    unknown = prefix + "named_changed_fields=unknown other_changed_fields=unknown status=UNKNOWN"
+    before, after = change.get("before"), change.get("after")
+    if not isinstance(before, dict) or not isinstance(after, dict):
+        return unknown
+    try:
+        mask = change.get("after_unknown")
+        if ((mask is not False and not isinstance(mask, dict)) or not known(mask) or
+                len(before.keys() | after.keys()) > 128 or
+                len(json.dumps([before, after], sort_keys=True)) > 262144):
+            return unknown
+        missing = object()
+        changed = {key for key in before.keys() | after.keys()
+                   if key not in before or key not in after or
+                   json.dumps(before[key], sort_keys=True) != json.dumps(after[key], sort_keys=True)}
+        named = []
+        for field in DRIFT_DIAGNOSTIC_FIELDS.get(address, ()):
+            # Sensitive/invalid masks suppress even an allowlisted field name.
+            if field in changed and all(
+                    isinstance(change.get(mask, missing), dict) and known(change[mask].get(field, False))
+                    for mask in ("before_sensitive", "after_sensitive")):
+                named.append(field)
+    except (ValueError, TypeError, RecursionError):
+        return unknown
+    return (prefix + f"named_changed_fields={','.join(named) or 'none'} "
+            f"other_changed_fields={len(changed) - len(named)} status=KNOWN")
 
 
 def aks_planned_diagnostics(change):

@@ -176,6 +176,9 @@ def environment_violations(source):
             v.append(f"AKS managed capability/identity contract: {setting}")
     if re.search(r'\bservice_principal\s*\{', aks):
         v.append("AKS service principal credential forbidden")
+    pool = re.search(r'\bdefault_node_pool\s*\{(.*?)\n  \}', aks, re.S)
+    if not pool or not re.search(r'\bupgrade_settings\s*\{\s*max_surge\s*=\s*"10%"\s*\}', pool[1]):
+        v.append("AKS default pool must retain observed max_surge 10% with no extra upgrade settings")
     acr = block(source, "resource", "azurerm_container_registry")
     if not re.search(r'admin_enabled\s*=\s*false', acr) or not re.search(r'anonymous_pull_enabled\s*=\s*false', acr):
         v.append("ACR must use identity, not admin/anonymous access")
@@ -232,6 +235,9 @@ mutations = {
     "recreated Key Vault": (r'\Z', '\nresource "azurerm_key_vault" "project" {\n}\n'),
     "ACR admin user": (r'admin_enabled\s*=\s*false', 'admin_enabled = true'),
     "AKS local account": (r'local_account_disabled(\s*)=\s*true', r'local_account_disabled\1= false'),
+    "AKS upgrade settings omitted": (r'\s*upgrade_settings\s*\{\s*max_surge\s*=\s*"10%"\s*\}', ''),
+    "AKS max surge changed": (r'max_surge\s*=\s*"10%"', 'max_surge = "20%"'),
+    "AKS unsupported max unavailable": (r'max_surge\s*=\s*"10%"', 'max_surge = "10%"\n      max_unavailable = "0"'),
     "managed Istio disabled": (r'mode(\s*)=\s*"Istio"', r'mode\1= "Disabled"'),
     "subscription Owner": (r'\Z', '\nresource "azurerm_role_assignment" "ci_owner" {\n  scope                = "/subscriptions/x"\n  role_definition_name = "Owner"\n}\n'),
     "CLI auth fallback": (r'(provider "azurerm"[\s\S]*?use_cli\s*=\s*)false', r'\1true'),

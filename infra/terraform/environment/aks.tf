@@ -79,6 +79,10 @@ resource "azurerm_kubernetes_cluster" "this" {
     node_count           = var.kubernetes.system_node_pool.node_count
     auto_scaling_enabled = false
     vnet_subnet_id       = azurerm_subnet.aks_nodes.id
+
+    upgrade_settings {
+      max_surge = "10%"
+    }
   }
 
   node_provisioning_profile {
