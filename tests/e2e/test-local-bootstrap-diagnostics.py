@@ -220,6 +220,7 @@ class LocalBootstrapDiagnosticsTest(unittest.TestCase):
         self.assertIsNotNone(delete)
         self.assertLess(pods, delete)
         self.assertLess(self.output.index("----- bootstrap diagnostics -----"), self.output.index("deleting k3d cluster"))
+        self.assertFalse(any(" set image " in call for call in self.calls))
         for signal in (
             "node k3d-server-0 MemoryPressure=True,Ready=True", "taints=node.kubernetes.io/memory-pressure:NoSchedule",
             "Deployment argocd/argocd-redis", "Available=False:MinimumReplicasUnavailable",
@@ -256,6 +257,20 @@ class LocalBootstrapDiagnosticsTest(unittest.TestCase):
         self.assert_no_secret_access()
         self.assertIsNone(self.server())
         self.assertFalse((self.root / ".tmp" / "kubeconfig").exists())
+
+    def test_ci_redis_digest_override_before_rollout_preserves_failure_cleanup(self):
+        self.assertEqual(self.run_script("local-run.sh", GITHUB_ACTIONS="true"), 7)
+        image = next(line.split("=", 1)[1] for line in (REPO / "versions.env").read_text().splitlines()
+                     if line.startswith("ARGOCD_CI_REDIS_IMAGE="))
+        self.assertRegex(image, r"^docker.io/library/redis:8\.2\.3-alpine@sha256:[a-f0-9]{64}$")
+        overrides = [call for call in self.calls if " set image " in call]
+        self.assertEqual(overrides, [f"kubectl -n argocd set image deployment/argocd-redis redis={image}"])
+        self.assertLess(self.index("kubectl -n argocd apply --server-side"), self.index(overrides[0]))
+        self.assertLess(self.index(overrides[0]), self.index("kubectl -n argocd rollout status deployment/argocd-redis"))
+        self.assertLess(self.index(f"{DIAG} get pods"), self.index("k3d cluster delete"))
+        self.assertIsNone(self.server())
+        self.assertIn("PASS removed runtime output", self.output)
+        self.assert_no_secret_access()
 
     def test_diagnostics_failure_keeps_exit_code_and_cleanup(self):
         self.assertEqual(self.run_script("local-run.sh", STUB_DIAG_FAIL="1"), 7)

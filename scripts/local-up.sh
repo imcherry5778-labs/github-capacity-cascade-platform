@@ -118,6 +118,12 @@ curl -fsSL --retry 3 \
 printf '%s  %s\n' "$ARGOCD_CORE_SHA256" "$core_manifest" | sha256sum -c -
 kubectl create namespace argocd
 kubectl -n argocd apply --server-side --force-conflicts -f "$core_manifest"
+if [[ "${GITHUB_ACTIONS:-}" == true ]]; then
+  # Host Docker cache는 k3d node의 containerd cache가 아니며 upstream policy는 Always다.
+  # 동일 content의 digest만 다른 registry에서 가져온다. Core 원본/checksum과 pull policy는 유지한다.
+  log "CI Redis supply: $ARGOCD_CI_REDIS_IMAGE"
+  kubectl -n argocd set image deployment/argocd-redis "redis=$ARGOCD_CI_REDIS_IMAGE"
+fi
 for crd in applications.argoproj.io appprojects.argoproj.io; do
   established=false
   for ((i=0;i<90;i++)); do
