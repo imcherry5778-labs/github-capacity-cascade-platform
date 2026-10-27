@@ -16,6 +16,8 @@ import urllib.request
 ROOT = Path(__file__).resolve().parents[1]
 REPOSITORY = "imcherry5778-labs/github-capacity-cascade-platform"
 SHA = re.compile(r"[0-9a-f]{40}")
+ROTATION_POLICY = "postgresql-password-rotation-1-to-2"
+POSTGRESQL = "azurerm_postgresql_flexible_server.this"
 
 
 def require(condition, message):
@@ -69,6 +71,11 @@ def validate(approval, config, env, now):
             all(item in {f"{s}:{o}" for s in ("foundation", "environment")
                          for o in ("plan", "apply", "destroy")} for item in operations),
             "operation is not approved")
+    if "plan_policy" in approval:
+        require(approval["plan_policy"] == ROTATION_POLICY and stack == "environment" and
+                operation in ("plan", "apply") and
+                all(item in ("environment:plan", "environment:apply") for item in operations),
+                "plan policy requires environment plan/apply approval only")
     require(isinstance(approval["prerequisite_evidence"], dict), "prerequisite evidence object required")
     evidence = approval["prerequisite_evidence"].get(phase, "")
     require(isinstance(evidence, str) and evidence.startswith("https://"),
@@ -101,6 +108,12 @@ def validate(approval, config, env, now):
                 config["foundation"]["resource_group_name"].lower() != config["environment"]["resource_group_name"].lower() and
                 config["foundation"]["resource_group_name"] == config["environment"]["foundation_resource_group_name"],
                 "subscription/RG boundaries mismatch")
+    if "plan_policy" in approval:
+        postgresql = config["environment"].get("postgresql")
+        require(isinstance(postgresql, dict) and
+                type(postgresql.get("administrator_password_version")) is int and
+                postgresql["administrator_password_version"] == 2,
+                "rotation policy requires approved password version 2 input")
     return stack, operation
 
 
@@ -124,6 +137,92 @@ def check_source(approval, merged_pr=False):
         require(pr["merged"] is True and pr["state"] == "closed" and pr["base"]["ref"] == "main" and
                 pr["base"]["repo"]["full_name"] == REPOSITORY and pr["merge_commit_sha"] == source,
                 "source must be the exact merged PR commit on main")
+
+
+def known(value):
+    """Terraform unknown masks contain only false leaves when fully known."""
+    if isinstance(value, dict):
+        return all(known(item) for item in value.values())
+    if isinstance(value, list):
+        return all(known(item) for item in value)
+    return value is False
+
+
+def validate_plan(approval, stack, operation, plan, addresses):
+    """Inspect the private JSON of the very saved plan passed to apply; never echo values."""
+    require(isinstance(plan, dict) and isinstance(plan.get("resource_changes"), list),
+            "resource changes required")
+    rotation = approval.get("plan_policy") == ROTATION_POLICY
+    if not rotation:
+        # Creation/cleanup retain their contract. Existing server mutation needs an explicit policy.
+        if stack == "environment" and operation == "apply":
+            for resource in plan["resource_changes"]:
+                if resource["address"] == POSTGRESQL:
+                    change = resource["change"]
+                    require(change["actions"] == ["no-op"] or
+                            (change["actions"] == ["create"] and change.get("before") is None),
+                            "existing PostgreSQL mutation requires an approved plan policy")
+        return
+    require(stack == "environment" and operation in ("plan", "apply"), "invalid policy operation")
+    require(isinstance(plan.get("format_version"), str) and
+            re.fullmatch(r"1\.\d+", plan["format_version"]) and
+            plan.get("applyable") is True and plan.get("complete") is True and
+            plan.get("errored") is False, "complete applyable plan required")
+    require(plan.get("resource_drift", []) == [] and plan.get("deferred_changes", []) == [] and
+            plan.get("action_invocations", []) == [] and plan.get("deferred_action_invocations", []) == [],
+            "drift or deferred/extra actions refused")
+    seen = set()
+    for resource in plan["resource_changes"]:
+        require(isinstance(resource, dict), "invalid resource change")
+        address = resource.get("address")
+        require(isinstance(address, str) and address in addresses and address not in seen,
+                "unexpected or duplicate resource")
+        seen.add(address)
+        kind, name = address.split(".")
+        require(resource.get("mode") == "managed" and resource.get("type") == kind and
+                resource.get("name") == name and
+                resource.get("provider_name") == "registry.terraform.io/hashicorp/azurerm" and
+                not any(key in resource for key in ("previous_address", "deposed", "index", "module_address")),
+                "resource identity/move refused")
+        change = resource.get("change")
+        require(isinstance(change, dict) and "after_unknown" in change and known(change["after_unknown"]) and
+                change.get("replace_paths", []) == [] and "importing" not in change and
+                "generated_config" not in change, "unknown/replacement/import change refused")
+        require(("before_identity" in change) == ("after_identity" in change) and
+                json.dumps(change.get("before_identity"), sort_keys=True) ==
+                json.dumps(change.get("after_identity"), sort_keys=True), "resource identity change refused")
+        before, after = change.get("before"), change.get("after")
+        require(isinstance(before, dict) and isinstance(after, dict) and
+                isinstance(before.get("id"), str) and bool(before["id"]) and
+                before["id"] == after.get("id"), "existing unchanged resource ID required")
+        expected = dict(before)
+        if address == POSTGRESQL:
+            version = "administrator_password_wo_version"
+            require(change.get("actions") == ["update"] and
+                    type(before.get(version)) is int and before[version] == 1 and
+                    type(after.get(version)) is int and after[version] == 2,
+                    "only PostgreSQL password version 1 to 2 update allowed")
+            require(all(values.get(key) is None for values in (before, after)
+                        for key in ("administrator_password", "administrator_password_wo")),
+                    "password values must not be persisted")
+            expected[version] = 2
+        else:
+            require(change.get("actions") == ["no-op"], "other resource action refused")
+        # Canonical JSON equality distinguishes bool/number and preserves every nested attribute/key.
+        require(json.dumps(expected, sort_keys=True) == json.dumps(after, sort_keys=True),
+                "unexpected attribute diff")
+    require(seen == addresses and POSTGRESQL in seen, "complete resource inventory required")
+    outputs = plan.get("output_changes", {})
+    require(isinstance(outputs, dict), "invalid output changes")
+    for change in outputs.values():
+        require(isinstance(change, dict) and change.get("actions") == ["no-op"] and
+                "before" in change and "after" in change and "after_unknown" in change and
+                known(change["after_unknown"]) and
+                json.dumps(change["before"], sort_keys=True) == json.dumps(change["after"], sort_keys=True),
+                "output change refused")
+    checks = plan.get("checks", [])
+    require(isinstance(checks, list) and all(isinstance(check, dict) and check.get("status") == "pass"
+                                           for check in checks), "unresolved plan checks refused")
 
 
 def execute(approval, config):
@@ -184,8 +283,12 @@ def execute(approval, config):
                 plan.append("-destroy")
             run(*plan)
             changes = json.loads(run("show", "-json", str(work / "execution.tfplan")))
+            validate_plan(approval, stack, operation, changes, addresses)
             for change in changes.get("resource_changes", []):
                 require(change["address"] in addresses, "plan contains an unexpected resource address")
+                require(change["change"]["actions"] in (["no-op"], ["create"], ["read"], ["update"],
+                                                       ["delete"], ["delete", "create"], ["create", "delete"]),
+                        "unknown plan action")
                 print("planned:", change["address"], "/".join(change["change"]["actions"]))
             if operation != "plan":
                 validate(approval, config, env, dt.datetime.now(dt.timezone.utc))

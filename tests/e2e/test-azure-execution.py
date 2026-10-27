@@ -435,6 +435,171 @@ class CommandIsolationTest(unittest.TestCase):
         self.assertEqual(calls, ["init", "validate", "plan", "show", "state"])
 
 
+def rotation_fixture():
+    approval, config, env = fixture()
+    config["environment"]["postgresql"] = {"administrator_password_version": 2}
+    approval.update(plan_policy=execution.ROTATION_POLICY, config_sha256=execution.digest(config),
+                    allowed_operations=["environment:plan", "environment:apply"])
+    env.update(P6_STACK="environment", P6_OPERATION="apply",
+               ACTIONS_ID_TOKEN_REQUEST_TOKEN="dummy-private-oidc-token")
+    addresses = {f"{kind}.{name}" for kind, name in re.findall(
+        r'^resource "([^"]+)" "([^"]+)"', "\n".join(
+            path.read_text() for path in (ROOT / "infra/terraform/environment").glob("*.tf")), re.M)}
+    resources = []
+    for address in sorted(addresses):
+        kind, name = address.split(".")
+        before = {"id": "/dummy/" + address, "tags": {"purpose": "dummy-private-plan-value"}}
+        after = copy.deepcopy(before)
+        actions = ["no-op"]
+        if address == execution.POSTGRESQL:
+            before.update(administrator_password_wo_version=1, administrator_password_wo=None,
+                          administrator_password=None, authentication=[{"password_auth_enabled": True}])
+            after = copy.deepcopy(before) | {"administrator_password_wo_version": 2}
+            actions = ["update"]
+        resources.append({"address": address, "mode": "managed", "type": kind, "name": name,
+                          "provider_name": "registry.terraform.io/hashicorp/azurerm",
+                          "change": {"actions": actions, "before": before, "after": after,
+                                     "after_unknown": {}}})
+    plan = {"format_version": "1.2", "applyable": True, "complete": True, "errored": False,
+            "resource_changes": resources, "output_changes": {
+                "postgresql": {"actions": ["no-op"], "before": {"id": "dummy"},
+                               "after": {"id": "dummy"}, "after_unknown": False}}}
+    return approval, config, env, plan, addresses
+
+
+class RotationTest(unittest.TestCase):
+    def test_policy_metadata_cannot_expand_approval_or_inputs(self):
+        a, c, e, _, _ = rotation_fixture()
+        for operation in ("plan", "apply"):
+            self.assertEqual(execution.validate(a, c, e | {"P6_OPERATION": operation}, NOW),
+                             ("environment", operation))
+        for value in (None, {}, "", "unknown-policy"):
+            with self.subTest(policy=value), self.assertRaises(ValueError):
+                execution.validate(a | {"plan_policy": value}, c, e, NOW)
+        for phase in ("foundation:plan", "foundation:apply", "environment:destroy"):
+            stack, operation = phase.split(":")
+            with self.subTest(phase=phase), self.assertRaises(ValueError):
+                execution.validate(a | {"allowed_operations": [phase]}, c,
+                                   e | {"P6_STACK": stack, "P6_OPERATION": operation}, NOW)
+        for version in (None, 1, 3, True, "2", 2.0):
+            changed = copy.deepcopy(c)
+            changed["environment"]["postgresql"]["administrator_password_version"] = version
+            with self.subTest(version=version), self.assertRaises(ValueError):
+                execution.validate(a | {"config_sha256": execution.digest(changed)}, changed, e, NOW)
+
+    def test_exact_saved_plan_guard_and_refusal_before_apply(self):
+        a, c, e, valid, addresses = rotation_fixture()
+        pg_index = next(i for i, resource in enumerate(valid["resource_changes"])
+                        if resource["address"] == execution.POSTGRESQL)
+        other_index = next(i for i in range(len(addresses)) if i != pg_index)
+        cases = [("exact update", valid, True)]
+
+        def mutate(label, path, value=None, remove=False):
+            plan = copy.deepcopy(valid)
+            selected = plan
+            for key in path[:-1]:
+                selected = selected[key]
+            if remove:
+                del selected[path[-1]]
+            else:
+                selected[path[-1]] = value
+            cases.append((label, plan, False))
+
+        for index in (pg_index, other_index):
+            resource = ["resource_changes", index]
+            change = resource + ["change"]
+            for actions in (["create"], ["delete"], ["delete", "create"], ["create", "delete"],
+                            ["read"], [], ["dummy-private-plan-value"], ["update", "update"]):
+                mutate(f"actions {index} {actions}", change + ["actions"], actions)
+            mutate(f"unknown {index}", change + ["after_unknown"], {"tags": {"purpose": True}})
+            mutate(f"missing unknown mask {index}", change + ["after_unknown"], remove=True)
+            mutate(f"malformed unknown mask {index}", change + ["after_unknown"], None)
+            mutate(f"replacement path {index}", change + ["replace_paths"], [["id"]])
+            mutate(f"import {index}", change + ["importing"], {"id": "dummy"})
+            mutate(f"identity change {index}", change + ["after_identity"], {"id": "changed"})
+            mutate(f"move {index}", resource + ["previous_address"], "dummy")
+            mutate(f"deposed {index}", resource + ["deposed"], "dummy")
+            mutate(f"missing identity {index}", resource + ["mode"], remove=True)
+            for field in ("before", "after"):
+                mutate(f"missing {field} {index}", change + [field], remove=True)
+                mutate(f"null {field} {index}", change + [field], None)
+                mutate(f"changed ID {field} {index}", change + [field, "id"], "changed")
+            mutate(f"other attribute {index}", change + ["after", "tags"], {"purpose": "changed"})
+        pg = ["resource_changes", pg_index, "change"]
+        for field in ("before", "after"):
+            version = pg + [field, "administrator_password_wo_version"]
+            for value in (None, 0, 1 if field == "after" else 2, 3, True, "2", 2.0):
+                mutate(f"version {field} {value}", version, value)
+            mutate(f"missing version {field}", version, remove=True)
+        mutate("nested PG setting", pg + ["after", "authentication"], [{"password_auth_enabled": False}])
+        mutate("extra PG setting", pg + ["after", "extra"], "changed")
+        mutate("PG no-op", pg + ["actions"], ["no-op"])
+        mutate("other update", ["resource_changes", other_index, "change", "actions"], ["update"])
+        mutate("duplicate resource", ["resource_changes"], valid["resource_changes"] * 2)
+        mutate("missing PG", ["resource_changes"], [r for r in valid["resource_changes"]
+                                                       if r["address"] != execution.POSTGRESQL])
+        mutate("missing other resource", ["resource_changes"], [valid["resource_changes"][pg_index]])
+        mutate("unknown address", ["resource_changes", other_index, "address"], "dummy.unexpected")
+        mutate("malformed resource", ["resource_changes", pg_index], None)
+        mutate("absent changes", ["resource_changes"], remove=True)
+        mutate("null changes", ["resource_changes"], None)
+        for field, value in (("format_version", "2.0"), ("format_version", None), ("applyable", False),
+                             ("complete", False), ("errored", True), ("resource_drift", [{}]),
+                             ("resource_drift", None), ("deferred_changes", [{}]), ("action_invocations", [{}]),
+                             ("deferred_action_invocations", [{}]),
+                             ("checks", [{"status": "unknown"}]), ("output_changes", None)):
+            mutate(field, [field], value)
+        for field in ("format_version", "applyable", "complete", "errored"):
+            mutate(f"missing {field}", [field], remove=True)
+        mutate("changed output", ["output_changes", "postgresql", "after"], {"id": "changed"})
+        mutate("unknown output", ["output_changes", "postgresql", "after_unknown"], True)
+        cases.extend((label, plan, False) for label, plan in (("not object", []), ("empty object", {})))
+        for label, plan, allowed in cases:
+            with self.subTest(case=label):
+                calls, directories = [], []
+                output, errors = io.StringIO(), io.StringIO()
+
+                def fake(command, *, env, **kwargs):
+                    calls.append(command[2:])
+                    directories.append(Path(command[1].removeprefix("-chdir=")))
+                    self.assertEqual(env["ARM_USE_OIDC"], "true")
+                    self.assertEqual(env["TF_VAR_postgresql_administrator_password"],
+                                     e["P6_POSTGRESQL_ADMINISTRATOR_PASSWORD"])
+                    self.assertNotIn("GH_TOKEN", env)
+                    body = json.dumps(plan).encode() if command[2] == "show" else b"dummy-provider-diagnostic"
+                    return subprocess.CompletedProcess(command, 0, body, b"dummy-provider-diagnostic")
+
+                with contextlib.redirect_stdout(output), contextlib.redirect_stderr(errors), \
+                     patch.dict(os.environ, e, clear=True), \
+                     patch.object(execution.dt, "datetime", FixedDateTime), \
+                     patch.object(execution, "check_source"), \
+                     patch.object(execution.subprocess, "run", side_effect=fake):
+                    if allowed:
+                        execution.execute(a, c)
+                    else:
+                        with self.assertRaises((ValueError, KeyError, TypeError)):
+                            execution.execute(a, c)
+                self.assertEqual([call[0] for call in calls],
+                                 ["init", "validate", "plan", "show"] + (["apply"] if allowed else []) + ["state"])
+                if allowed:
+                    saved = next(arg.removeprefix("-out=") for arg in calls[2] if arg.startswith("-out="))
+                    self.assertEqual(calls[3], ["show", "-json", saved])
+                    self.assertEqual(calls[4][-1], saved)
+                self.assertTrue(all(not path.exists() for path in directories))
+                for private in ("dummy-private-plan-value", "dummy-provider-diagnostic", json.dumps(plan),
+                                e["P6_POSTGRESQL_ADMINISTRATOR_PASSWORD"], e["ACTIONS_ID_TOKEN_REQUEST_TOKEN"]):
+                    self.assertNotIn(private, output.getvalue() + errors.getvalue())
+
+    def test_policy_on_plan_dispatch_and_missing_policy_on_apply(self):
+        a, _, _, plan, addresses = rotation_fixture()
+        execution.validate_plan(a, "environment", "plan", plan, addresses)
+        a.pop("plan_policy")
+        with self.assertRaises(ValueError):
+            execution.validate_plan(a, "environment", "apply", plan, addresses)
+        # An unguarded plan-only dispatch is still inspection, never mutation.
+        execution.validate_plan(a, "environment", "plan", plan, addresses)
+
+
 class WorkflowBoundaryTest(unittest.TestCase):
     def test_config_secret_is_scoped_to_python_steps_without_shell_decode(self):
         workflow = (ROOT / ".github/workflows/azure-execution.yml").read_text()

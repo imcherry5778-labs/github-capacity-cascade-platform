@@ -181,6 +181,28 @@ Approval의 `allowed_operations`와 `prerequisite_evidence`는 다음 순서로 
 `P6_POSTGRESQL_ADMINISTRATOR_PASSWORD`는 별도 승인된 초기화 절차로 `azure` Environment secret에 설정하고
 environment stack에서만 ephemeral `TF_VAR`로 전달한다. 새 long-lived Azure credential을 만들지 않는다.
 
+PostgreSQL password rotation은 새 campaign의 `P6_CAMPAIGN_APPROVAL`에
+`"plan_policy": "postgresql-password-rotation-1-to-2"`를 명시한다. 이 선택적 필드는 campaign ID와
+독립적이며, 지정하면 `allowed_operations`에는 `environment:plan` / `environment:apply`만 허용한다.
+승인 config의 `postgresql.administrator_password_version`은 정수 `2`여야 한다. 별도 Plan-only 승인과
+이후 Apply 승인 모두 이 정책을 사용하며 기존 source/config digest/operator/time/evidence gate를 그대로 통과해야 한다.
+
+정책은 각 dispatch에서 생성한 **동일 saved plan**의 `show -json`을 메모리에서 검증한다.
+`azurerm_postgresql_flexible_server.this`의 유일한 action은 `["update"]`,
+`administrator_password_wo_version`은 정수 `1` → `2`여야 한다. 모든 source resource가 정확히 한 번
+나타나야 하며 나머지는 `["no-op"]`이고 before/after가 같아야 한다. PostgreSQL의 다른 속성도 모두 같아야 한다.
+Resource ID 변경, create/delete/replace/import/move, drift, unknown/deferred action, output 변경,
+미완료 plan/check, version·inventory·검증 필드 누락은 Apply 전에 거부한다. 검증 실패는 raw plan이나
+provider diagnostics를 출력하지 않으며 자동 재시도·우회하지 않는다. 정책 없는 기존 PostgreSQL mutation도
+`environment:apply`에서 거부한다. 초기 create와 destroy의 기존 승인 경계는 유지한다.
+
+검증 근거는 [Terraform JSON format](https://developer.hashicorp.com/terraform/internals/json-format)과
+[AzureRM 5.11.0 PostgreSQL resource](https://github.com/hashicorp/terraform-provider-azurerm/blob/v5.11.0/internal/services/postgres/postgresql_flexible_server_resource.go)다.
+Source pin은 Terraform `1.16.7` / AzureRM `5.11.0`이며 provider의 version 변경 update 경로를 확인했다.
+Credential-free regression은 허용/거부 및 saved-plan 연결을 검증한다. 실제 provider JSON에서 before version과
+전체 변경 속성을 확인할 수 있는지는 **not verified**이며, 향후 별도 승인된 Plan에서 확인 불가하면 blocker다.
+이 source-only 변경은 secret/config/approval variable 수정, workflow dispatch 또는 live rotation을 승인하지 않는다.
+
 Runner는 source/lockfile만 private directory에 복사하며 임의 CLI args/auth/cache를 상속하지 않는다.
 실패 시 마지막 Terraform 단계와 allowlisted `state list` address를 출력한다. Init 실패/locking 문제로 state 조회가
 불가능할 수 있으며 raw error/provider output은 secret 노출 가능성 때문에 출력하지 않는다. 자동 destroy/force-unlock은 없다.
