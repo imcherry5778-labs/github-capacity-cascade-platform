@@ -144,6 +144,19 @@ class SourceTests(unittest.TestCase):
             with self.assertRaises(ValueError): a.Runtime(identity())
             command.assert_not_called()
 
+    def test_runtime_uses_supported_aks_show_target_arguments(self):
+        value = identity()
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory) / 'kubeconfig'; config.touch(mode=0o600)
+            def command(args):
+                if args[0] == 'git': return value['source_sha'] if args[-1] == 'HEAD' else ''
+                if args[0] == 'az': return json.dumps({'fqdn': 'actual.aks.example.com', 'serviceMeshProfile': {'istio': {'revisions': [value['revision']]}}, 'agentPoolProfiles': [{'enableAutoScaling': False}]})
+                return 'https://actual.aks.example.com' if 'config' in args else value['cluster_uid']
+            with patch.dict(os.environ, {'P8_AZURE_APPROVED': value['source_sha'], 'KUBECONFIG': str(config)}), patch.object(a.p7, 'command', side_effect=command) as mocked:
+                a.Runtime(value)
+            az_args = next(c.args[0] for c in mocked.call_args_list if c.args[0][0] == 'az')
+            self.assertEqual(az_args, ['az', 'aks', 'show', '--resource-group', 'test', '--name', 'test', '-o', 'json'])
+
     def test_exclusive_evidence_write(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'negative.json'

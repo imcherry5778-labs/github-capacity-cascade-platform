@@ -272,7 +272,8 @@ class Runtime:
         require(Path(os.environ['KUBECONFIG']).stat().st_mode & 0o077 == 0, 'kubeconfig must be protected')
         require(p7.command(['git', '-C', str(ROOT), 'rev-parse', 'HEAD']) == value['source_sha'] and
                 not p7.command(['git', '-C', str(ROOT), 'status', '--porcelain']), 'clean exact source required')
-        cluster = json.loads(p7.command(['az', 'aks', 'show', '--ids', value['cluster_resource_id'], '-o', 'json']))
+        cluster = json.loads(p7.command(['az', 'aks', 'show', '--resource-group', value['cluster_resource_id'].split('/')[4],
+                                         '--name', value['cluster_resource_id'].rsplit('/', 1)[1], '-o', 'json']))
         server = self.k('config', 'view', '--minify', '-o', 'jsonpath={.clusters[0].cluster.server}')
         require(urllib.parse.urlsplit(server).hostname in {cluster.get('fqdn'), cluster.get('privateFqdn')} and
                 urllib.parse.urlsplit(server).scheme == 'https', 'kubeconfig API server differs from actual AKS target')
