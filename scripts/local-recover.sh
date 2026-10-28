@@ -255,14 +255,14 @@ wait_paused_app() {
 
 # W3 uses the same checkpoint/restore lifecycle; only the controlled version transition differs.
 upgrade_preflight() {
-  [[ "$(uname -m)" == x86_64 && "$FORGEJO_IMAGE_TAG" == 15.0.10-rootless &&
+  [[ "$(uname -m)" == x86_64 && "$FORGEJO_IMAGE_TAG" == 15.0.11-rootless &&
      "$FORGEJO_UPGRADE_FROM_IMAGE_TAG" == 15.0.9-rootless ]] || fail "unsupported W3 pair/platform"
   local version expected hash url
-  for version in 15.0.9 15.0.10; do
+  for version in 15.0.9 15.0.11; do
     url="https://codeberg.org/forgejo/forgejo/raw/branch/forgejo/release-notes-published/$version.md"
     curl -fsSL --max-time 45 --retry 0 "$url" >"$RAW/notes-$version" || fail "official release notes unavailable"
     expected=6aa9580cab5d0fbfde65a16077d873ba660a9ba2cda9d8e30d37e7af8a02c51c
-    [[ "$version" != 15.0.10 ]] || expected=602db98c853da2b491070e9b1cffed97b3e07b530ff32bf04c8ac7e2904daec1
+    [[ "$version" != 15.0.11 ]] || expected=90166d668e2bbe04b0075814f2df257496829041056b9ab8b5c500ffd01c0b6e
     hash="$(sha256sum "$RAW/notes-$version" | awk '{print $1}')"
     [[ "$hash" == "$expected" ]] || fail "official release notes changed; revalidation required"
     jq -nc --arg version "$version" --arg url "$url" --arg hash "$hash" \

@@ -129,7 +129,7 @@ Retry amplification은 같은 logical demand의 attempt/check/shared-path reques
 
 ## P3-W3 patch upgrade / state-aware rollback
 
-`make upgrade`는 `scripts/local-recover.sh upgrade`를 사용한다. 기존 W2의 developer fixture, coordinated checkpoint, Secret/DB/full `/data` restore와 doctor validator를 재사용한다. 현재 drill은 P6-W1 revalidation에 따라 linux/amd64에서 `15.0.9-rootless`(A) → stable `15.0.10-rootless`(B) 한 pair만 검증한다. Official OCI index와 amd64 manifest digest는 `versions.env`의 W3 inventory로 구분한다. Kubernetes의 actual imageID와 init/application image도 비교하며, tag만으로 runtime identity를 주장하지 않는다.
+`make upgrade`는 `scripts/local-recover.sh upgrade`를 사용한다. 기존 W2의 developer fixture, coordinated checkpoint, Secret/DB/full `/data` restore와 doctor validator를 재사용한다. 현재 drill은 2026-10-28 security pin revalidation에 따라 linux/amd64에서 `15.0.9-rootless`(A) → stable `15.0.11-rootless`(B) 한 pair만 검증한다. Official OCI index와 amd64 manifest digest는 `versions.env`의 W3 inventory로 구분한다. Kubernetes의 actual imageID와 init/application image도 비교하며, tag만으로 runtime identity를 주장하지 않는다.
 
 Fresh A와 rollback target은 PostgreSQL/Argo만 먼저 준비한다. Application은 autosync를 끈 상태에서 기존 chart/source revision에 `image.tag`와 `image.digest`만 maintenance override하고 bounded manual sync한다. Fresh A의 empty database와 Forgejo PVC 부재를 시작 전에 검사한다. Stable Git values는 계속 B다.
 
@@ -165,8 +165,10 @@ Doctor inventory와 selected `check-db-version`, `check-db-consistency`, `check-
 ### P6-W1 pair revalidation (2026-10-21)
 
 위 2026-09-30 preflight와 기존 P3 evidence는 `15.0.8 → 15.0.9`의 역사적 기록이다.
-현재 pair의 security/release/digest 근거는 [P6-W1 reconciliation](p5-preflight.md#p6-w1-securityversion-reconciliation--2026-10-21)에 있다.
-`15.0.9` A는 disposable loopback maintenance에서만 쓰며 stable/Azure source는 `15.0.10` B다.
+당시 pair의 security/release/digest 근거는 [P6-W1 reconciliation](p5-preflight.md#p6-w1-securityversion-reconciliation--2026-10-21)에 있다.
+당시 `15.0.9` A는 disposable loopback maintenance, stable/Azure source는 `15.0.10` B였다.
+2026-10-28 security pin은 A를 유지하고 B만 `15.0.11`로 갱신한다. Release/digest/hash 근거는
+[P6 security pin revalidation](p5-preflight.md#p6-forgejo-security-pin--2026-10-28)에 있다.
 현재 pair도 release-note hash 변경, doctor/config/inventory 변화, DB authority/credential continuity 실패를
 그대로 거부한다. 새 pair의 runtime 결과는 새 exact-head CI에서 확인하며 과거 evidence를 재사용하지 않는다.
 
