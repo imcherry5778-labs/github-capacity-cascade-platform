@@ -5,7 +5,7 @@
 image:
   registry: code.forgejo.org
   repository: forgejo/forgejo
-  tag: 15.0.10-rootless
+  tag: 15.0.11-rootless
   rootless: true
 
 replicaCount: 1
