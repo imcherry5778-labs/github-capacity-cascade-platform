@@ -151,7 +151,7 @@ Configuration-only `tracing-collector.json`은 OTLP receiver → upstream `azure
 이 config는 Argo Application/Bootstrap에 포함하지 않는다. Collector image/version/support, verified
 source와 connection-string ownership을 P6에서 검토하기 전 deploy/trace generation을 허용하지 않는다.
 이 ingestion source도 **not verified**다. Tracing source는 별도 판단이 필요하다. Microsoft managed `tracing.*`는 allowed이며 support 범위 밖이다.
-Forgejo internal trace instrumentation/propagation과 ingestion은 **not verified**다.
+Forgejo internal trace instrumentation/propagation과 ingestion은 **not verified**다. P7 exit에는 tracing이 필수가 아니며 기존 metrics/logs의 actual query와 명시적 correlation이 필요하다. 실행 source·private recovery 절차·승인 경계는 [P7 operations](../../docs/local-operations.md#p7-azure-operations)에 있다.
 Application Insights resource 존재만으로 trace evidence를 주장하지 않는다. 지원되는 minimal
 Collector ingestion path의 선택/검증 상태는 aggregate preflight에 기록한다.
 P4/P8에서는 actual managed proxy build/config/active-overflow stat mapping과 collector visibility,

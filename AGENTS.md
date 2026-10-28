@@ -182,9 +182,8 @@ Reliability experiment 전에 관련 normal test가 PASS해야 한다.
 - explicit approval 없이 provision/destroy 금지
 - PR CI에서 Azure resource 자동 생성 금지
 - paid apply 전 current cost/resource/RBAC/quota preflight
-- paid environment same-day destroy 기본
-- P6→P7을 같은 승인 범위에서 연속 수행하는 경우 중간 destroy를 강제하지 않음
-- 24시간 초과 유지에는 새 승인
+- P11까지 기존 환경 재사용을 우선하며 lifecycle authority는 `docs/implementation-plan.md`의 Paid Azure boundary
+- 명시적 승인 범위·보존 기한 유지, 자동 연장·자동 삭제 없음
 - finalization은 DNS delegation, identity/RBAC, state backend, residual resource까지 확인
 
 ## 13. Language / Git

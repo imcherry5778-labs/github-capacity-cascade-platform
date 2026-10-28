@@ -177,3 +177,272 @@ Doctor inventory와 selected `check-db-version`, `check-db-consistency`, `check-
 W3는 같은 source의 P1/P2 runtime regression, P3-W1 baseline, W2 recovery를 먼저 성공시켜야 한다. CI는 앞선 lifecycle/recovery step의 explicit result path를 전달해 중복 실행을 피하고, local standalone invocation은 해당 regression을 직접 실행한다. 기존 CI 45분 bound는 실제 full job 실행으로 확인한다.
 
 `results/local/upgrade-<id>/`에는 checkpoint component hash/size, upstream hash/reference, stage별 runtime/DB authority/storage/credential hash, doctor 분류, B marker/absence/new write, regression과 append-only phase만 남긴다. Raw dump, tar, Secrets, password, PAT, cookie, config/env와 응답은 mode 0700 temporary directory에 두고 성공/실패 모두 제거한다. CI artifact는 sanitized filename allowlist만 사용한다. Validator는 lifecycle 순서, freshness, credential continuity, doctor와 marker proof 누락/모순을 거부한다. Dirty development run은 exploratory이며 final `validate-upgrade.py result`는 clean exact-head source를 요구한다.
+
+## P7 Azure operations
+
+이 절의 source는 P7-W1 Task 1이다. **Task 2 runtime은 not verified / approval pending**이다.
+유료 실행·temporary IAM·maintenance·DB administrator 재사용·rotation 생략은 이 문서나
+script invocation 예시만으로 승인되지 않는다. P7 전체는 같은 branch/draft PR에서 이어간다.
+별도 campaign timeout이나 삭제 예약은 없다. 보존 기한·다음 실행 승인은
+[Paid Azure boundary](implementation-plan.md#paid-azure-boundary--p6p11)를 따른다.
+
+P6 `results/raw/p6-platform-20261028T0222Z/platform-bootstrap-final-20261028T070825Z.json`
+**원본**을 기존 operator checkout에서 읽었다. Source/deployed revision은
+`2f63d283ebba12aaed8705732f1206d71ddc33db`, stable은 `15.0.11+gitea-1.22.0`이며
+P6의 client는 독립 확인한 public A에 process-scoped curl/Git resolve를 사용했다.
+P6 전달 보고만으로 P7 baseline을 대체하지 않으며 기존 raw 파일은 수정하지 않는다.
+
+### HTTPS baseline / correlation / SLO
+
+기존 producer `tests/e2e/forgejo-developer-journey.sh`의 operation 9개, attempt 1개,
+command timing·semantic assertion·timeout은 동일하다. `JOURNEY_ENVIRONMENT=azure-aks`는
+public HTTPS hostname origin만 허용한다. Curl config/proxy 및 Git global/system config에서
+격리하고 certificate/hostname 검증을 유지한다. `JOURNEY_DNS_OVERRIDE`는 선택한 public IPv4이며
+모든 curl/Git command에 동일하게 적용한다. 이 경우 일반 client DNS 성공을 주장하지 않는다.
+`JOURNEY_ENDPOINT_URL`로 Azure 공개 origin을 다른 endpoint로 바꿀 수 없다.
+Local HTTP loopback과 Azure HTTPS는 closed boundary이며 임의 문자열은 거부한다.
+
+Producer는 `transport`(endpoint/scheme/TLS/DNS override)와 실제 environment를 기록하고,
+validator는 이를 검사하며 summary에도 보존한다. Legacy Local raw의 transport 부재는
+그대로 지원한다. Transport/environment/deployed revision/runtime image가 다른 run은 하나의
+baseline으로 합칠 수 없다. Source execution SHA와 stable deployed revision은 별개다.
+
+승인 후 operator는 기존 Local context와 같은 sanitized field만 가진 `context.json`을 준비한다.
+`source_sha`는 clean execution HEAD, `argo_values_revision`은 **유지할 실제 stable revision**이다.
+`environment.kind=azure-aks`와 actual `cluster_resource_id`, `cluster_uid`(kube-system Namespace UID),
+Kubernetes/managed Istio revision을 기록한다. `runtime_images`는 actual Forgejo imageID와 managed
+PostgreSQL server version, `tool_versions`는 실제 client version이다. Chart version/digest도 actual
+Argo status와 비교한다. URL/credential은 context에 넣지 않는다. 환경 변수로 trusted
+`FORGEJO_URL`, admin credential, 필요 시 `JOURNEY_DNS_OVERRIDE`를 전달하며 shell tracing은 끈다.
+
+```bash
+# P7_PRIVATE는 repository 밖 mode 0700 보호 directory. 경로/내용은 evidence에 복사하지 않는다.
+python3 scripts/azure-operations.py baseline "$P7_CONTEXT" "$P7_BASELINE_RESULTS" "$P7_PRIVATE"
+```
+
+Runner는 매 journey 전후 stable `Synced/Healthy`, automated/selfHeal ON/prune OFF,
+deployed revisions와 ready Forgejo imageID를 검사한다. Warmup 1 + measured 5 journey,
+measured 45 operations/45 attempts, concurrency=1/max_attempts=1을 바꾸지 않는다.
+실패한 output directory는 보존하고 새 invocation에 재사용하지 않는다. Private directory의 6개
+fixture credential은 최종 PAT 회수까지 보호하며 삭제/회수 여부를 실제 확인한다.
+
+`query identity` JSON은 실제 `cluster_resource_id`, selected proxy `namespace/pod/container=istio-proxy`,
+admin `admin_cluster_name`과 Prometheus에서 관측한 `envoy_cluster_name`, existing
+`prometheus_endpoint`와 `log_workspace_id`, actual `prometheus_cluster` label 값이다. 예시 이름으로 runtime identity를 채우지 않는다.
+
+```bash
+python3 scripts/azure-operations.py proxy-snapshot "$P7_QUERY_IDENTITY" "$P7_PROXY_BEFORE"
+python3 scripts/azure-operations.py queries "$P7_BASELINE_RESULTS/baseline-summary.json" "$P7_QUERY_IDENTITY" "$P7_QUERY_PLAN"
+python3 scripts/azure-operations.py collect "$P7_QUERY_PLAN" "$P7_QUERY_RESULTS"
+python3 scripts/azure-operations.py proxy-snapshot "$P7_QUERY_IDENTITY" "$P7_PROXY_AFTER"
+```
+
+`proxy-snapshot`은 actual Pod UID/node/image spec/imageID/restart, proxy build version,
+selected active cluster의 name/alt_stat_name과 native stat prefix·관측 counter를 남긴다.
+Raw config dump/certificate/Secret은 보존하지 않는다. Managed runtime의 실제 cluster/stat
+mapping과 Prometheus label을 대조하며 Local Envoy build/recipe를 Azure identity로 쓰지 않는다.
+현재 default stat visibility에 없는 counter는 missing으로 남긴다. 이를 열기 위한 workload annotation
+변경은 P7 source에 선제 포함하지 않으며 실제 부재가 P8 visibility acceptance를 막으면 같은 PR에서 보고한다.
+
+Query는 기존 `forgejo`/`azure-stable-envoy` scrape의 `up`과 selected cluster의 active/active-overflow,
+pending-active/pending-overflow/total을 같은 measured window로 조회한다. Series가 없으면 `no-data`,
+관측 sample이 0이면 실제 0이며 `or vector(0)`으로 메우지 않는다. `up=0`은 scrape failure다.
+Prometheus 관측 series의 actual `cluster/job/instance/namespace/pod/envoy_cluster_name`을 보존하고,
+모든 query는 확인한 actual `cluster` label로 scope를 제한하며 반환 series의 cluster도 검사한다. Label mapping을 확인하기 전 exit evidence로 승격하지 않는다.
+Overflow 0은 visibility evidence이며 saturation/rejection proof가 아니다. P8 fault/retry/scaling은 실행하지 않는다.
+
+Log Analytics는 같은 AKS resource ID·window·Forgejo/selected proxy workload의 ContainerLogV2를
+count/first/last timestamp로 조회한다. Raw log message/body/header/URL은 artifact에 넣지 않는다.
+빈 rows와 query error도 각각 `no-data`와 `query-failed`로 보존한다. Ingestion 지연 후 재조회는
+같은 window를 새 output directory에 보존하며 이전 실패를 덮지 않는다.
+
+Client JSONL의 `run_id → operation_id → attempt_id`와 UTC command timestamp/monotonic duration을
+operation별로 확인하고, summary의 measured window와 query plan/result·Pod identity를 연결한다.
+API/Git measured command에 client correlation header를 보내지만 현재 safe server log에는 그 ID가 없다.
+따라서 **server 연계는 동일 시간 구간 + workload**, request-level join/distributed tracing은
+**not verified**다. Git attempt 하나의 내부 HTTP 수를 추정하지 않는다. Tracing은 P7 exit 필수가 아니다.
+
+초기 SLO는 Task 2 baseline 뒤 operation별 count/min/max/mean, 실제 성공/실패 분모와
+Service Active Window(첫 measured 시작→마지막 종료, 실패 구간을 빼지 않음)를 근거로 결정한다.
+선택한 성공률/command latency threshold와 관측값·여유분 근거·적용 window·execution source를
+sanitized reviewed evidence에 기록하고 P8 fault **전에 고정**한다. 작은 표본의 production percentile,
+월간/24×7 목표나 Local sample로 Azure threshold를 만들지 않는다. 현재 값은 DEFERRED다.
+
+2026-10-28 upstream 확인: [Managed Prometheus REST/PromQL](https://learn.microsoft.com/en-us/azure/azure-monitor/metrics/prometheus-api-promql),
+[Log Analytics query/time range](https://learn.microsoft.com/en-us/azure/azure-monitor/logs/api/request-format),
+[Forgejo v15 upgrade guide](https://forgejo.org/docs/v15.0/admin/upgrade/).
+기존 Entra operator credential로 query하며 새 app registration/IAM grant를 자동 생성하지 않는다.
+
+### Coordinated Azure checkpoint / private fresh target
+
+기존 Local `local-recover.sh`는 cluster create/delete와 in-cluster PostgreSQL이 hardcoded여서 Azure에서
+그대로 호출하지 않는다. 아래 operator 절차와 `azure-recovery.py` adapter만 사용한다. P3 doctor parser,
+selected check/known diagnostic, developer `verify`/`write`, DB authority validator는 재사용한다.
+
+Operator의 non-secret input JSON은 정확히 `campaign`, `stage`(`restore|a|rollback`), execution
+`source_sha`, `stable_deployed_revision`, `stable`, `target`을 가진다. `stable`에는 actual
+`namespace=forgejo/deployment=forgejo/pvc=forgejo-data`, `db_host/db_name/db_role`,
+`pvc_uid/pv_uid/pv_name/disk_id`를 기록한다. `target`은 `namespace=p7-ops-<campaign>`,
+`pvc=p7-data`, 같은 기존 server의 `db_host`, **private** `db_ipv4`,
+`db_name=p7_<campaign>_<stage>`, `db_role=p7_<campaign>_role`이다.
+현재 live source와 input이 다르면 시작하지 않는다. Branch PR HEAD로 stable renderer/main-only gate를 우회하지 않는다.
+
+```bash
+python3 scripts/azure-recovery.py render "$P7_RECOVERY_INPUT" "$P7_RENDERED"
+```
+
+Render는 배포하지 않는다. `boundary.json`(private Namespace/ResourceQuota),
+`pvc.json`, `helper.json`, `db-client.json`, `app.json`은 별도 파일이다. Stage `a`에만 exact B의
+`app-b.json`도 있다. Source checkpoint용 `checkpoint-helper.json`/`checkpoint-db.json`은
+`forgejo` namespace의 임시 Pod이며 stable controller에 넣지 않는다. Helper는 original PVC를
+**read-only** mount하고 fsGroup 변경도 하지 않는다. Source DB client는 기존 app role/Secret을 참조한다.
+Target app은 Secret volume의 password로 rebind한 `/data` config만 사용하고 DB environment override가 없다.
+Old A에는 Service/Ingress/Gateway/VirtualService를 만들지 않는다. Rebind는 `server.HTTP_ADDR=127.0.0.1`도 고정하고 exec readiness도 Pod loopback을 사용한다. 현재 AKS source는 NetworkPolicy enforcement를 설정하지 않으므로 NetworkPolicy object로 격리를 주장하지 않는다. 실제 listen socket/Pod IP 접근 거부를 시작 직후 확인하고 operator port-forward로만 접근한다.
+Pod는 injection OFF, SA token automount OFF다. New controller/Argo Application을 만들지 않는다.
+
+Temporary Pod는 전체 동시 2개, admitted requests 합계 CPU 750m/memory 1536Mi 이하다.
+App 500m/1024Mi + DB client 250m/512Mi, helper 100m/128Mi이며 source/target helper를 겹치지 않는다.
+Namespace quota와 별도로 각 admission 뒤 **모든 namespace의** campaign Pod를 조회해 검사한다.
+Injection/init/ephemeral container가 생기면 중단하며 overhead도 예산에 더한다.
+
+```bash
+kubectl --request-timeout=15s get pods -A -l "p7.campaign=$P7_CAMPAIGN" -o json >"$P7_PRIVATE/admitted.json"
+python3 scripts/azure-recovery.py admission "$P7_RECOVERY_INPUT" "$P7_PRIVATE/admitted.json"
+```
+
+승인 후 checkpoint 순서:
+
+1. Source Git/API state와 non-admin PAT·native session을 준비·확인한다. 추가 fixture는 baseline 밖이다.
+   `RECOVERY_FIXTURE=1`로 기존 journey `create`를 사용하고 fixture의 credential/state file hash를 보호한다.
+   Source app/Pod UID, imageID/version, Argo policy/spec/revisions, PVC/PV/Disk, DB engine version/owner,
+   필요한 `forgejo-admin/forgejo-db/forgejo-inline-config` Secret key/version metadata를 고정한다.
+2. 외부 writer를 quiesce하고 operator 외 쓰기 부재를 확인한다. Argo operation이 없음을 확인한 뒤
+   `forgejo-azure`의 automated.enabled만 false로 pause한다. Exact source와 나머지 policy를 유지한다.
+   기존 `forgejo manager flush-queues --config /data/gitea/conf/app.ini --timeout 2m`를
+   `timeout -k 5s 150s kubectl … exec`로 실행한다. Deployment replicas=0 → original Pod delete를
+   bounded wait하고 label selector로 writer Pod 부재를 재확인한다. 아직 DB/data backup을 시작하지 않는다.
+3. Rendered source DB/helper Pod만 명시 apply한다. Admission을 검사한 뒤 원본 DB를
+   `pg_dump -Fc --no-owner`로, full `/data`를 `tar -C /data -cf - .`로 보호된 operator checkpoint에
+   stream한다. DB client의 `PGSSLMODE=verify-full/PGSSLROOTCERT=system`은 유지한다.
+   필요한 세 Secret은 private mode 0600 `secrets.json` list에 저장한다. Manifest는 아래 계약을 따른다.
+4. `azure-recovery.py bundle`이 성공하면 source helper/DB client 두 Pod만 삭제·부재 확인한다.
+   Stable replicas를 기존 값으로 복귀하고 원래 automated policy(ON/selfHeal ON/prune OFF)를 되돌린다.
+   Original spec/revision, readiness/health, 같은 source fixture readback을 확인한다.
+   이 **stable 재개 뒤** 나머지 drill을 private fresh target에서 수행한다. 실패 시 원본을 삭제하거나
+   checkpoint로 덮지 않으며 stable 복귀 상태와 실패를 기록한다.
+
+Private checkpoint의 `manifest.json`은 `input`, `backup_complete`, `writer_absent`, `queue_flushed`,
+actual `version`, pinned `image_spec`, actual `image_id`, `components`를 가진다. Components는 `database.dump`,
+`application-data.tar`, `secrets.json` 각각의 streaming SHA256/positive byte size다. Checkpoint 자체는
+0700, 파일은 0600이고 총 16GiB 이내다. 실제 source Pod imageID와 component/Secret version metadata는
+별도 sanitized evidence로 연결한다. Binary 파일/Secret 값/PAT/cookie/app.ini는 upload하지 않는다.
+`bundle`은 component hash/size, archive path/link 안전성, Azure Secret inventory와 exact version을 검사한다.
+
+```bash
+python3 scripts/azure-recovery.py bundle "$P7_CHECKPOINT"
+```
+
+Fresh restore는 stable 15.0.11 checkpoint를 사용한다. DB administrator 사용 승인을 받은 뒤 기존
+private operator DB 경로에서 **새 temp role 하나**와 role-owned fresh DB를 생성한다. 예전 DB가 있으면
+DROP/overwrite하지 않고 중단한다. Password는 random alphanumeric 32–128자 protected file와
+interactive `psql \password`로 설정하며 SQL literal/argv/history에 넣지 않는다. Target namespace에
+`p7-credential` Secret 하나(`password` key)만 `--from-file`로 만든다. 다른 source Secret을 target에
+세 개 더 만들지 않는다. Signing/session/internal key는 `/data`의 restored config로 유지한다.
+
+Fresh DB/target PVC 준비 뒤 original DB/PVC가 아님을 검사한다. Target DB client로 read-only query:
+
+```sql
+SELECT json_build_object(
+ 'current_database',current_database(),'current_user',current_user,
+ 'owner',(SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname=current_database()),
+ 'server_address',inet_server_addr()::text,'ssl',(SELECT ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid()),
+ 'public_tables',(SELECT count(*) FROM information_schema.tables WHERE table_schema='public'),
+ 'other_sessions',(SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND pid<>pg_backend_pid()));
+```
+
+다른 sessions가 보이지 않는 권한이면 exclusivity를 추정하지 않고 승인된 administrator가 확인한다.
+Source DB에 접속한 상태에서 target SQL을 실행하지 않는다. Namespace/PVC/PV의 live JSON,
+위 DB JSON을 각각 `namespace/pvc/pv/database`에 넣고 `pods=[]`를 live 조회로 확인한 snapshot을 만든다.
+DB query 후 client Pod도 제거한다. Tar에서 app.ini만 private copy로 추출해 rebind한 뒤 guard한다.
+
+```bash
+python3 scripts/azure-recovery.py rebind "$P7_RECOVERY_INPUT" "$P7_PRIVATE/restored-app.ini" "$P7_PRIVATE/db-password"
+python3 scripts/azure-recovery.py guard "$P7_RECOVERY_INPUT" "$P7_PRIVATE/target-snapshot.json" "$P7_PRIVATE/restored-app.ini" >"$P7_FRESH_GUARD"
+```
+
+Guard는 target ownership label, distinct PVC UID/PV UID/name/Disk ID, claimRef, 10Gi managed-csi,
+role-owned empty DB/session 부재, target-only DB config를 요구한다. 소유권이 모호하거나 source DB를
+가리키면 **시작하지 않는다**. Snapshot과 source input의 capture time/cluster UID도 evidence에 연결한다.
+
+Guard 뒤 helper/DB client를 다시 만들고 fresh DB에 `pg_restore --exit-on-error --no-owner --no-acl`,
+empty PVC에 `tar -C /data -xf -`로 **완전한 checkpoint**를 복원한다. Rebind한 app.ini를 helper를 통해
+`/data/gitea/conf/app.ini`에 mode 0600으로 교체한다. Signing/session config는 유지하며 temporary DB
+HOST/NAME/USER/PASSWD/SSL_MODE와 private HTTP_ADDR만 달라야 한다. Source `secrets.json`은 보호·비교용이며 target에 apply하지 않는다.
+Helper에서 app.ini를 다시 private file로 읽고 `azure-recovery.py config`로 target binding을 검증한다.
+DB data/table owner·original row/DB authority를 확인하고 helper를 삭제한 뒤에만 `app.json`을 apply한다.
+Effective Pod에는 추가 envFrom/DB URL/GITEA__/FORGEJO__ override가 없어야 한다. Admission과 actual
+version/imageID, `/api/healthz`를 확인한다. Mount/bootstrap이 임의 config를 재생성하면 중단한다.
+
+Private access는 `kubectl -n "$P7_NAMESPACE" port-forward --address 127.0.0.1 pod/p7-forgejo 13001:3000`이다.
+기존 journey `verify`/`write`에 `FORGEJO_URL`은 original advertised HTTPS origin,
+`JOURNEY_ENDPOINT_URL=http://127.0.0.1:13001`, `JOURNEY_ENVIRONMENT=local-k3d`를 전달한다.
+이는 **측정하지 않는 private tunnel**이며 Local baseline이라고 기록하지 않는다. RESULT_*와 public
+DNS override는 전달하지 않는다. 기존 clone remote는 command-scoped insteadOf로 private endpoint에
+보내므로 restore 검증이 공개 stable을 읽는 실수를 막는다. Private fixture directory는 원본과 별도 복사하고
+PAT/session 값 hash는 같아야 한다.
+
+`azure-recovery-check.sh doctor`는 `P7_NAMESPACE/P7_POD/P7_PRIVATE/P7_DOCTOR_OUTPUT`을 받아
+기존 `validate-recovery.py doctor-upgrade`를 실행한다. 최초 `P7_DOCTOR_SOURCE=-`, 다음 stage는
+source sanitized doctor JSON을 준다. Selected integrity check, exact paths diagnostic, effective
+LFS/SSH/log config가 기존 P3와 다르면 성공으로 완화하지 않는다. `--fix`는 사용하지 않는다.
+`session-login`은 healthy stable source에서 한 번만 HTTPS native login한다(`DEV_USER/DEV_PASSWORD`,
+source private port-forward의 `P7_PRIVATE_URL` 필요). `session-verify`는 **동일 cookie 값**을 private
+tunnel로 replay하여 protected settings 200/developer identity와 원본 cookie file hash를 검사한다.
+Fresh A fixture는 `P7_NAMESPACE=p7-ops-…`일 때 같은 login mode가 private tunnel에서 한 번만 로그인하고 그 cookie를 B/rollback에서도 재사용한다. 이는 persisted native session state의 적용 가능한 continuity이며 HTTP browser Secure-cookie 동작을 주장하지 않는다.
+
+State 판정은 기존 journey의 main/feature SHA, private repository, PR/Issue API와 같은 PAT readback,
+DB row 및 `/data/git/gitea-repositories/<developer>/journey.git`의 Git ref/object를 함께 비교한다.
+복구 후 새 `write`의 commit/Issue가 API/DB/filesystem에 존재해야 한다. Credential 대체/재로그인으로
+continuity를 통과시키지 않는다. Recovery 결과는 operator의 순서별 append-only phase와 실제 command
+exit, checkpoint hash/fresh guard/doctor/state proof를 연결하고 Local cluster lifecycle validator에
+가짜 server/Pod/PVC ID를 넣어 Azure PASS를 만들지 않는다.
+
+### Private upgrade / state-aware rollback / 종료
+
+Stable fresh restore를 정리한 뒤 같은 temporary role/credential Secret을 사용해 **다른 fresh DB/PVC**에
+15.0.9(A)를 시작한다. A의 config만 stable checkpoint에서 private copy해 target DB로 rebind하며
+**stable DB/data를 A로 가져오지 않는다**. Empty PVC에 config와 필요한 root directory만 준비하고
+empty DB guard를 검사한 뒤 A가 fresh schema를 초기화하게 한다. Native rootless image의 effective
+config/path를 확인한다. Fresh A의 admin은 [v15 CLI](https://forgejo.org/docs/v15.0/admin/command-line/)의
+`forgejo admin user create --admin --username p7admin --email p7admin@example.com --random-password
+--random-password-length 32 --must-change-password=false --config /data/gitea/conf/app.ini`로
+생성하고 출력은 protected 0600 file로만 받는다. 생성 password를 private operator environment로 읽어
+기존 non-admin developer fixture를 준비하며 password/CLI 출력은 evidence에 복사하지 않는다.
+Stage `a`의 empty DB/PVC guard를 유지하고, A fixture/PAT/session·doctor·세 DB
+authority(`version`, `forgejo_version`, `forgejo_migration`)를 기록한다. 기존
+`validate-upgrade.py database_authority` 계약으로 actual catalog/row/ID inventory를 검사한다.
+A queue flush → graceful stop → writer 없음 → full A checkpoint(DB/data와 필요한 config/Secret version)를 만든다. A checkpoint는 input stage `a`와 target의 단일 temporary Secret inventory로 같은 `bundle` validator를 사용한다. Stable의 세 Secret inventory를 복제하지 않는다. Component hash/size·16GiB·보호 mode와 signing/session config를 같은 방법으로 확인한다. Helper·DB client는 같은
+render 경로를 쓰되 A data에 stable read-only checkpoint helper를 잘못 붙이지 않는다.
+
+각 version transition은 old app Pod의 graceful deletion/UID 부재를 확인한 뒤 새 Pod를 생성한다. 동일 private A DB/PVC에서 helper 없이 `app-b.json`으로 exact 15.0.11(B)를 시작한다. Actual B
+image spec/imageID/version, same PAT/session, original state·doctor·DB authority를 검증한다.
+`journey write b-only`로 B-only Git commit/Issue를 만들고 API/DB/filesystem persistence를 확인한다.
+단순 application patch 변경을 DB migration이라고 부르지 않는다. B-only marker와 A fixture를 보존하고
+B queue flush/graceful stop을 확인한다. B target의 temporary Pod/DB/PVC/Disk만 UID로 정리한다.
+
+Rollback은 stage `rollback`의 **또 다른 fresh** DB/PVC에 **A checkpoint 전체 + A version**을 복원한다.
+B state에 A binary를 실행하거나 migration metadata를 수정하지 않는다. A/rollback DB authority가 같고,
+original state·같은 PAT/session·doctor가 유지되어야 한다. 새 rollback write **전에** B-only Issue API 404와
+DB row 부재, original main SHA 복구, full Git object inventory에 B-only commit 부재를 확인한다.
+그 후 `journey write`로 다른 commit/Issue를 생성하고 API/DB/filesystem persistence와 doctor를 재검증한다.
+Private clone/work의 B-only `post-write.env`는 별도 보존하고 rollback fixture는 A checkpoint 시점 복사본을 쓴다.
+번호 재사용은 title/commit identity로 구분한다. 구버전은 공개 stable 경로에 배포하지 않는다.
+
+Temporary 10Gi PVC/Disk와 fresh DB는 동시 각각 1개, restore/A/rollback의 누적 각각 최대 3개다.
+앞선 stage의 exact Pod/PVC/PV/Disk와 DB 부재를 확인하기 전 다음 fresh target을 만들지 않는다.
+UID/Disk ID/DB owner가 inventory와 다르면 삭제하지 않는다. Stable DB/PVC, source revision,
+Infrastructure/Terraform ownership은 유지한다. 성공/실패 모두 stable readiness·original Argo policy 복귀,
+임시 Pod/PVC/Disk/DB/role/Secret·IAM exact assignment 부재, PAT 회수·cookie/checkpoint 보호 파일 제거를
+각각 actual 조회로 확인한다. Rotation 생략은 새 explicit exception 승인 전 실행하지 않는다.
+Final evidence는 execution HEAD와 stable deployed revision/runtime identity를 따로 기록하고 query no-data,
+실패 phase, session/tracing 제한, ActualCost unknown을 숨기지 않는다. Runtime 확인 전 PASS/zero residual을 쓰지 않는다.
