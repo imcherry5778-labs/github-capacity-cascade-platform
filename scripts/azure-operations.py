@@ -189,8 +189,10 @@ def proxy_snapshot(identity):
     base = ['kubectl', '--request-timeout=15s', '-n', ns]
     obj = json.loads(command(base + ['get', 'pod', pod, '-o', 'json']))
     require(obj['metadata']['namespace'] == ns and not obj['metadata'].get('deletionTimestamp'), 'live proxy Pod required')
-    proxy = next(c for c in obj['spec']['containers'] if c['name'] == 'istio-proxy')
-    status = next(c for c in obj['status']['containerStatuses'] if c['name'] == 'istio-proxy')
+    native = [c for c in obj['spec'].get('initContainers', []) if c.get('restartPolicy') == 'Always']
+    proxy = next(c for c in obj['spec']['containers'] + native if c['name'] == 'istio-proxy')
+    statuses = obj['status'].get('containerStatuses', []) + obj['status'].get('initContainerStatuses', [])
+    status = next(c for c in statuses if c['name'] == 'istio-proxy')
     require(status['ready'] is True, 'proxy readiness')
     def admin(path):
         return json.loads(command(base + ['exec', pod, '-c', 'istio-proxy', '--', 'pilot-agent', 'request', 'GET', path]))
@@ -215,6 +217,7 @@ def proxy_snapshot(identity):
     return {'observed_at_utc': dt.datetime.now(dt.timezone.utc).isoformat(), 'namespace': ns, 'pod': pod,
             'pod_uid': obj['metadata']['uid'], 'node': obj['spec']['nodeName'], 'container': 'istio-proxy',
             'image_spec': proxy['image'], 'image_id': status['imageID'], 'restarts': status['restartCount'],
+            'container_lifecycle': 'native-init-sidecar' if proxy in native else 'regular',
             'proxy_version': server['version'], 'cluster_name': cluster['name'], 'alt_stat_name': alt,
             'native_stat_prefixes': prefixes, 'observations': observations,
             'missing_stats': sorted(s for s in suffixes if not any(prefix + s in observations for prefix in prefixes)),

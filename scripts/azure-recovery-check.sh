@@ -32,7 +32,7 @@ if [[ "$MODE" == doctor ]]; then
   k exec "$P7_POD" -c forgejo -- cat /data/gitea/conf/app.ini >"$dir/app.ini"
   k exec "$P7_POD" -c forgejo -- env >"$dir/env.txt"
   k exec "$P7_POD" -c forgejo -- forgejo --version >"$dir/version"
-  version="$(sed -n 's/^Forgejo version \([^ ]*\).*/\1/p' "$dir/version")"
+  version="$(sed -n 's/^[Ff]orgejo version \([^ ]*\).*/\1/p' "$dir/version")"
   jq -n --arg version "$version" --arg image "$(jq -r '.status.containerStatuses[] | select(.name=="forgejo") | .imageID' "$dir/pod.json")" \
     '{forgejo_version:$version,forgejo_image_id:$image}' >"$dir/metadata.json"
   k exec "$P7_POD" -c forgejo -- forgejo doctor check --list --config /data/gitea/conf/app.ini >"$dir/inventory.txt" 2>&1

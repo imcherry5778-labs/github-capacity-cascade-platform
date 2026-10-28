@@ -113,10 +113,15 @@ with tempfile.TemporaryDirectory() as tmp:
     plan = azure.query_plan(summary, identity)
     rejects(azure.query_plan, summary, dict(identity, password='secret'))
     pod_snapshot = {'metadata': {'namespace': identity['namespace'], 'uid': 'pod-uid'}, 'spec': {'nodeName': 'node', 'containers': [{'name': 'istio-proxy', 'image': 'proxy@sha256:actual'}]}, 'status': {'containerStatuses': [{'name': 'istio-proxy', 'ready': True, 'imageID': 'runtime-id', 'restartCount': 0}]}}
-    with patch.object(azure, 'command', side_effect=[json.dumps(pod_snapshot), json.dumps({'version': 'actual-managed-proxy'}), json.dumps({'configs': [{'cluster': {'name': 'selected-admin-cluster', 'alt_stat_name': 'actual-stat-name', 'secret': 'do-not-export'}}]}), json.dumps({'stats': [{'name': 'cluster.actual-stat-name.upstream_rq_active_overflow', 'value': 0}, {'name': 'cluster.other.upstream_rq_total', 'value': 1}, {'histograms': {'supported_quantiles': [0, 0.5, 1], 'computed_quantiles': []}}]})]):
-        proxy = azure.proxy_snapshot(identity)
-        assert proxy['observations'] == {'cluster.actual-stat-name.upstream_rq_active_overflow': 0}
-        assert 'upstream_rq_active' in proxy['missing_stats'] and 'do-not-export' not in json.dumps(proxy)
+    native_pod = copy.deepcopy(pod_snapshot)
+    native_pod['spec']['initContainers'] = [dict(native_pod['spec']['containers'][0], restartPolicy='Always')]
+    native_pod['spec']['containers'] = [{'name': 'app', 'image': 'app@sha256:actual'}]
+    native_pod['status']['initContainerStatuses'] = native_pod['status'].pop('containerStatuses')
+    for runtime_pod in (pod_snapshot, native_pod):
+        with patch.object(azure, 'command', side_effect=[json.dumps(runtime_pod), json.dumps({'version': 'actual-managed-proxy'}), json.dumps({'configs': [{'cluster': {'name': 'selected-admin-cluster', 'alt_stat_name': 'actual-stat-name', 'secret': 'do-not-export'}}]}), json.dumps({'stats': [{'name': 'cluster.actual-stat-name.upstream_rq_active_overflow', 'value': 0}, {'name': 'cluster.other.upstream_rq_total', 'value': 1}, {'histograms': {'supported_quantiles': [0, 0.5, 1], 'computed_quantiles': []}}]})]):
+            proxy = azure.proxy_snapshot(identity)
+            assert proxy['observations'] == {'cluster.actual-stat-name.upstream_rq_active_overflow': 0}
+            assert 'upstream_rq_active' in proxy['missing_stats'] and 'do-not-export' not in json.dumps(proxy)
     assert plan['correlation']['request_level_join'] == 'not verified'
     assert plan['service_active_window_utc'] == summary['measured_window_utc']
     assert 'LogMessage' not in plan['kql'] and 'or vector(0)' not in str(plan['promql'])
@@ -310,3 +315,14 @@ with tempfile.TemporaryDirectory() as temp:
         proc = subprocess.run(script + ['session-verify'], env=env, capture_output=True, text=True, timeout=10)
         assert proc.returncode != 0
 print('PASS same native-session cookie continuity, private-only A login, unauthenticated/tampered rejection')
+
+# The actual v15 CLI prints lowercase "forgejo version"; retain the exact version suffix.
+version_command = next(line.strip() for line in (ROOT / 'scripts/azure-recovery-check.sh').read_text().splitlines()
+                       if line.strip().startswith('version="$(sed '))
+with tempfile.TemporaryDirectory() as temp:
+    for executable in ('forgejo', 'Forgejo'):
+        Path(temp, 'version').write_text(executable + ' version 15.0.11+gitea-1.22.0 (release name 15.0.11) built with GNU Make\n')
+        result = subprocess.run(['bash', '-euc', version_command + '\nprintf "%s" "$version"'],
+                                env=dict(os.environ, dir=temp), capture_output=True, text=True, check=True)
+        assert result.stdout == '15.0.11+gitea-1.22.0'
+print('PASS actual Forgejo CLI version spelling and exact doctor runtime version extraction')
