@@ -159,7 +159,7 @@ def check_prefixes_and_inventory(temp, rows):
     assert module.validate(invalid)["validity"] == "invalid" and cli(invalid).returncode == 2
 
 
-def run_failure(mode, azure=False):
+def run_failure(mode, azure=False, shared_gate_endpoint=None):
     with tempfile.TemporaryDirectory() as temp:
         temp = Path(temp)
         bindir = temp / "bin"
@@ -179,6 +179,21 @@ def run_failure(mode, azure=False):
             "forgejo_chart_version": "test", "forgejo_chart_digest": "sha256:test",
             "runtime_images": {},
         }))
+        if shared_gate_endpoint:
+            baseline = temp / "events.jsonl"
+            baseline.write_text(json.dumps(dict(json.loads(context.read_text()),
+                record="run_start", schema_version=1, run_id="baseline", phase="measured",
+                started_at_utc="2026-10-28T00:00:00Z", scenario="local_healthy_developer_journey",
+                parameters={}, measurement_boundary=module.LOCAL_BOUNDARY,
+                transport=module.transport("http://127.0.0.1:13000", "local-k3d"))) + "\n")
+            work = temp / "shared-gate"
+            work.mkdir()
+            # Exercise the actual P4 extraction command without starting a cluster.
+            extraction = next(line for line in (ROOT / "scripts/local-shared-gate.sh").read_text().splitlines()
+                              if line.startswith('sed -n 1p "$context_source"'))
+            subprocess.run(["bash", "-euc", extraction], check=True,
+                           env=dict(os.environ, context_source=str(baseline), work=str(work)))
+            context = work / "context.json"
         server = None
         forgejo_url = "https://forgejo.example.com" if azure else "http://127.0.0.1:13000"
         if mode == "api_partial_real":
@@ -193,6 +208,8 @@ def run_failure(mode, azure=False):
                    FORGEJO_ADMIN_USERNAME="admin", FORGEJO_ADMIN_PASSWORD="secret-admin-password")
         if azure:
             env.update(JOURNEY_ENVIRONMENT="azure-aks", JOURNEY_DNS_OVERRIDE="1.1.1.1", GIT_SSL_NO_VERIFY="1")
+        if shared_gate_endpoint:
+            env.update(JOURNEY_ENDPOINT_URL=shared_gate_endpoint, JOURNEY_GATE_CORRELATION="1")
         if mode == "git_timeout_kill":
             env["JOURNEY_GIT_TIMEOUT_SECONDS"] = "0.2"
             env["JOURNEY_GIT_KILL_AFTER_SECONDS"] = "0.2"
@@ -218,6 +235,10 @@ def run_failure(mode, azure=False):
         assert result["completion"] == expected_completion and result["validity"] == "valid", result
         assert cli(files[0]).returncode == 0, (mode, contents)
         rows = [json.loads(line) for line in contents.splitlines()]
+        if shared_gate_endpoint:
+            assert "transport" not in json.loads(context.read_text())
+            assert rows[0]["transport"] == module.transport(shared_gate_endpoint, "local-k3d")
+            assert rows[0]["measurement_boundary"] == module.LOCAL_BOUNDARY
         attempt = next(row for row in rows if row["record"] == "attempt" and
                        (not mode.startswith("git_") or row["operation_id"].endswith("operation-2")))
         if mode == "api_failure":
@@ -296,3 +317,7 @@ print("PASS deterministic R1-R4 prefixes/inventory/CLI/timing/curl, Git timeout/
 run_failure("api_failure", azure=True)
 run_failure("git_failure", azure=True)
 print("PASS HTTPS producer, DNS override and TLS verification configuration")
+
+for endpoint in ("http://127.0.0.1:13000", "http://127.0.0.1:18080"):
+    run_failure("api_failure", shared_gate_endpoint=endpoint)
+print("PASS P4 baseline context extraction and direct/gated endpoint-specific transport")

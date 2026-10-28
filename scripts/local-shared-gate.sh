@@ -78,7 +78,7 @@ phase start
 cp "$SHARED_GATE_BASELINE_RESULT" "$out/direct-baseline.json"
 context_source="$(find "$(dirname "$SHARED_GATE_BASELINE_RESULT")" -name events.jsonl -print -quit)"
 [[ -n "$context_source" ]] || fail 'direct baseline run context absent'
-sed -n 1p "$context_source" | jq 'del(.record,.schema_version,.run_id,.phase,.started_at_utc,.scenario,.parameters,.measurement_boundary)' >"$work/context.json"
+sed -n 1p "$context_source" | jq 'del(.record,.schema_version,.run_id,.phase,.started_at_utc,.scenario,.parameters,.measurement_boundary,.transport)' >"$work/context.json"
 jq -e --arg sha "$sha" --argjson dirty "$dirty" '.source_sha == $sha and .dirty == $dirty' "$work/context.json" >/dev/null || fail 'baseline source differs'
 kubectl -n forgejo port-forward --address 127.0.0.1 svc/forgejo-http 13000:3000 >"$work/direct.log" 2>&1 &
 pf_direct=$!
