@@ -96,9 +96,12 @@ Empty/partial/stale/error를0으로 바꾸지 않고 `ignoreNullValues=false`, T
 Threshold는 KEDA `AverageValue`이며 총 rate/threshold의 desired replica 판단을 actual generated
 HPA metric·desired·Ready·각 target의 traffic timeline과 함께 기록한다. 수동 scale은 성공 proof가 아니다.
 
-C3 새 Pod의 첫 rate에는 최소2 samples가 필요하다. Admission 후 `ingestion+3×scrape` 이내
-새 UID에만 `warming-new-pod`/누락을 명시적으로 보존할 수 있다. 이 구간은 idle도 recovery
-proof도 아니다. 기존 Pod의 누락/stale/error, 범위 밖 누락은 중단 사유다. 새 C3 Pod의 Pending/Ready 전이는 최대90초까지만 허용하며 그동안 recovery를 인정하지 않는다. 첫/마지막만 빼는
+전체 live target UID/inventory에는 Pending도 포함하고, runtime config/counter/log는 Ready target에서 수집한다.
+Collector와 saved-run validator는 같은 lifecycle 경계를 적용한다. 신규 C3 UID의 Pending→Ready는
+첫 관측부터 최대90초, Ready 이후 series 초기화는 `ingestion+3×scrape` 이내만 허용한다.
+첫 rate에는 최소2 samples가 필요하며 이 구간을 `warming-new-pod` not-ready/no-data로 보존한다.
+Idle/recovery/scaling 성공 proof로 세지 않는다. 기존 또는 이미 관측된 Pod의 누락/stale/error,
+unknown series/UID, startup timeout은 중단 사유이며 inventory query guard는 유지한다. 첫/마지막만 빼는
 방식 없이 각 Pod lifetime의 counter/log를 수집하고 reset/restart·수집 누락을 구분한다.
 관측 중 사라진 Pod의 final counter/log를 확보하지 못하면 valid로 승격하지 않는다.
 
@@ -115,7 +118,12 @@ proof도 아니다. 기존 Pod의 누락/stale/error, 범위 밖 누락은 중�
 
 각 arm의 mitigation은 fault를 유지한다. Release worker는 예정 mitigation 종료에 hold0,
 maxRequests1024로 바꾸며 **동시에 같은 logical arrivals가 계속된다**. ConfigMap projection과
-각 Envoy capacity/hold의 실제 수렴 전 구간은 따로 남긴다. Gate/native auth 우회나 demand 감소는 없다.
+각 Envoy capacity/hold의 실제 수렴 전 구간은 따로 남긴다. Release 중 허용 값은
+각 target의 hold1000→0 / capacity2→1024뿐이며 서로 다른 시점의 수렴을 `fault_state`와
+`release-not-converged` gap으로 보존하고 recovery proof에서 제외한다. 이때도 hostname/provider/
+selector, image, controller ownership 및 나머지 invariant 검사는 계속한다. Drift나 unknown validation
+failure는 monitor failure로 전파되어 추가 demand 중단과 기존 fault release 경로로 이어진다.
+Gate/native auth 우회나 demand 감소는 없다.
 Fault 유지 중 원래 SLO를 회복했다고 가정하지 않는다.
 
 Recovery window는 schedule origin 기준 고정된 연속10초다. 마지막 arrival은 duration−5초이며

@@ -175,6 +175,53 @@ def telemetry(rows, pods, now, freshness):
     return sum(r['rate'] for r in rows)
 
 
+class TargetLifecycle:
+    """Shared live/saved boundary: admission -> Ready -> initialized series."""
+    def __init__(self, arm, initial_uids, v):
+        self.arm, self.initial, self.v = arm, set(initial_uids), v
+        self.first_seen, self.ready_since, self.observed = {}, {}, set()
+
+    def inventory(self, pods, at):
+        names = {p['uid']: p['name'] for p in pods}
+        require(len(names) == len(pods) and len(set(names.values())) == len(pods) and
+                1 <= len(pods) <= (2 if self.arm == 'C3' else 1), 'target inventory duplicates/bounds')
+        require(self.initial <= set(names) and set(self.first_seen) <= set(names), 'target lifetime disappeared')
+        for p in pods:
+            uid = p['uid']
+            self.first_seen.setdefault(uid, at)
+            new = self.arm == 'C3' and uid not in self.initial and uid not in self.observed
+            require(not p['reason'] and all(c['restarts'] == 0 and c['last_termination'] not in {'OOMKilled', 'Error'} for c in p['containers']), 'target lifecycle failure')
+            ready = p['ready'] and all(c['ready'] for c in p['containers']) and p['phase'] == 'Running'
+            if not ready:
+                require(new and p['phase'] in {'Pending', 'Running'} and at - self.first_seen[uid] <= 90 and
+                        uid not in self.ready_since, 'target startup/readiness failure')
+            else:
+                require(not new or uid in self.ready_since or at - self.first_seen[uid] <= 90, 'target Ready startup timeout')
+                self.ready_since.setdefault(uid, at)
+        return names
+
+    def signal(self, signal, pods, at, epoch):
+        names = self.inventory(pods, at)
+        rows = signal['pods']
+        observed = {r['pod_uid']: r['pod'] for r in rows}
+        missing = set(names) - set(observed)
+        if missing:
+            require(signal['status'] == 'warming-new-pod' and self.arm == 'C3' and
+                    set(signal['missing_uids']) == missing and signal['query'] == [] and
+                    missing <= set(names) - self.initial - self.observed, 'unapproved missing telemetry')
+            for uid in missing:
+                since = self.ready_since.get(uid)
+                require(since is None or at - since <= self.v['ingestion_seconds'] + 3 * self.v['scrape_seconds'], 'new-Pod series startup timeout')
+        else:
+            require(signal['status'] == 'observed' and len(signal['query']) == 1 and
+                    bounded(float(signal['query'][0]['value'][1]), 0, 1000000), 'empty/invalid guarded scale query')
+        ready_names = {uid: name for uid, name in names.items() if uid in self.ready_since and uid not in missing}
+        # Always validate existing series, including while another UID warms up.
+        value = telemetry(rows, ready_names, epoch, self.v['freshness_seconds'])
+        self.observed.update(observed)
+        return None if missing else value
+
+
 def accounting(arm, v):
     # Window boundary residuals belong to the denominator, even on invalid runs.
     for k in ('checks', 'target_admitted', 'target_rejected', 'admission_shed', 'queue_timeout',
@@ -343,10 +390,19 @@ def recovery(v, events, observation_good):
             'first_good_window': first, 'confirmation': None, 'deadline': deadline, 'windows': windows, 'campaign': report}
 
 
-def config_guard(before, after, arm, healthy=False):
+def config_guard(before, after, arm, healthy=False, releasing=False):
     """Only explicitly approved C3 target lifetime/replica and release fault delta."""
     one, two = copy.deepcopy(before), copy.deepcopy(after)
-    if healthy:
+    if releasing:
+        fault = two.pop('fault_state')
+        require(set(fault) == {t['uid'] for t in two['targets']}, 'release target inventory differs')
+        for t in two['targets']:
+            state = fault[t['uid']]
+            require(set(state) == {'hold_ms', 'max_requests'} and state['hold_ms'] in (0, 1000) and
+                    state['max_requests'] in (2, 1024) and t['mapping']['capacity'] == state['max_requests'], 'release fault boundary')
+            t['mapping']['capacity'] = 2
+        require(healthy == all(f == {'hold_ms': 0, 'max_requests': 1024} for f in fault.values()), 'release convergence differs')
+    elif healthy:
         require(two['scenario']['max_requests'] == 1024 and two['scenario']['hold_ms'] == 0, 'healthy gate release boundary')
         two['scenario'].update(max_requests=2, hold_ms=1000)
         for t in two['targets']:
@@ -369,7 +425,6 @@ class Runtime(p8.Runtime):
         self.v, self.arm = v, arm
         self.collection_deadline = threading.local()
         self.initial_uids = set()
-        self.first_seen_uid = {}
         self.hpa_name = HPA if arm == 'C3' else 'hpa-app-cpu'
         self.hp_config = next(o['data']['haproxy.cfg'] for o in render(identity, v, arm)['fixtures.json']['items']
                               if o['kind'] == 'ConfigMap' and o['metadata']['name'] == 'haproxy')
@@ -389,18 +444,19 @@ class Runtime(p8.Runtime):
         require(remaining > 0, 'snapshot command budget exceeded')
         return p8.subprocess.run(['kubectl', '--request-timeout=10s', *args], check=True, capture_output=True, text=True, timeout=remaining).stdout.strip()
 
-    def targets(self):
-        pods = super().targets()
-        if self.arm == 'C3':
-            return [p for p in pods if any(c['type'] == 'Ready' and c['status'] == 'True' for c in p['status'].get('conditions', []))]
-        return pods
-
-    def configuration(self, config):
+    def configuration(self, config, *, inventory=None, releasing=False):
+        inventory = self.targets() if inventory is None else inventory
+        # Source image is an invariant even before a new Pod can be exec'd.
+        require(all(next(c['image'] for c in p['spec']['containers'] if c['name'] == 'app') == self.value['ext_authz_image']
+                    for p in inventory), 'target source image drift')
+        ready = [p for p in inventory if p8.p4.pod_guard(p)['ready']]
+        require(self.arm == 'C3' or len(ready) == len(inventory), 'baseline readiness failure')
         hpas = self.j('-n', NS, 'get', 'hpa', '-o', 'json')['items']
         scaled = [o for o in self.j('-n', NS, 'get', 'scaledobjects', '-o', 'json')['items'] if o['spec']['scaleTargetRef']['name'] == 'ext-authz-sim']
         controller_guard(self.arm, hpas, scaled)
         result = super().configuration(config, target_range=(1, 2) if self.arm == 'C3' else (1, 1),
-                                       haproxy_config=self.hp_config, hpa_name=self.hpa_name)
+                                       haproxy_config=self.hp_config, hpa_name=self.hpa_name,
+                                       target_pods=ready, releasing=releasing)
         expected = render(self.value, self.v, self.arm)['fixtures.json']['items']
         if self.arm == 'C3':
             so = next(o for o in expected if o['kind'] == 'ScaledObject')
@@ -430,32 +486,37 @@ class Runtime(p8.Runtime):
         require(data.get('status') == 'success' and data['data']['resultType'] == 'vector', 'Prometheus query error')
         return data['data']['result']
 
-    def signal(self, pods):
+    def signal(self, pods, *, at=None):
         base = 'cluster=' + json.dumps(self.v['prometheus_cluster']) + ',namespace=' + json.dumps(NS) + ',job="p9-envoy",envoy_cluster_name="inbound|8080||"'
         raw = 'envoy_cluster_upstream_rq_active_overflow{' + base + '}'
         rate = self.prom('rate(' + raw + '[1m])')
         active = self.prom('envoy_cluster_upstream_rq_active{' + base + '}')
         stamp = self.prom('timestamp(' + raw + ')')
         count = self.prom('count_over_time(' + raw + '[1m])')
-        rows, warming = [], []
+        rows = []
         names = {p['metadata']['name']: p['metadata']['uid'] for p in pods}
-        for name, uid in names.items():
+        for values in (rate, active, stamp, count):
+            require(all(r['metric'].get('pod') in names for r in values), 'unknown target series')
+        for pod in pods:
+            name, uid = pod['metadata']['name'], pod['metadata']['uid']
             selected = [[r for r in values if r['metric'].get('pod') == name] for values in (rate, active, stamp, count)]
-            self.first_seen_uid.setdefault(uid, time.monotonic())
-            if any(not x for x in selected):
-                require(self.arm == 'C3' and uid not in self.initial_uids and
-                        time.monotonic() - self.first_seen_uid[uid] <= self.v['ingestion_seconds'] + 3 * self.v['scrape_seconds'], 'missing per-Pod series')
-                warming.append(uid)
+            require(all(len(x) <= 1 for x in selected), 'duplicate per-Pod series')
+            if not p8.p4.pod_guard(pod)['ready'] or any(not x for x in selected):
                 continue
-            require(all(len(x) == 1 for x in selected), 'duplicate per-Pod series')
             r, a, s, c = [float(x[0]['value'][1]) for x in selected]
+            # One sample cannot initialize rate. Other invalid/stale values fail
+            # telemetry validation even if a second Pod is still Pending.
+            if c < 2:
+                require(bounded(c, 0, 1), 'invalid sample count')
+                continue
             rows.append({'pod': name, 'pod_uid': uid, 'status': 'observed', 'rate': r, 'active': a, 'timestamp': s, 'samples': c})
-        if warming:
-            return {'status': 'warming-new-pod', 'missing_uids': warming, 'pods': rows, 'query': [], 'query_sha256': digest(scale_query(self.v))}
-        telemetry(rows, {uid: name for name, uid in names.items()}, time.time(), self.v['freshness_seconds'])
-        value = self.prom(scale_query(self.v))
-        require(len(value) == 1 and bounded(float(value[0]['value'][1]), 0, 1000000), 'empty/invalid guarded scale query')
-        return {'status': 'observed', 'pods': rows, 'query': value, 'query_sha256': digest(scale_query(self.v))}
+        missing = [uid for uid in names.values() if uid not in {r['pod_uid'] for r in rows}]
+        signal = {'status': 'warming-new-pod' if missing else 'observed', 'missing_uids': missing,
+                  'pods': rows, 'query': [], 'query_sha256': digest(scale_query(self.v))}
+        if not missing:
+            signal['query'] = self.prom(scale_query(self.v))
+        self.lifecycle.signal(signal, [p8.p4.pod_guard(p) for p in pods], time.monotonic() if at is None else at, time.time())
+        return signal
 
     def release(self, emit):
         emit({'record': 'release', 'at': time.monotonic(), 'timestamp_utc': p8.utc(), 'hold_ms': 0, 'max_requests': 1024})
@@ -471,33 +532,27 @@ def collect_snapshot(runtime, config, before, emit, release_started):
     inventory = runtime.pods(NS, 'app=ext-authz-sim')
     emit({'record': 'replica_timeline', 'at': at, 'pods': [p8.p4.pod_guard(p) for p in inventory],
           'hpa': runtime.j('-n', NS, 'get', 'hpa', runtime.hpa_name, '-o', 'json')})
-    healthy = False
-    try:
-        actual = runtime.configuration(config)
-    except ValueError:
-        if not release_started.is_set():
-            raise
-        try:
-            actual = runtime.configuration(config | {'max_requests': 1024, 'hold_ms': 0})
-            healthy = True
-        except ValueError:
-            # ConfigMap projection and Envoy update can converge separately.
-            # Preserve the gap and forbid recovery proof there.
-            emit({'record': 'snapshot_gap', 'at': at, 'reason': 'release-not-converged'})
-            return
-    config_guard(before, actual, runtime.arm, healthy)
-    pods = runtime.targets()
+    if not hasattr(runtime, 'lifecycle'):
+        runtime.lifecycle = TargetLifecycle(runtime.arm, runtime.initial_uids, runtime.v)
+    runtime.lifecycle.inventory([p8.p4.pod_guard(p) for p in inventory], at)
+    releasing = release_started.is_set()
+    actual = runtime.configuration(config, inventory=inventory, releasing=releasing)
+    healthy = releasing and all(f == {'hold_ms': 0, 'max_requests': 1024} for f in actual['fault_state'].values())
+    config_guard(before, actual, runtime.arm, healthy, releasing)
     guard = runtime.guard()
     stats = runtime.stats(actual)
     logs = runtime.logs(actual)
     # HAProxy's stdout log-format contains only timing/status/termination fields.
     hp = runtime.pod(NS, 'app=haproxy')
     hp_logs = [json.loads(line) for line in runtime.k('-n', NS, 'logs', hp['metadata']['name'], '-c', 'haproxy').splitlines() if line.startswith('{')]
-    signal = runtime.signal(pods)
-    all_converged = healthy and {p['metadata']['uid'] for p in inventory} == {t['uid'] for t in actual['targets']}
+    signal = runtime.signal(inventory, at=at)
+    all_converged = healthy and signal['status'] == 'observed' and {p['metadata']['uid'] for p in inventory} == {t['uid'] for t in actual['targets']}
+    if releasing and not healthy:
+        emit({'record': 'snapshot_gap', 'at': at, 'reason': 'release-not-converged', 'fault_state': actual['fault_state']})
     snap = {'record': 'snapshot', 'at': at, 'end': time.monotonic(), 'epoch': time.time(), 'timestamp_utc': p8.utc(),
             'configuration': actual, 'guard': guard, 'stats': stats, 'logs': logs, 'haproxy': runtime.haproxy(),
-            'haproxy_logs': hp_logs, 'signal': signal, 'fault_healthy': healthy, 'healthy': all_converged}
+            'haproxy_logs': hp_logs, 'signal': signal, 'fault_healthy': healthy, 'healthy': all_converged,
+            'release_started': releasing, 'target_inventory': [p8.p4.pod_guard(p) for p in inventory]}
     emit(snap)
     if all_converged:
         emit({'record': 'convergence', 'at': snap['end'], 'healthy': True, 'targets': [t['uid'] for t in actual['targets']]})
@@ -640,7 +695,7 @@ def common_guards(snapshots, baseline, arm):
     warm_epochs = [s['epoch'] for s in snapshots if s['signal'].get('status') == 'warming-new-pod']
     previous = None
     for s in snapshots:
-        config_guard(baseline, s['configuration'], arm, s.get('fault_healthy', s['healthy']))
+        config_guard(baseline, s['configuration'], arm, s.get('fault_healthy', s['healthy']), s.get('release_started', False))
         guard = s['guard']
         admitted = guard['admission']
         require(len(admitted['pods']) <= 4 and all(total['cpu'] <= 1.5 + 1e-9 and total['memory'] <= 2048 * 1024**2 for total in admitted['conservative_sum'].values()), 'actual admitted cap exceeded')
@@ -677,7 +732,7 @@ def common_guards(snapshots, baseline, arm):
             obs = [m for m in guard['pod_metrics'] if m['metadata']['name'] == p['name']]
             # A newly admitted C3 Pod can await its first resource metric. It
             # cannot contribute to recovery until full observations are present.
-            if not obs and arm == 'C3' and p['uid'] not in first_targets:
+            if not obs and warming and arm == 'C3' and p['uid'] not in first_targets:
                 continue
             require(len(obs) == 1 and {c['name'] for c in p['containers']} <= {c['name'] for c in obs[0]['containers']}, 'missing container metric')
             age = (p8.p7.utc(guard['timestamp_utc']) - p8.p7.utc(obs[0]['timestamp'])).total_seconds()
@@ -788,20 +843,17 @@ def validate(directory):
     for r in rows:
         expected_delay = retry_delay(v, arm, r) if len(r['attempts']) == 2 else 0
         require(abs(r['backoff_seconds'] - expected_delay) < 1e-8, 'arm retry delta differs')
-    signals, first_seen = [], {}
-    initial_uids = {t['uid'] for t in manifest['baseline']['targets']}
+    signals = []
+    lifecycle = TargetLifecycle(arm, {t['uid'] for t in manifest['baseline']['targets']}, v)
     for s in snapshots:
-        pods = {t['uid']: t['name'] for t in s['configuration']['targets']}
-        for uid in pods:
-            first_seen.setdefault(uid, s['at'])
-        if s['signal'].get('status') == 'warming-new-pod':
-            missing = set(s['signal']['missing_uids'])
-            require(arm == 'C3' and missing and missing <= set(pods) - initial_uids and
-                    all(s['at'] - first_seen[uid] <= v['ingestion_seconds'] + 3 * v['scrape_seconds'] for uid in missing), 'unapproved missing telemetry')
-            telemetry(s['signal']['pods'], {uid: name for uid, name in pods.items() if uid not in missing}, s['epoch'], v['freshness_seconds'])
-            signals.append(None)
-        else:
-            signals.append(telemetry(s['signal']['pods'], pods, s['epoch'], v['freshness_seconds']))
+        inventory = s.get('target_inventory', [p for p in s['guard']['pods'] if p['name'].startswith('ext-authz-sim-')])
+        # Guard collection can observe Pending -> Ready later in this cycle.
+        # Lifecycle/config/signal use the same inventory taken at snapshot start.
+        require({p['uid']: p['name'] for p in inventory} ==
+                {p['uid']: p['name'] for p in s['guard']['pods'] if p['name'].startswith('ext-authz-sim-')}, 'snapshot target inventory differs')
+        require({t['uid']: t['name'] for t in s['configuration']['targets']} ==
+                {p['uid']: p['name'] for p in inventory if p['ready']}, 'Ready configuration inventory differs')
+        signals.append(lifecycle.signal(s['signal'], inventory, s['at'], s['epoch']))
         require(s['signal']['query_sha256'] == digest(scale_query(v)), 'scale query drift')
     require(signals[-1] is not None and all(b['end'] - a['end'] <= 35 for a, b in zip(snapshots, snapshots[1:])), 'final/missing observation gap')
     require(snapshots[0]['end'] <= origin and snapshots[-1]['at'] >= origin + v['mitigation_seconds'] + v['recovery_seconds'] and
@@ -833,7 +885,8 @@ def validate(directory):
         signal_at = next((s['end'] for s, value in zip(snapshots, signals) if value is not None and value > v['threshold']), None)
         desired = next((t['at'] for t in timeline if signal_at is not None and t['at'] >= signal_at and t['hpa']['status'].get('desiredReplicas') == 2), None)
         ready = next((t['at'] for t in timeline if desired is not None and t['at'] >= desired and sum(p['ready'] for p in t['pods']) == 2), None)
-        traffic = next((s['end'] for s in snapshots if ready is not None and s['at'] >= ready and len(s['stats']) == 2 and all(p8.p4.by_suffix(stats)['upstream_rq_total'] > 0 for stats in s['stats'].values())), None)
+        traffic = next((s['end'] for s, value in zip(snapshots, signals) if value is not None and ready is not None and
+                        s['at'] >= ready and len(s['stats']) == 2 and all(p8.p4.by_suffix(stats)['upstream_rq_total'] > 0 for stats in s['stats'].values())), None)
         if traffic is not None:
             scale = {'status': 'observed; audit scale ownership before autoscaling claim', 'signal_to_desired_ready_traffic': [signal_at, desired, ready, traffic]}
     return {'source_sha': identity['source_sha'], 'fingerprint': digest(manifest), 'arm': arm,

@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import tempfile
+import threading
 import time
 import unittest
 from unittest.mock import patch
@@ -227,7 +228,7 @@ class CompleteEvidenceTests(unittest.TestCase):
                 actual['scenario'].update(max_requests=1024, hold_ms=0);actual['targets'][0]['mapping']['capacity'] = 1024
             snapshots.append({'record': 'snapshot', 'at': at, 'end': at + .1, 'epoch': at + 1000, 'healthy': healthy,
                 'timestamp_utc': '2026-10-29T00:00:00Z', 'configuration': actual, 'guard': guard,
-                'signal': {'status': 'observed', 'query_sha256': m.digest(m.scale_query(v)),
+                'signal': {'status': 'observed', 'query': [{'value': [0, '0']}], 'query_sha256': m.digest(m.scale_query(v)),
                            'pods': [{'pod_uid': 'target', 'pod': 'ext-authz-sim-abc', 'status': 'observed', 'rate': 0,
                                      'active': 0, 'samples': 4, 'timestamp': at + 1000}]}})
         start = {'record': 'run_start', 'timestamp_utc': '2026-10-29T00:00:00Z', 'transport': m.p8.p7.operations.transport('https://forgejo.example.com', 'azure-aks', None)}
@@ -254,17 +255,333 @@ class CompleteEvidenceTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'cap exceeded'): m.validate(directory)
 
     def test_missing_stale_and_wrong_uid_warmup_never_become_idle(self):
-        for case in ('missing', 'stale', 'warmup-existing', 'controller-error'):
+        for case in ('missing', 'stale', 'warmup-existing', 'controller-error', 'empty-query'):
             with self.subTest(case=case), tempfile.TemporaryDirectory() as directory:
                 rows = self.fixture(directory)
                 snapshot = next(e for e in rows if e['record'] == 'snapshot')
                 if case == 'missing': snapshot['signal']['pods'] = []
                 elif case == 'stale': snapshot['signal']['pods'][0]['timestamp'] -= 1000
                 elif case == 'warmup-existing': snapshot['signal'].update(status='warming-new-pod', missing_uids=['target'])
-                else: snapshot['guard']['events'] = [{'reason': 'FailedComputeMetricsReplicas'}]
+                elif case == 'controller-error': snapshot['guard']['events'] = [{'reason': 'FailedComputeMetricsReplicas'}]
+                else: snapshot['signal']['query'] = []
                 (Path(directory) / 'events.jsonl').write_text(''.join(json.dumps(r) + '\n' for r in rows))
                 with patch.object(m, 'path_accounting', side_effect=lambda *_: {'admitted_checks': [], 'checks': 1800}), self.assertRaises(ValueError):
                     m.validate(directory)
+
+
+class LiveFixture:
+    """Mock external I/O; execute real P9/P8 config, signal and collection."""
+    def __init__(self, arm='C3'):
+        self.runtime = r = m.Runtime.__new__(m.Runtime)
+        r.value, r.v, r.arm = t8.identity(), plan(), arm
+        r.initial_uids, r.first_seen_uid = {'target'}, {}
+        r.collection_deadline = threading.local()
+        r.hpa_name = m.HPA if arm == 'C3' else 'hpa-app-cpu'
+        objects = m.render(r.value, r.v, arm)['fixtures.json']['items']
+        r.hp_config = next(o['data']['haproxy.cfg'] for o in objects if o['kind'] == 'ConfigMap' and o['metadata']['name'] == 'haproxy')
+        self.hpa = {'metadata': {'name': r.hpa_name}, 'spec': t8.hpa_spec()}
+        self.scaled = []
+        if arm == 'C3':
+            so = copy.deepcopy(next(o for o in objects if o['kind'] == 'ScaledObject'))
+            so['metadata']['uid'] = 'so'
+            self.scaled = [so]
+            self.hpa['metadata']['ownerReferences'] = [{'kind': 'ScaledObject', 'uid': 'so', 'controller': True}]
+        self.policy, self.listeners, filters, _ = t8.gateway_fixture()
+        filters[-1]['typed_config'].update(http_service={'server_uri': {'cluster': 'haproxy.' + m.NS + '.svc.cluster.local'},
+            'authorization_request': {'headers_to_add': [{'key': 'authorization', 'value': 'p4-check-without-credentials'}]}})
+        self.pods = [self.pod('target', 'ext-authz-sim-abc')]
+        self.capacities, self.holds = {}, {}
+        self.missing, self.stale, self.one_sample = set(), set(), set()
+        self.extra_series = False
+        self.epoch = None
+        self.queries = []
+        self.rate, self.traffic = 0, 0
+        self.config = {'max_requests': 2, 'hold_ms': 1000, 'logical_operations': 24, 'concurrency': 12,
+                       'waves': 72, 'wave_interval_seconds': 5}
+        r.pods, r.j, r.k, r.admin, r.prom = self.get_pods, self.j, self.k, self.admin, self.prom
+        r.guard = self.guard
+        r.haproxy = lambda: {}
+        self.baseline = r.configuration(self.config)
+
+    def pod(self, uid, name, ready=True):
+        return {'metadata': {'uid': uid, 'name': name},
+                'spec': {'containers': [{'name': 'app', 'image': self.runtime.value['ext_authz_image']}]},
+                'status': {'phase': 'Running' if ready else 'Pending',
+                           'conditions': [{'type': 'Ready', 'status': 'True' if ready else 'False'}],
+                           'containerStatuses': [{'name': 'app', 'imageID': 'sha', 'ready': ready, 'restartCount': 0}] if ready else []}}
+
+    def get_pods(self, ns, selector):
+        if selector == 'app=ext-authz-sim': return self.pods
+        if selector == 'app=haproxy':
+            return [{'metadata': {'name': 'hp', 'uid': 'hp'}, 'spec': {'containers': [{'name': 'haproxy', 'image': m.p8.PINS['HAPROXY_IMAGE']}]}}]
+        if ns == 'forgejo': return [{'metadata': {'name': 'forgejo', 'uid': 'stable'}, 'status': {}}]
+        if ns == 'aks-istio-ingress': return [{'metadata': {'name': 'ingress', 'uid': 'ingress'}}]
+        raise AssertionError((ns, selector))
+
+    def j(self, *args):
+        if 'authorizationpolicy' in args: return self.policy
+        if 'scaledobjects' in args: return {'items': self.scaled}
+        if 'hpa' in args: return self.hpa | {'status': {'desiredReplicas': len(self.pods)}} if self.runtime.hpa_name in args else {'items': [self.hpa]}
+        if 'deployment' in args: return {'spec': {'template': 'fixed'}}
+        raise AssertionError(args)
+
+    def k(self, *args):
+        if 'logs' in args: return ''
+        if '/config/hold-ms' in args: return str(self.holds.get(args[3], 1000))
+        if '/config/haproxy.cfg' in args: return self.runtime.hp_config.rstrip('\n')
+        raise AssertionError(args)
+
+    def admin(self, ns, name, path):
+        if path.startswith('config_dump?resource=dynamic_active_clusters'):
+            return {'cluster': {'name': 'inbound|8080||', 'load_assignment': {'port_value': 8080},
+                                'circuit_breakers': {'thresholds': [{'max_requests': self.capacities.get(name, 2)}]}}}
+        if path.startswith('stats?'):
+            return {'stats': [{'name': 'cluster.inbound|8080||.' + k, 'value': self.traffic if k == 'upstream_rq_total' else 0} for k in m.p8.p4.SUFFIXES]}
+        if path == 'config_dump?resource=dynamic_listeners': return self.listeners if ns == 'aks-istio-ingress' else {}
+        if path == 'config_dump?resource=dynamic_route_configs': return {'route': {'cluster': 'forgejo-http.forgejo.svc'}}
+        if path == 'server_info': return {'version': 'test'}
+        if path == 'runtime?format=json': return {'entries': {m.p8.p4.GUARD: 'fixed'}}
+        if path == 'config_dump?mask=bootstrap.stats_config': return {'stats_matcher': 'fixed'}
+        raise AssertionError((ns, name, path))
+
+    def prom(self, query):
+        self.queries.append(query)
+        if query == m.scale_query(self.runtime.v):
+            # Real guard is empty while live inventory exceeds rate coverage.
+            return [] if any(not m.p8.p4.pod_guard(p)['ready'] or p['metadata']['uid'] in self.missing | self.one_sample for p in self.pods) else [{'metric': {}, 'value': [0, str(self.rate * len(self.pods))]}]
+        values = []
+        for p in self.pods:
+            uid, name = p['metadata']['uid'], p['metadata']['name']
+            if not m.p8.p4.pod_guard(p)['ready']: continue
+            if uid in self.missing and query.startswith('rate('): continue
+            value = self.rate if query.startswith('rate(') else 0
+            if query.startswith('timestamp('): value = (time.time() if self.epoch is None else self.epoch) - (1000 if uid in self.stale else 0)
+            if query.startswith('count_over_time('): value = 1 if uid in self.one_sample else 4
+            values.append({'metric': {'pod': name}, 'value': [0, str(value)]})
+        if self.extra_series: values.append({'metric': {'pod': 'unknown-pod'}, 'value': [0, '0']})
+        return values
+
+    def guard(self):
+        guard = t8.metric_guard()
+        guard['pods'] = [m.p8.p4.pod_guard(p) for p in self.pods]
+        guard['runtime_images'] = {p['metadata']['uid']: {c['name']: c['imageID'] for c in p['status'].get('containerStatuses', [])} for p in self.pods}
+        guard['pod_metrics'] = [copy.deepcopy(guard['pod_metrics'][0]) | {'metadata': {'name': p['metadata']['name'], 'namespace': m.NS}}
+                                for p in self.pods if m.p8.p4.pod_guard(p)['ready']]
+        guard['admission'] = {'pods': self.pods, 'conservative_sum': {'requests': {'cpu': .3, 'memory': 1}, 'limits': {'cpu': 1, 'memory': 1}}}
+        guard['hpa'].update(currentReplicas=len(self.pods), desiredReplicas=len(self.pods))
+        return guard
+
+    def collect(self, at, released=False):
+        rows, started = [], threading.Event()
+        if released: started.set()
+        self.epoch = 1000 + at
+        with patch.object(m.time, 'monotonic', return_value=at), patch.object(m.time, 'time', return_value=self.epoch):
+            m.collect_snapshot(self.runtime, self.config, self.baseline, rows.append, started)
+        return rows
+
+
+class CollectionGateTests(unittest.TestCase):
+    def setUp(self):
+        env = patch.dict(os.environ, {'FORGEJO_URL': 'https://forgejo.example.com'}, clear=True)
+        env.start(); self.addCleanup(env.stop)
+
+    def test_pending_ready_rate_warmup_collected_and_saved_validator(self):
+        f = LiveFixture()
+        # Establish existing series, then admit the second UID as Pending.
+        f.rate = 1
+        initial = f.collect(-5)
+        f.pods.append(f.pod('new', 'ext-authz-sim-new', ready=False))
+        pending = f.collect(185)
+        self.assertEqual([p['metadata']['uid'] for p in f.runtime.targets()], ['target', 'new'])
+        snapshot = next(e for e in pending if e['record'] == 'snapshot')
+        self.assertEqual(snapshot['signal']['status'], 'warming-new-pod')
+        self.assertEqual(snapshot['signal']['missing_uids'], ['new'])
+        self.assertEqual(snapshot['signal']['query'], [])
+        self.assertFalse(snapshot['healthy'])
+        self.assertEqual(len(snapshot['configuration']['targets']), 1)
+        # Pending time does not consume the separate Ready -> series budget.
+        f.pods[1] = f.pod('new', 'ext-authz-sim-new')
+        f.missing = {'new'}
+        f.traffic = 1  # Ready/traffic during warmup still cannot prove scaling.
+        ready = f.collect(270)
+        self.assertEqual(next(e for e in ready if e['record'] == 'snapshot')['signal']['status'], 'warming-new-pod')
+        f.missing.clear(); f.one_sample = {'new'}
+        sample = f.collect(275)
+        self.assertEqual(next(e for e in sample if e['record'] == 'snapshot')['signal']['status'], 'warming-new-pod')
+        f.one_sample.clear()
+        f.capacities = {p['metadata']['name']: 1024 for p in f.pods}
+        f.holds = {p['metadata']['name']: 0 for p in f.pods}
+        observed = f.collect(280, released=True)
+        snap = next(e for e in observed if e['record'] == 'snapshot')
+        self.assertTrue(snap['healthy']); self.assertEqual(snap['signal']['status'], 'observed')
+        self.assertEqual(len(snap['signal']['query']), 1)
+        # Feed actual collected snapshots through the whole saved-run validator.
+        with tempfile.TemporaryDirectory() as directory:
+            rows = CompleteEvidenceTests().fixture(directory)
+            manifest = m.load(Path(directory) / 'configuration.json')
+            manifest.update(arm='C3', baseline=f.baseline)
+            Path(directory, 'configuration.json').write_text(json.dumps(manifest))
+            collected = {e['at']: e for e in initial + pending + ready + sample + observed if e['record'] == 'snapshot'}
+            timeline = [(-5, collected[-5]), (185, collected[185]), (270, collected[270]), (275, collected[275]), (280, collected[280])]
+            for i, row in enumerate(rows):
+                if row['record'] != 'snapshot': continue
+                source_at, source = max((x for x in timeline if x[0] <= row['at']), key=lambda x: x[0])
+                replacement = copy.deepcopy(source)
+                replacement.update(at=row['at'], end=row['end'], epoch=row['epoch'])
+                for r in replacement['signal']['pods']: r['timestamp'] = row['epoch']
+                rows[i] = replacement
+            # Preserve the collector's convergence and release-gap events.
+            rows[-1:-1] = [e for e in initial + pending + ready + sample + observed if e['record'] in {'convergence', 'replica_timeline'}]
+            path = Path(directory, 'events.jsonl')
+            path.write_text(''.join(json.dumps(r) + '\n' for r in rows))
+            with patch.object(m, 'path_accounting', return_value={'admitted_checks': [], 'checks': 1800}):
+                result = m.validate(directory)
+                self.assertEqual(result['recovery']['first_good_window'], 290)
+                self.assertEqual(result['scaling']['signal_to_desired_ready_traffic'][-1], 280.1)
+                self.assertFalse(any(w['good'] for w in result['recovery']['windows'] if w['start'] < 280))
+                for case in ('existing-missing', 'unknown-uid', 'startup-timeout', 'series-timeout', 'stale-existing'):
+                    changed = copy.deepcopy(rows)
+                    warm = next(e for e in changed if e['record'] == 'snapshot' and e['at'] == 190)
+                    if case == 'existing-missing': warm['signal']['pods'] = []
+                    elif case == 'unknown-uid': warm['signal']['missing_uids'] = ['unknown']
+                    elif case == 'stale-existing': warm['signal']['pods'][0]['timestamp'] -= 1000
+                    elif case == 'startup-timeout':
+                        for e in changed:
+                            if e['record'] == 'snapshot' and 185 <= e['at'] <= 280:
+                                at, end, epoch = e['at'], e['end'], e['epoch']
+                                e.update(copy.deepcopy(warm), at=at, end=end, epoch=epoch)
+                                e['signal']['pods'][0]['timestamp'] = epoch
+                    else:
+                        # Ready at185 with no series through270 exceeds75s.
+                        for e in changed:
+                            if e['record'] == 'snapshot' and 185 <= e['at'] <= 275:
+                                e['target_inventory'][1] = copy.deepcopy(collected[270]['target_inventory'][1])
+                                e['guard'] = copy.deepcopy(collected[270]['guard'])
+                                e['configuration'] = copy.deepcopy(collected[270]['configuration'])
+                    path.write_text(''.join(json.dumps(r) + '\n' for r in changed))
+                    expected = {'existing-missing': 'missing telemetry', 'unknown-uid': 'missing telemetry',
+                                'startup-timeout': 'Pod lifecycle failure', 'series-timeout': 'series startup timeout',
+                                'stale-existing': 'stale/error'}[case]
+                    with self.subTest(case=case), self.assertRaisesRegex(ValueError, expected): m.validate(directory)
+
+    def test_collection_fails_existing_loss_unknown_series_and_timeouts(self):
+        for case in ('missing', 'stale', 'one-sample', 'unknown', 'pending-timeout', 'ready-too-late', 'series-timeout', 'observed-new-loss'):
+            with self.subTest(case=case):
+                f = LiveFixture(); f.collect(0)
+                f.pods.append(f.pod('new', 'ext-authz-sim-new', ready=False)); f.collect(1)
+                at = 2
+                if case == 'missing': f.missing = {'target'}
+                elif case == 'stale': f.stale = {'target'}
+                elif case == 'one-sample': f.one_sample = {'target'}
+                elif case == 'unknown': f.extra_series = True
+                elif case == 'pending-timeout': at = 92
+                elif case == 'ready-too-late': f.pods[1] = f.pod('new', 'ext-authz-sim-new'); at = 92
+                elif case == 'series-timeout':
+                    f.pods[1] = f.pod('new', 'ext-authz-sim-new'); f.missing = {'new'}; f.collect(2); at = 78
+                else:
+                    f.pods[1] = f.pod('new', 'ext-authz-sim-new'); f.collect(2); f.missing = {'new'}; at = 3
+                with self.assertRaises(ValueError): f.collect(at)
+
+    def test_release_partial_convergence_checks_invariants_and_records_gap(self):
+        for order in ('hold-first', 'capacity-first'):
+            with self.subTest(order=order):
+                f = LiveFixture(); f.collect(0)
+                name = f.pods[0]['metadata']['name']
+                (f.holds if order == 'hold-first' else f.capacities)[name] = 0 if order == 'hold-first' else 1024
+                rows = f.collect(185, released=True)
+                gap = next(e for e in rows if e['record'] == 'snapshot_gap')
+                self.assertEqual(gap['reason'], 'release-not-converged')
+                self.assertIn('fault_state', gap)
+                snap = next(e for e in rows if e['record'] == 'snapshot')
+                self.assertFalse(snap['healthy']); self.assertFalse(snap['fault_healthy'])
+                self.assertFalse(any(e['record'] == 'convergence' for e in rows))
+                f.holds[name], f.capacities[name] = 0, 1024
+                rows = f.collect(190, released=True)
+                self.assertFalse(any(e['record'] == 'snapshot_gap' for e in rows))
+                self.assertTrue(next(e for e in rows if e['record'] == 'snapshot')['healthy'])
+
+    def test_fault_values_outside_release_boundary_fail(self):
+        for released, hold, capacity in ((False, 0, 2), (False, 1000, 1024), (True, 250, 2), (True, 0, 64)):
+            with self.subTest(released=released, hold=hold, capacity=capacity):
+                f = LiveFixture(); f.collect(0)
+                name = f.pods[0]['metadata']['name']
+                f.holds[name], f.capacities[name] = hold, capacity
+                with self.assertRaises(ValueError): f.collect(185, released=released)
+
+    def test_partial_release_gaps_excluded_by_saved_recovery_validator(self):
+        for order in ('hold-first', 'capacity-first'):
+            with self.subTest(order=order), tempfile.TemporaryDirectory() as directory:
+                f = LiveFixture()
+                rows = CompleteEvidenceTests().fixture(directory)
+                manifest = m.load(Path(directory, 'configuration.json'))
+                manifest.update(arm='C3', baseline=f.baseline)
+                Path(directory, 'configuration.json').write_text(json.dumps(manifest))
+                extra = []
+                for i, e in enumerate(rows):
+                    if e['record'] != 'snapshot': continue
+                    at, name = e['at'], f.pods[0]['metadata']['name']
+                    if at >= 185:
+                        (f.holds if order == 'hold-first' else f.capacities)[name] = 0 if order == 'hold-first' else 1024
+                    if at >= 195: f.holds[name], f.capacities[name] = 0, 1024
+                    collected = f.collect(at, released=at >= 180)
+                    rows[i] = next(r for r in collected if r['record'] == 'snapshot')
+                    extra += [r for r in collected if r['record'] in {'snapshot_gap', 'convergence'}]
+                rows = [e for e in rows if e['record'] != 'convergence']
+                rows[-1:-1] = extra
+                Path(directory, 'events.jsonl').write_text(''.join(json.dumps(r) + '\n' for r in rows))
+                with patch.object(m, 'path_accounting', return_value={'admitted_checks': [], 'checks': 1800}):
+                    result = m.validate(directory)
+                self.assertEqual(result['recovery']['first_good_window'], 210)
+                self.assertFalse(any(w['good'] for w in result['recovery']['windows'] if w['start'] < 195))
+
+    def test_release_drift_and_unknown_failure_reach_monitor_cancel_and_release(self):
+        for case in ('hostname', 'provider', 'selector', 'controller', 'image', 'unknown'):
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as directory:
+                f = LiveFixture('C0')
+                real_config = f.runtime.configuration
+                drift_at = []
+                def drift(config, **kwargs):
+                    if released.is_set():
+                        drift_at.append(time.monotonic())
+                        if case == 'hostname': f.policy['spec']['rules'][0]['to'][0]['operation']['hosts'] = ['other.example.com']
+                        elif case == 'provider': f.policy['spec']['provider']['name'] = 'unknown'
+                        elif case == 'selector': f.policy['spec']['selector'] = {'matchLabels': {'app': 'unknown'}}
+                        elif case == 'controller': f.hpa['metadata']['ownerReferences'] = [{'kind': 'Unknown'}]
+                        elif case == 'image': f.pods[0]['spec']['containers'][0]['image'] = 'wrong'
+                        else: raise ValueError('unknown validation failure')
+                    return real_config(config, **kwargs)
+                f.runtime.configuration = drift
+                released = threading.Event()
+                def release(emit):
+                    f.holds[f.pods[0]['metadata']['name']] = 0
+                    emit({'record': 'release', 'at': time.monotonic()}); released.set()
+                f.runtime.release = release
+                real_drive = m.drive
+                def drive(v, arm, issue, git, emit, release, **kwargs):
+                    # Start release, let the real monitor observe drift, then
+                    # verify the real driver sees failure and stops demand.
+                    release(0)
+                    deadline = time.monotonic() + 3
+                    while not kwargs['monitor_error']() and time.monotonic() < deadline: time.sleep(.01)
+                    self.assertTrue(kwargs['monitor_error']())
+                    arrivals = [{'id': 'pending', 'kind': 'issue', 'at': 0, 'wave': 0}]
+                    with patch.object(m, 'schedule', return_value=arrivals):
+                        real_drive({'mitigation_seconds': 1, 'recovery_seconds': 1}, arm, issue, git, emit, lambda _: None, **kwargs)
+                output = Path(directory, 'run')
+                v = plan()
+                m.save(Path(directory, 'approval.json'), approval())
+                with patch.dict(os.environ, {'FORGEJO_URL': 'https://forgejo.example.com', 'DEV_USER': 'test', 'ISSUE_NUMBER': '1', 'ISSUE_TITLE': 'fixture', 'EXPECTED_MAIN_SHA': 'a' * 40, 'DEV_TOKEN': 'test'}), \
+                     patch.object(m, 'execution_gate'), patch.object(m, 'Runtime', return_value=f.runtime), \
+                     patch.object(m, 'drive', side_effect=drive), \
+                     patch.object(m.p8, 'request', return_value={'semantic_result': True}):
+                    with self.assertRaises(ValueError):
+                        m._measure(t8.identity(), v, 'C0', 'calibration', output, Path(directory, 'approval.json'), '-', Path(directory, 'ledger'))
+                rows = [json.loads(line) for line in Path(output, 'events.jsonl').read_text().splitlines()]
+                self.assertTrue(released.is_set())
+                self.assertTrue(any(e['record'] == 'monitor_failure' for e in rows))
+                self.assertTrue(any(e['record'] == 'run_failure' for e in rows))
+                self.assertFalse(any(e['record'] == 'snapshot_gap' and e['at'] >= drift_at[0] for e in rows))
+                self.assertEqual(next(e for e in rows if e['record'] == 'operation')['outcome'], 'not-issued')
 
 
 class DemandRecoveryTests(unittest.TestCase):

@@ -213,7 +213,7 @@ def gateway_scope(value, policy, listeners):
             'policy_spec_sha256': digest(policy['spec']), 'effective_policy_id': policy_id, 'filter_chains': matches}
 
 
-def target_mapping(dump, stat_payload, capacity, listeners=None):
+def target_mapping(dump, stat_payload, capacity, listeners=None, *, allowed_capacities=None):
     clusters = [v['cluster'] for v in walk(dump) if isinstance(v.get('cluster'), dict) and
                 v['cluster'].get('name', '').startswith('inbound|')]
     bindings = {v['route']['cluster'] for chain in walk(listeners) if chain.get('filter_chain_match', {}).get('destination_port') == 8080
@@ -223,6 +223,10 @@ def target_mapping(dump, stat_payload, capacity, listeners=None):
     require(len(selected) == 1, 'actual inbound app endpoint cluster absent/ambiguous')
     c = selected[0]
     thresholds = c.get('circuit_breakers', {}).get('thresholds', [])
+    if allowed_capacities is not None:
+        actual = [t.get('max_requests') for t in thresholds if t.get('priority', 'DEFAULT') == 'DEFAULT']
+        require(len(actual) == 1 and actual[0] in allowed_capacities, 'actual active-request capacity outside release boundary')
+        capacity = actual[0]
     require(any(t.get('priority', 'DEFAULT') == 'DEFAULT' and t.get('max_requests') == capacity for t in thresholds), 'actual active-request capacity differs')
     prefixes = {'cluster.' + n + '.' for n in (c['name'], c.get('alt_stat_name')) if n}
     names = {s['name']: s['value'] for s in stat_payload['stats'] if any(s.get('name', '').startswith(p) and
@@ -327,17 +331,22 @@ class Runtime:
     def targets(self):
         return self.pods(NS, 'app=ext-authz-sim')
 
-    def configuration(self, config, *, target_range=(1, 1), haproxy_config=None, hpa_name='hpa-app-cpu'):
+    def configuration(self, config, *, target_range=(1, 1), haproxy_config=None, hpa_name='hpa-app-cpu',
+                      target_pods=None, releasing=False):
         measurement_transport(self.value)
         policy = self.j('-n', 'aks-istio-ingress', 'get', 'authorizationpolicy', 'p8-shared-gate', '-o', 'json')
         result = {'targets': [], 'scenario': config, 'ingress': [], 'forgejo_hostname': self.value['forgejo_hostname']}
-        for pod in self.targets():
+        for pod in self.targets() if target_pods is None else target_pods:
             name = pod['metadata']['name']
             require(next(c['image'] for c in pod['spec']['containers'] if c['name'] == 'app') == self.value['ext_authz_image'], 'target source image drift')
             mapping, _ = target_mapping(self.admin(NS, name, 'config_dump?resource=dynamic_active_clusters'),
                 self.admin(NS, name, 'stats?format=json&filter=upstream_rq_'), config['max_requests'],
-                self.admin(NS, name, 'config_dump?resource=dynamic_listeners'))
-            require(int(self.k('-n', NS, 'exec', name, '-c', 'app', '--', 'cat', '/config/hold-ms')) == config['hold_ms'], 'hold convergence')
+                self.admin(NS, name, 'config_dump?resource=dynamic_listeners'),
+                allowed_capacities=(2, 1024) if releasing else None)
+            hold = int(self.k('-n', NS, 'exec', name, '-c', 'app', '--', 'cat', '/config/hold-ms'))
+            require(hold in (0, 1000) if releasing else hold == config['hold_ms'], 'hold convergence')
+            if releasing:
+                result.setdefault('fault_state', {})[pod['metadata']['uid']] = {'hold_ms': hold, 'max_requests': mapping['capacity']}
             statuses = pod['status'].get('containerStatuses', []) + pod['status'].get('initContainerStatuses', [])
             result['targets'].append({'uid': pod['metadata']['uid'], 'name': name, 'mapping': mapping,
                 'images': {s['name']: s['imageID'] for s in statuses},
