@@ -97,6 +97,7 @@ static() {
   shellcheck -x "${scripts[@]}"
   python3 -c 'import ast,sys; ast.parse(open(sys.argv[1]).read())' "$ROOT/scripts/validate-operation-results.py"
   PYTHONDONTWRITEBYTECODE=1 python3 "$ROOT/tests/e2e/test-operation-results.py"
+  PYTHONDONTWRITEBYTECODE=1 python3 "$ROOT/tests/e2e/test-azure-operations.py"
   PYTHONDONTWRITEBYTECODE=1 python3 "$ROOT/tests/e2e/test-recovery.py"
   PYTHONDONTWRITEBYTECODE=1 python3 "$ROOT/tests/e2e/test-upgrade.py"
   PYTHONDONTWRITEBYTECODE=1 python3 "$ROOT/tests/e2e/test-shared-gate.py"

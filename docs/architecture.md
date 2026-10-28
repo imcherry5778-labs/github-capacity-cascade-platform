@@ -318,6 +318,8 @@ Azure Core direction:
 - logs → Log Analytics / Container Insights
 - selected tracing → minimal OTel Collector → Application Insights / Azure Monitor
 
+P7 exit는 기존 metrics/logs 조회와 명시적 correlation이다. Client run→operation→attempt 연결과 workload/동일 시간 구간의 server signal 연계를 구분한다. 실제 HTTP request-level join·distributed tracing은 별도 증거 없이는 주장하지 않는다. Selected tracing은 장기 방향이며 P7 exit 필수가 아니다. 기존 미검증 instrumentation/ingestion은 not verified로 유지한다.
+
 Local에서는 Azure observability stack 전체를 복제하지 않는다. Metric name/unit/label, structured log schema와 correlation boundary만 먼저 고정한다.
 
 Confounder guard는 최소한 다음을 포함한다.
@@ -355,7 +357,7 @@ Upgrade rollback은 필요한 경우 previous compatible state + previous applic
 
 Service Active Window는 environment가 의도적으로 active/healthy로 선언된 측정 구간이다.
 
-Developer-operation SLI를 사용하고 threshold는 healthy baseline 측정 후 DEFERRED 상태에서 해제한다.
+Developer-operation SLI를 사용하고 threshold는 Azure HTTPS healthy baseline 측정 후 근거와 Service Active Window를 함께 기록해 DEFERRED 상태에서 해제하며 P8 fault 실행 전에 고정한다. Warmup 1 + measured 5 journey, measured 45 operations의 작은 표본은 production percentile이나 월간 SLO를 지지하지 않는다. Local loopback과 Azure HTTPS, DNS override가 다른 표본을 하나의 baseline으로 합치지 않는다.
 
 `SLO FAIL`과 `Experiment FAIL`은 같은 의미가 아니다.
 

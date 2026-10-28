@@ -1,0 +1,105 @@
+{
+  "baseline": {
+    "concurrency": 1,
+    "dns": "explicit client override 20.200.252.239; normal client DNS not claimed",
+    "max_attempts": 1,
+    "measured_journeys": 5,
+    "slo": "initial-slo.json",
+    "status": "45/45 logical operations, 45/45 attempts",
+    "summary": "baseline-summary.json",
+    "tls": "certificate-and-hostname verified",
+    "warmup": 1
+  },
+  "cost": {
+    "actual_cost": "unknown; billing ActualCost not queried",
+    "approved_additional_review_budget_usd": 10,
+    "billing_hard_cap": false,
+    "existing_retention_cost": "separate",
+    "incremental_resources": "no additional node/server; existing autoscaling disabled; three sequential 10Gi Standard SSD disks, one concurrently; admitted requests at most CPU750m/memory1536Mi",
+    "retail_price": "current Korea Central Standard SSD delta retained in safety.json; not a campaign duration cost guarantee",
+    "retention_unchanged": {
+      "environment_kst": "2026-10-30 10:30",
+      "foundation_bootstrap_kst": "2026-10-31 00:33"
+    }
+  },
+  "evidence": {
+    "p6_original": "read directly from existing operator checkout; no P6 rerun",
+    "phase_ledger": "phase-ledger.json",
+    "provenance": "execution-source.json",
+    "raw_directory": "results/raw/p7-p7f7118dce-20261028T112908Z",
+    "raw_policy": "append-only; failed files retained; protected credentials/checkpoints are outside raw and excluded"
+  },
+  "failures_and_refinements": [
+    {
+      "failure": "Envoy stats histogram has no name; initial parser failed",
+      "resolution": "skip unnamed non-counter histogram; test + clean baseline at 7cd7a9c"
+    },
+    {
+      "failure": "v15 login optional CSRF and initially empty jar; lowercase CLI version; native init sidecar; exported cluster_name",
+      "resolution": "minimal same-PR source fixes, closed label enum; real metric/log/native identities retained"
+    },
+    {
+      "failure": "base istio ConfigMap precheck did not reflect merged shared overlay after valid stable checkpoint",
+      "resolution": "executor exit failure retained; finally resumed stable; actual new proxy bootstrap proved overlay convergence"
+    },
+    {
+      "failure": "operator expected diskSizeGb instead of actual diskSizeGB; attempted append-only evidence name reuse; inet /32 representation",
+      "resolution": "actual inventory reused, no extra resources; new evidence names; host(inet_server_addr()) snapshot"
+    },
+    {
+      "failure": "fresh public schema CREATE absent, initial pg_restore stopped with zero public tables",
+      "resolution": "GRANT only fresh target schema to temporary role, then restore succeeded"
+    },
+    {
+      "failure": "private target custom path differed from source; strict doctor rejected",
+      "resolution": "GITEA_CUSTOM/HOME aligned to actual source; reproduced from clean af1ff2a; validator not weakened"
+    },
+    {
+      "failure": "operator SQL used issue.title but actual column is name; generated CLI password was quoted; bootstrap filter selector invalid; GET logout404",
+      "resolution": "actual schema/CLI parsing/admin query and POST logout used; failures preserved; no original data overwrite"
+    }
+  ],
+  "limitations": [
+    "Production percentiles and monthly/24x7 SLO are not inferred from five samples/type.",
+    "Request-level server join and tracing remain not verified.",
+    "Initial default selected-cluster metric series were absent; preserved as no-data. Temporary matcher visibility was measured in a distinct later window, then reverted.",
+    "Selected doctor paths retains the exact known missing_/data/log console-logging diagnostic; four selected integrity checks pass.",
+    "Azure log-analytics CLI extension installed in preview; no new monitoring IAM or pipeline.",
+    "Existing administrator version2 credential reused without rotation under explicit P7-only exception; original Secret data unchanged.",
+    "Native session replay proves persisted server-side state; HTTP tunnel does not claim browser Secure-cookie semantics.",
+    "Actual billing cost remains unknown; USD10 is a review budget, not a billing cap."
+  ],
+  "observability": {
+    "correlation": "client run -> operation -> attempt; server same time window + workload only",
+    "details": "observability.json",
+    "mechanism": "five native and Prometheus stats observed, cluster_name=inbound|3000||; zeros are visibility only",
+    "metrics_logs": "observed"
+  },
+  "recorded_at_utc": "2026-10-28T12:56:55.415032+00:00",
+  "recovery": {
+    "details": "recovery.json",
+    "restore": "fresh 15.0.11 checkpoint restored, original Git/API + same PAT/session + doctor + new write verified",
+    "rollback": "A checkpoint + A version restored to third distinct fresh DB/PVC/Disk; B-only issue and Git object absent before new write; same PAT/session + doctor + new write verified",
+    "upgrade": "private fresh 15.0.9 A -> 15.0.11 B; original state and credentials verified; B-only write persisted"
+  },
+  "schema_version": 1,
+  "source_sha": "af1ff2a80228b87f6985da86359e188b97d5a370",
+  "stable": {
+    "maintenance_seconds": 275.3581576790002,
+    "mesh": "original shared ConfigMap data and effective bootstrap restored",
+    "policy": "automated enabled, selfHeal true, prune false; original sources/specs",
+    "readiness": "HTTPS healthy / Argo Synced Healthy",
+    "revision": "2f63d283ebba12aaed8705732f1206d71ddc33db"
+  },
+  "stable_deployed_revision": "2f63d283ebba12aaed8705732f1206d71ddc33db",
+  "task2": "runtime and exact temporary/local cleanup verified; exact-head CI reported on PR",
+  "temporary_cleanup": {
+    "azure": "exact Pods/DBs/role/PVC/PV/Disks/Secret/namespace and AKS-scoped IAM assignment absent",
+    "credential": "seven PATs rejected by original Authorization token header; original cookie rejected after POST logout; seven owned P7 fixture account logins disabled",
+    "details": "cleanup.json",
+    "local_details": "protected-local-cleanup.json",
+    "protected_operator_copies": "removed; owned port-forwards and local listener ports closed",
+    "retained": "owned P7 fixture user/repository/issue records retained with login disabled; existing Environment/Foundation/Bootstrap retained"
+  },
+  "work_unit": "P7-W1"
+}

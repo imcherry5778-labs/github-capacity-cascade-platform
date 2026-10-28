@@ -101,15 +101,15 @@ P4 진입 시 current AKS managed Istio 후보와 호환되는 upstream Istio/En
 
 **Goal:** 실제 Azure에서 state/OIDC/RBAC, AKS/private PostgreSQL/managed add-ons/Argo/HTTPS developer path와 headroom/cost를 짧게 검증.
 
-**Exit:** platform calibration과 actual runtime provenance가 기록됨. 같은 승인 범위에서 P7을 바로 수행하지 않으면 same-day destroy.
+**Exit:** platform calibration과 actual runtime provenance가 기록됨. P11까지 기존 환경 재사용을 우선하며 승인·보존 기한은 implementation-plan의 Paid Azure boundary를 따른다.
 
 ## P7 — Azure Operations Verification
 
 **Goal:** 실제 Azure에서 observability, developer SLI baseline, SLO threshold, restore, upgrade/state-aware rollback contract를 검증.
 
-**Scope:** selected metrics/logs/traces query path, developer-operation correlation, recovery drill, upgrade/rollback, P8에 필요한 mechanism signal visibility.
+**Scope:** 기존 Managed Prometheus/Log Analytics의 metrics/logs query path, 명시적 developer-operation correlation, recovery drill, upgrade/rollback, P8에 필요한 mechanism signal visibility. Tracing은 P7 exit 필수가 아니며 미검증 상태를 유지한다.
 
-**Exit:** P8 controlled incident를 user impact부터 mechanism까지 설명할 운영 evidence path가 준비됨.
+**Exit:** P8 controlled incident를 user impact부터 mechanism까지 설명할 운영 evidence path가 준비됨. Client run→operation→attempt와 workload/동일 시간 구간의 metrics/logs 연계를 기록하며 request-level join과 구분한다. Azure baseline과 Service Active Window에 근거한 초기 SLO를 P8 fault 전에 고정한다.
 
 ## P8 — Controlled Cascade Investigation
 

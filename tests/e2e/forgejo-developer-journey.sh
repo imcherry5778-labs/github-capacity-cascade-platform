@@ -21,12 +21,30 @@ LABEL="${2:-$MODE}"
 : "${FORGEJO_URL:?}" "${JOURNEY_DIR:?}"
 # Keep Forgejo's advertised URL assertion; optionally send requests through a Local gate.
 ENDPOINT="${JOURNEY_ENDPOINT_URL:-$FORGEJO_URL}"
+JOURNEY_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+export JOURNEY_ENVIRONMENT="${JOURNEY_ENVIRONMENT:-local-k3d}"
+export JOURNEY_TRANSPORT_JSON
+JOURNEY_TRANSPORT_JSON="$(python3 "$JOURNEY_ROOT/scripts/validate-operation-results.py" transport \
+  "$ENDPOINT" "$JOURNEY_ENVIRONMENT" "${JOURNEY_DNS_OVERRIDE:-}")"
+if [[ "$JOURNEY_ENVIRONMENT" == azure-aks && "$ENDPOINT" != "$FORGEJO_URL" ]]; then
+  echo 'Azure journey requires the advertised HTTPS origin' >&2
+  exit 1
+fi
+CURL_TRANSPORT_ARGS=(-q --noproxy '*' --proto '=http,https')
+GIT_TRANSPORT_ARGS=(-c http.sslVerify=true -c http.proxy=)
+if [[ -n "${JOURNEY_DNS_OVERRIDE:-}" ]]; then
+  resolve="$(python3 -c 'import sys,urllib.parse; u=urllib.parse.urlsplit(sys.argv[1]); print(f"{u.hostname}:443:{sys.argv[2]}")' "$ENDPOINT" "$JOURNEY_DNS_OVERRIDE")"
+  CURL_TRANSPORT_ARGS+=(--resolve "$resolve")
+  GIT_TRANSPORT_ARGS+=(-c "http.curloptResolve=$resolve")
+fi
+if [[ "$JOURNEY_ENVIRONMENT" == azure-aks ]]; then GIT_TRANSPORT_ARGS+=(-c http.followRedirects=false); fi
 API="$ENDPOINT/api/v1"
 export REPO=journey FEATURE_BRANCH=feature/journey
 umask 077
 
 # 사용자 global/system Git config와 credential helper에서 격리한다.
 export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0
+unset GIT_SSL_NO_VERIFY GIT_CONFIG_PARAMETERS
 export GIT_AUTHOR_NAME="Journey Developer" GIT_AUTHOR_EMAIL=journey@example.com
 export GIT_COMMITTER_NAME="$GIT_AUTHOR_NAME" GIT_COMMITTER_EMAIL="$GIT_AUTHOR_EMAIL"
 GIT_TIMEOUT_SECONDS="${JOURNEY_GIT_TIMEOUT_SECONDS:-65}"
@@ -131,6 +149,8 @@ trap 'exit 143' TERM
 
 result_start() {
   [[ -n "${RESULTS_ROOT:-}" ]] || return 0
+  local context
+  context="$(python3 "$JOURNEY_ROOT/scripts/validate-operation-results.py" context "$RESULT_CONTEXT_FILE")"
   RESULT_DIR="$RESULTS_ROOT/$RUN_ID"
   mkdir -p "$RESULTS_ROOT"
   mkdir -m 0700 "$RESULT_DIR" || fail "result directory create failed" command_error
@@ -139,11 +159,11 @@ result_start() {
   OP_INDEX=0 AUX_INDEX=0 OP_ACTIVE=0 ATTEMPT_ACTIVE=0 RUN_FINISHED=0
   emit --arg run "$RUN_ID" --arg phase "${RESULT_PHASE:-measured}" --arg ts "$(utc)" \
     --argjson git_timeout "$GIT_TIMEOUT_SECONDS" --argjson kill_after "$GIT_KILL_AFTER_SECONDS" \
-    --slurpfile context "$RESULT_CONTEXT_FILE" \
+    --argjson context "$context" \
     '({record:"run_start",schema_version:1,run_id:$run,phase:$phase,started_at_utc:$ts,
       scenario:"local_healthy_developer_journey",parameters:{concurrency:1,max_attempts:1,client_retry:false,
         api_timeout_seconds:60,git_timeout_seconds:$git_timeout,git_kill_after_seconds:$kill_after},
-      measurement_boundary:"loopback kubectl port-forward client command"} + $context[0])'
+      measurement_boundary:"loopback kubectl port-forward client command"} + $context)'
 }
 
 result_finish() {
@@ -172,7 +192,7 @@ request() {
     printf '%s' "$(utc)" >"$RESULT_DIR/command_timestamp"
     printf '%s' "$(mono)" >"$RESULT_DIR/command_start"
   fi
-  if status="$(curl "${args[@]}")"; then
+  if status="$(curl "${CURL_TRANSPORT_ARGS[@]}" "${args[@]}")"; then
     rc=0
   else
     rc=$?
@@ -200,7 +220,9 @@ expect_json() { # JSON JQ_FILTER DESCRIPTION  (filter는 env.* 로 state를 참�
 dev_git() {
   local basic rc class git_start git_end
   local -a endpoint_config=()
-  if [[ "$ENDPOINT" != "$FORGEJO_URL" ]]; then endpoint_config=(-c http.followRedirects=false); fi
+  if [[ "$ENDPOINT" != "$FORGEJO_URL" ]]; then
+    endpoint_config=(-c http.followRedirects=false -c "url.$ENDPOINT/.insteadOf=$FORGEJO_URL/")
+  fi
   local -x GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=http.extraHeader GIT_CONFIG_VALUE_0
   local -x GIT_CONFIG_KEY_1=credential.helper GIT_CONFIG_VALUE_1=''
   basic="$(printf '%s:%s' "$DEV_USER" "$DEV_TOKEN" | base64 | tr -d '\n')"
@@ -217,7 +239,7 @@ dev_git() {
   if [[ -n "${RESULT_FILE:-}" && "${OP_ACTIVE:-0}" == 1 && "${ATTEMPT_ACTIVE:-0}" == 1 ]]; then
     printf '%s' "$git_start" >"$RESULT_DIR/command_start"
   fi
-  if timeout --signal=TERM --kill-after="${GIT_KILL_AFTER_SECONDS}s" "${GIT_TIMEOUT_SECONDS}s" git "${endpoint_config[@]}" "$@" 2>"$JOURNEY_DIR/git.stderr"; then
+  if timeout --signal=TERM --kill-after="${GIT_KILL_AFTER_SECONDS}s" "${GIT_TIMEOUT_SECONDS}s" git "${GIT_TRANSPORT_ARGS[@]}" "${endpoint_config[@]}" "$@" 2>"$JOURNEY_DIR/git.stderr"; then
     rc=0
   else
     rc=$?
@@ -246,7 +268,7 @@ expect_remote_ref() { # REPO_DIR REF SHA DESCRIPTION
 expect_anonymous_denied() {
   local status
   request "" GET "/repos/$DEV_USER/$REPO" 404 >/dev/null
-  status="$(curl -sS --max-time 60 -o /dev/null -w '%{http_code}' "$TRANSPORT_CLONE_URL/info/refs?service=git-upload-pack")"
+  status="$(curl "${CURL_TRANSPORT_ARGS[@]}" -sS --max-time 60 -o /dev/null -w '%{http_code}' "$TRANSPORT_CLONE_URL/info/refs?service=git-upload-pack")"
   [[ "$status" == 401 ]] || fail "anonymous Git HTTP read of private repository: expected 401, got $status"
 }
 
@@ -260,7 +282,7 @@ wait_initial_push_processed() {
   while (( SECONDS < deadline )); do
     remaining=$((deadline - SECONDS))
     curl_timeout=$((remaining < 5 ? remaining : 5))
-    if status="$(curl -sS --max-time "$curl_timeout" -o "$response" -w '%{http_code}' -X GET \
+    if status="$(curl "${CURL_TRANSPORT_ARGS[@]}" -sS --max-time "$curl_timeout" -o "$response" -w '%{http_code}' -X GET \
       -H 'Accept: application/json' -K <(printf '%s\n' "$DEV_AUTH") "$API/repos/$DEV_USER/$REPO" 2>/dev/null)"; then
       if [[ "$status" != 200 ]]; then
         fail "initial push settle: expected HTTP 200, got $status" http_status

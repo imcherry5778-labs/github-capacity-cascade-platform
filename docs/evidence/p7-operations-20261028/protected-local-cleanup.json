@@ -1,0 +1,11 @@
+{
+  "observed_at_utc": "2026-10-28T12:59:29.609675+00:00",
+  "protected_operator_directory_absent": true,
+  "pointer_absent": true,
+  "owned_port_forwards_closed": true,
+  "loopback_ports_13001_13002_closed": true,
+  "checkpoint_bytes_removed": 2110688,
+  "protected_files_removed": 1510,
+  "existing_admin_env_removed": false,
+  "environment_teardown": false
+}

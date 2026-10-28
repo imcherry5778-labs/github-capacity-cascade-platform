@@ -1,0 +1,356 @@
+[
+  {
+    "admin_version_2_authenticated": true,
+    "phase": "current_mutation_gates",
+    "postgres_tls_private": true,
+    "recorded_at_utc": "2026-10-28T11:32:06.256996+00:00",
+    "source_sha": "8bb6a590dcf72a3dea82341d3a7016544bb86e6e",
+    "stable_ready": true,
+    "success": true,
+    "temporary_pods": 1
+  },
+  {
+    "exit_code": 1,
+    "phase": "operator-command",
+    "recorded_at_utc": "2026-10-28T11:35:29.621977+00:00",
+    "source_sha": "8bb6a590dcf72a3dea82341d3a7016544bb86e6e",
+    "success": false
+  },
+  {
+    "phase": "proxy_snapshot_initial_failure",
+    "reason": "histogram entry lacks counter name; source correction required",
+    "recorded_at_utc": "2026-10-28T11:38:19.687137+00:00",
+    "source_sha": "8bb6a590dcf72a3dea82341d3a7016544bb86e6e",
+    "success": false
+  },
+  {
+    "phase": "execution_source_updated",
+    "previous_source_sha": "8bb6a590dcf72a3dea82341d3a7016544bb86e6e",
+    "reason": "Envoy histogram input shape counter-only parser fix",
+    "recorded_at_utc": "2026-10-28T11:43:10.666314+00:00",
+    "source_sha": "7cd7a9c88e529d74c979d75fd4a3e130819134c5",
+    "success": true
+  },
+  {
+    "dns_client_override": true,
+    "ingress_ipv4": "20.200.252.239",
+    "phase": "https_baseline_start",
+    "recorded_at_utc": "2026-10-28T11:43:14.691620+00:00",
+    "source_sha": "7cd7a9c88e529d74c979d75fd4a3e130819134c5",
+    "success": true,
+    "tls_verification": "certificate-and-hostname"
+  },
+  {
+    "exit_code": 0,
+    "phase": "https_baseline_complete",
+    "recorded_at_utc": "2026-10-28T11:44:00.043032+00:00",
+    "source_sha": "7cd7a9c88e529d74c979d75fd4a3e130819134c5",
+    "success": true
+  },
+  {
+    "phase": "baseline_observability_collected",
+    "recorded_at_utc": "2026-10-28T11:44:05.217206+00:00",
+    "source_sha": "7cd7a9c88e529d74c979d75fd4a3e130819134c5",
+    "success": true
+  },
+  {
+    "exit_code": 255,
+    "phase": "operator-command",
+    "recorded_at_utc": "2026-10-28T11:46:35.425342+00:00",
+    "source_sha": "7cd7a9c88e529d74c979d75fd4a3e130819134c5",
+    "success": false
+  },
+  {
+    "exit_code": 1,
+    "phase": "source-native-session",
+    "recorded_at_utc": "2026-10-28T11:48:58.336012+00:00",
+    "source_sha": "7cd7a9c88e529d74c979d75fd4a3e130819134c5",
+    "success": false
+  },
+  {
+    "detail": "first adapter login failed; credential continuity not claimed",
+    "phase": "source_native_session_initial_failure",
+    "recorded_at_utc": "2026-10-28T11:51:54.992215+00:00",
+    "source_sha": "7cd7a9c88e529d74c979d75fd4a3e130819134c5",
+    "success": false
+  },
+  {
+    "phase": "execution_source_updated",
+    "previous_source_sha": "7cd7a9c88e529d74c979d75fd4a3e130819134c5",
+    "reason": "reuse existing P3 optional CSRF and cookie handling; HTTPS measurement source unchanged",
+    "recorded_at_utc": "2026-10-28T11:57:10.648594+00:00",
+    "source_sha": "4fd450c54e468d1fff9ca8d8352ad97f278e1867",
+    "success": true
+  },
+  {
+    "exit_code": 1,
+    "phase": "source-doctor",
+    "recorded_at_utc": "2026-10-28T11:57:21.367330+00:00",
+    "source_sha": "4fd450c54e468d1fff9ca8d8352ad97f278e1867",
+    "success": false
+  },
+  {
+    "detail": "CLI prints lowercase forgejo version; strict version validator rejected empty parsed version",
+    "phase": "source_doctor_initial_failure",
+    "recorded_at_utc": "2026-10-28T11:59:36.408585+00:00",
+    "source_sha": "4fd450c54e468d1fff9ca8d8352ad97f278e1867",
+    "success": false
+  },
+  {
+    "phase": "execution_source_updated",
+    "previous_source_sha": "4fd450c54e468d1fff9ca8d8352ad97f278e1867",
+    "reason": "actual CLI version spelling and native init sidecar identity; doctor contract unchanged",
+    "recorded_at_utc": "2026-10-28T12:05:44.426535+00:00",
+    "source_sha": "a7f61355e1d60bd397c67fdf7bd888e73f461513",
+    "success": true
+  },
+  {
+    "phase": "source_fixture_doctor_session_ready",
+    "recorded_at_utc": "2026-10-28T12:05:55.311637+00:00",
+    "source_sha": "a7f61355e1d60bd397c67fdf7bd888e73f461513",
+    "success": true
+  },
+  {
+    "db_creations": 1,
+    "phase": "private_restore_resources_prepared",
+    "recorded_at_utc": "2026-10-28T12:06:53.729609+00:00",
+    "roles": 1,
+    "secrets": 1,
+    "source_sha": "a7f61355e1d60bd397c67fdf7bd888e73f461513",
+    "success": true
+  },
+  {
+    "phase": "stable_argo_paused",
+    "recorded_at_utc": "2026-10-28T12:09:42.107869+00:00",
+    "source_sha": "a7f61355e1d60bd397c67fdf7bd888e73f461513",
+    "success": true
+  },
+  {
+    "phase": "stable_writer_route_quiesced",
+    "recorded_at_utc": "2026-10-28T12:09:43.194420+00:00",
+    "source_sha": "a7f61355e1d60bd397c67fdf7bd888e73f461513",
+    "success": true
+  },
+  {
+    "phase": "stable_queue_flushed",
+    "recorded_at_utc": "2026-10-28T12:09:44.786294+00:00",
+    "source_sha": "a7f61355e1d60bd397c67fdf7bd888e73f461513",
+    "success": true
+  },
+  {
+    "phase": "stable_gracefully_stopped_writer_absent",
+    "recorded_at_utc": "2026-10-28T12:09:48.718910+00:00",
+    "source_sha": "a7f61355e1d60bd397c67fdf7bd888e73f461513",
+    "success": true
+  },
+  {
+    "component_bytes": 1481884,
+    "phase": "stable_checkpoint_validated",
+    "recorded_at_utc": "2026-10-28T12:09:58.666980+00:00",
+    "source_sha": "a7f61355e1d60bd397c67fdf7bd888e73f461513",
+    "success": true
+  },
+  {
+    "error_type": "RuntimeError",
+    "phase": "stable_checkpoint_failure",
+    "recorded_at_utc": "2026-10-28T12:12:40.046617+00:00",
+    "source_sha": "a7f61355e1d60bd397c67fdf7bd888e73f461513",
+    "success": false
+  },
+  {
+    "maintenance_seconds": 228.79296772199996,
+    "phase": "stable_resumed_after_checkpoint",
+    "recorded_at_utc": "2026-10-28T12:13:30.901447+00:00",
+    "source_sha": "a7f61355e1d60bd397c67fdf7bd888e73f461513",
+    "success": true
+  },
+  {
+    "phase": "post_checkpoint_source_continuity",
+    "recorded_at_utc": "2026-10-28T12:14:44.083566+00:00",
+    "same_pat": true,
+    "same_session": true,
+    "source_sha": "a7f61355e1d60bd397c67fdf7bd888e73f461513",
+    "success": true
+  },
+  {
+    "phase": "restore_fresh_target_guarded",
+    "recorded_at_utc": "2026-10-28T12:32:05.319058+00:00",
+    "source_sha": "8f085430b354c4d83186eafde6b1fa8146ece66e",
+    "success": true
+  },
+  {
+    "exit_code": 1,
+    "phase": "restore-fresh-pg-restore",
+    "recorded_at_utc": "2026-10-28T12:32:43.590657+00:00",
+    "source_sha": "8f085430b354c4d83186eafde6b1fa8146ece66e",
+    "success": false
+  },
+  {
+    "phase": "visibility_window_captured",
+    "recorded_at_utc": "2026-10-28T12:34:04.930843+00:00",
+    "source_sha": "8f085430b354c4d83186eafde6b1fa8146ece66e",
+    "success": true,
+    "window": {
+      "end": "2026-10-28T12:34:04.930431+00:00",
+      "start": "2026-10-28T12:33:24.751319+00:00"
+    }
+  },
+  {
+    "phase": "restore_original_git_api_same_pat",
+    "recorded_at_utc": "2026-10-28T12:34:27.199625+00:00",
+    "source_sha": "8f085430b354c4d83186eafde6b1fa8146ece66e",
+    "success": true
+  },
+  {
+    "phase": "restore_same_session",
+    "recorded_at_utc": "2026-10-28T12:34:27.356122+00:00",
+    "source_sha": "8f085430b354c4d83186eafde6b1fa8146ece66e",
+    "success": true
+  },
+  {
+    "exit_code": 1,
+    "phase": "restored-doctor",
+    "recorded_at_utc": "2026-10-28T12:34:37.901136+00:00",
+    "source_sha": "8f085430b354c4d83186eafde6b1fa8146ece66e",
+    "success": false
+  },
+  {
+    "exit_code": 1,
+    "phase": "operator-command",
+    "recorded_at_utc": "2026-10-28T12:35:00.751294+00:00",
+    "source_sha": "8f085430b354c4d83186eafde6b1fa8146ece66e",
+    "success": false
+  },
+  {
+    "phase": "restore_original_git_api_same_pat",
+    "recorded_at_utc": "2026-10-28T12:35:49.690581+00:00",
+    "source_sha": "8f085430b354c4d83186eafde6b1fa8146ece66e",
+    "success": true
+  },
+  {
+    "phase": "restore_same_session",
+    "recorded_at_utc": "2026-10-28T12:35:49.826415+00:00",
+    "source_sha": "8f085430b354c4d83186eafde6b1fa8146ece66e",
+    "success": true
+  },
+  {
+    "exit_code": 1,
+    "phase": "postgres-app-command",
+    "recorded_at_utc": "2026-10-28T12:36:04.788911+00:00",
+    "source_sha": "8f085430b354c4d83186eafde6b1fa8146ece66e",
+    "success": false
+  },
+  {
+    "exit_code": 1,
+    "phase": "postgres-app-command",
+    "recorded_at_utc": "2026-10-28T12:36:28.188970+00:00",
+    "source_sha": "8f085430b354c4d83186eafde6b1fa8146ece66e",
+    "success": false
+  },
+  {
+    "phase": "restore_verified",
+    "recorded_at_utc": "2026-10-28T12:36:58.554591+00:00",
+    "source_sha": "8f085430b354c4d83186eafde6b1fa8146ece66e",
+    "success": true
+  },
+  {
+    "phase": "restore_resources_removed",
+    "recorded_at_utc": "2026-10-28T12:38:24.506558+00:00",
+    "source_sha": "af1ff2a80228b87f6985da86359e188b97d5a370",
+    "success": true
+  },
+  {
+    "phase": "fresh_a_ready",
+    "recorded_at_utc": "2026-10-28T12:41:18.241937+00:00",
+    "source_sha": "af1ff2a80228b87f6985da86359e188b97d5a370",
+    "success": true
+  },
+  {
+    "exit_code": 1,
+    "phase": "journey-create",
+    "recorded_at_utc": "2026-10-28T12:42:25.359025+00:00",
+    "source_sha": "af1ff2a80228b87f6985da86359e188b97d5a370",
+    "success": false
+  },
+  {
+    "phase": "fresh_a_continuity_verified",
+    "recorded_at_utc": "2026-10-28T12:43:31.819761+00:00",
+    "source_sha": "af1ff2a80228b87f6985da86359e188b97d5a370",
+    "success": true
+  },
+  {
+    "phase": "b_continuity_verified",
+    "recorded_at_utc": "2026-10-28T12:44:43.583091+00:00",
+    "source_sha": "af1ff2a80228b87f6985da86359e188b97d5a370",
+    "success": true
+  },
+  {
+    "phase": "b_only_state_persisted",
+    "recorded_at_utc": "2026-10-28T12:44:48.066951+00:00",
+    "source_sha": "af1ff2a80228b87f6985da86359e188b97d5a370",
+    "success": true
+  },
+  {
+    "phase": "a_resources_removed",
+    "recorded_at_utc": "2026-10-28T12:45:46.284069+00:00",
+    "source_sha": "af1ff2a80228b87f6985da86359e188b97d5a370",
+    "success": true
+  },
+  {
+    "phase": "rollback_fresh_a_ready",
+    "recorded_at_utc": "2026-10-28T12:48:22.103736+00:00",
+    "source_sha": "af1ff2a80228b87f6985da86359e188b97d5a370",
+    "success": true
+  },
+  {
+    "phase": "rollback_original_state_and_b_only_absence",
+    "recorded_at_utc": "2026-10-28T12:49:44.707695+00:00",
+    "source_sha": "af1ff2a80228b87f6985da86359e188b97d5a370",
+    "success": true
+  },
+  {
+    "phase": "rollback_new_write_verified",
+    "recorded_at_utc": "2026-10-28T12:50:02.579663+00:00",
+    "source_sha": "af1ff2a80228b87f6985da86359e188b97d5a370",
+    "success": true
+  },
+  {
+    "phase": "rollback_resources_removed",
+    "recorded_at_utc": "2026-10-28T12:51:00.522606+00:00",
+    "source_sha": "af1ff2a80228b87f6985da86359e188b97d5a370",
+    "success": true
+  },
+  {
+    "exit_code": 255,
+    "phase": "operator-command",
+    "recorded_at_utc": "2026-10-28T12:52:08.080824+00:00",
+    "source_sha": "af1ff2a80228b87f6985da86359e188b97d5a370",
+    "success": false
+  },
+  {
+    "phase": "stable_final_restoration_verified",
+    "recorded_at_utc": "2026-10-28T12:52:40.131181+00:00",
+    "source_sha": "af1ff2a80228b87f6985da86359e188b97d5a370",
+    "success": true
+  },
+  {
+    "count": 7,
+    "phase": "p7_stable_tokens_session_revoked",
+    "recorded_at_utc": "2026-10-28T12:54:32.721493+00:00",
+    "source_sha": "af1ff2a80228b87f6985da86359e188b97d5a370",
+    "success": true
+  },
+  {
+    "phase": "p7_exact_azure_inventory_cleanup_verified",
+    "recorded_at_utc": "2026-10-28T12:54:56.409110+00:00",
+    "source_sha": "af1ff2a80228b87f6985da86359e188b97d5a370",
+    "success": true
+  },
+  {
+    "count": 7,
+    "phase": "p7_fixture_logins_disabled",
+    "recorded_at_utc": "2026-10-28T12:55:23.649295+00:00",
+    "source_sha": "af1ff2a80228b87f6985da86359e188b97d5a370",
+    "success": true
+  }
+]

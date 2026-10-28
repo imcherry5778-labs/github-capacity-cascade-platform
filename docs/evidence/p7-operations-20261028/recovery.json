@@ -1,0 +1,2263 @@
+{
+  "a-checkpoint-manifest.json": {
+    "backup_complete": true,
+    "components": {
+      "application-data.tar": {
+        "sha256": "ff3a51a4b363a07e035486652f638995c4298fb5be49914eb10aee503c92ff25",
+        "size": 205312
+      },
+      "database.dump": {
+        "sha256": "e7f2c8a76eb3473e08297d656aff8b3d66636cd53b5d236aea0089c7a8030317",
+        "size": 418869
+      },
+      "secrets.json": {
+        "sha256": "82a1d0b8c387730ae8d720a72a148a02833a99dfcc722bf7612dc34da13384c9",
+        "size": 366
+      }
+    },
+    "cookie_file_sha256": "3f5a2549f98578ac18162407ecc59cbc140e914030865e93402705cf895e456f",
+    "fixture": {
+      "FEATURE_SHA": "2231eeaa9148476ef0d556edb7a3290a58c053be",
+      "ISSUE_NUMBER": "2",
+      "ISSUE_TITLE": "journey issue 20261028124303-7edf02",
+      "MAIN_SHA": "2cbac64b740f13af669a6224bc3947a4dbd31e1e",
+      "PR_NUMBER": "1",
+      "PR_TITLE": "journey pull request 20261028124303-7edf02",
+      "RUN_ID": "20261028124303-7edf02"
+    },
+    "image_id": "code.forgejo.org/forgejo/forgejo@sha256:caf1bca332f95cdcf124227a4bfa3b49bbbfbbc8a5e4a97406921cb581165413",
+    "image_spec": "code.forgejo.org/forgejo/forgejo:15.0.9-rootless@sha256:caf1bca332f95cdcf124227a4bfa3b49bbbfbbc8a5e4a97406921cb581165413",
+    "input": {
+      "campaign": "p7f7118dce",
+      "source_sha": "af1ff2a80228b87f6985da86359e188b97d5a370",
+      "stable": {
+        "db_host": "pg-ccp-p6-krc-57781024.postgres.database.azure.com",
+        "db_name": "forgejo",
+        "db_role": "forgejo",
+        "deployment": "forgejo",
+        "disk_id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/MC_rg-ccp-environment-krc-p6_aks-ccp-krc-p6_koreacentral/providers/Microsoft.Compute/disks/pvc-5e9d8389-bdaf-49ad-98d9-97612e5db63f",
+        "namespace": "forgejo",
+        "pv_name": "pvc-5e9d8389-bdaf-49ad-98d9-97612e5db63f",
+        "pv_uid": "2395842e-e567-482d-ba83-da7fdd9fffb6",
+        "pvc": "forgejo-data",
+        "pvc_uid": "5e9d8389-bdaf-49ad-98d9-97612e5db63f"
+      },
+      "stable_deployed_revision": "2f63d283ebba12aaed8705732f1206d71ddc33db",
+      "stage": "a",
+      "target": {
+        "db_host": "pg-ccp-p6-krc-57781024.postgres.database.azure.com",
+        "db_ipv4": "10.20.4.4",
+        "db_name": "p7_p7f7118dce_a",
+        "db_role": "p7_p7f7118dce_role",
+        "namespace": "p7-ops-p7f7118dce",
+        "pvc": "p7-data"
+      }
+    },
+    "pat_file_sha256": "580b348330f1bfb50ef8865000a34fb773ff562b8305195feeb654aae62af312",
+    "queue_flushed": true,
+    "recorded_at_utc": "2026-10-28T12:43:42.701620+00:00",
+    "schema_version": 1,
+    "version": "15.0.9+gitea-1.22.0",
+    "writer_absent": true
+  },
+  "a-fresh-guard.json": {
+    "config_database": "target-only",
+    "db_name": "p7_p7f7118dce_a",
+    "fresh_before_restore": true,
+    "pv_uid": "d6d35280-4469-4e7e-8197-2b588bb966d0",
+    "pvc_uid": "7fcc3930-6d81-40dc-9f23-1bdd53226b9a",
+    "stage": "a",
+    "target_namespace": "p7-ops-p7f7118dce"
+  },
+  "a-runtime.json": {
+    "binding": "127.0.0.1:3000",
+    "cookie_file_sha256": "3f5a2549f98578ac18162407ecc59cbc140e914030865e93402705cf895e456f",
+    "database": {
+      "name": "p7_p7f7118dce_a",
+      "oid": "28053",
+      "owner": "p7_p7f7118dce_role"
+    },
+    "database_authority": {
+      "catalog": [
+        {
+          "column_name": "id",
+          "data_type": "character varying",
+          "ordinal_position": 1,
+          "table_name": "forgejo_migration"
+        },
+        {
+          "column_name": "created_unix",
+          "data_type": "bigint",
+          "ordinal_position": 2,
+          "table_name": "forgejo_migration"
+        },
+        {
+          "column_name": "id",
+          "data_type": "bigint",
+          "ordinal_position": 1,
+          "table_name": "forgejo_version"
+        },
+        {
+          "column_name": "version",
+          "data_type": "bigint",
+          "ordinal_position": 2,
+          "table_name": "forgejo_version"
+        },
+        {
+          "column_name": "id",
+          "data_type": "bigint",
+          "ordinal_position": 1,
+          "table_name": "version"
+        },
+        {
+          "column_name": "version",
+          "data_type": "bigint",
+          "ordinal_position": 2,
+          "table_name": "version"
+        }
+      ],
+      "forgejo_migration": [
+        "v14a_actions-approval-and-trust",
+        "v14a_add-action_task-index",
+        "v14a_add-foreign-keys-collaboration",
+        "v14a_add-foreign-keys-forgejo_auth_token",
+        "v14a_add-foreign-keys-pull_request-1",
+        "v14a_add-forgejo-migrations-table",
+        "v14a_ap-change-fedi-handle-structure",
+        "v14a_migrate_task_secrets",
+        "v14a_migrate_webhook_authorization",
+        "v14a_remove-is-deleted-column-from-activity-action-table",
+        "v14a_rework-notification",
+        "v14a_rm-repository-issue-stat-fields",
+        "v14a_set_remote_user_prohibit_login",
+        "v14b_action-reindexing",
+        "v14b_action-run-add-workflow-directory",
+        "v14b_add-action_run-preexecutionerrorcode",
+        "v14b_rm-repository-actionrun-stat-fields",
+        "v15a_remove-softdelete-action_runner_token",
+        "v15b_add-access_token-owned-repos",
+        "v15b_add-access_token_resource",
+        "v15b_add-ephemeral_runner",
+        "v15b_add-foreign-keys-action_runner_token",
+        "v15b_add-runner_request_key",
+        "v15c_add_job_handle",
+        "v15c_add_mirror_remoteaddressauth",
+        "v15c_add_schedule_spec_time_zones",
+        "v15c_fix-project-sorting-unique-constraints",
+        "v17a_add-action-run-workflow-source-commit"
+      ],
+      "forgejo_version": [
+        {
+          "id": 1,
+          "version": 44
+        }
+      ],
+      "version": [
+        {
+          "id": 1,
+          "version": 305
+        }
+      ]
+    },
+    "image_id": "code.forgejo.org/forgejo/forgejo@sha256:caf1bca332f95cdcf124227a4bfa3b49bbbfbbc8a5e4a97406921cb581165413",
+    "image_spec": "code.forgejo.org/forgejo/forgejo:15.0.9-rootless@sha256:caf1bca332f95cdcf124227a4bfa3b49bbbfbbc8a5e4a97406921cb581165413",
+    "original_state": {
+      "FEATURE_SHA": "2231eeaa9148476ef0d556edb7a3290a58c053be",
+      "ISSUE_NUMBER": "2",
+      "ISSUE_TITLE": "journey issue 20261028124303-7edf02",
+      "MAIN_SHA": "2cbac64b740f13af669a6224bc3947a4dbd31e1e",
+      "PR_NUMBER": "1",
+      "PR_TITLE": "journey pull request 20261028124303-7edf02",
+      "RUN_ID": "20261028124303-7edf02"
+    },
+    "pat_file_sha256": "580b348330f1bfb50ef8865000a34fb773ff562b8305195feeb654aae62af312",
+    "pod_uid": "c73faf20-35fe-43c5-88e0-259b22cb8c11",
+    "public_route": false,
+    "source_dirty": false,
+    "source_sha": "af1ff2a80228b87f6985da86359e188b97d5a370",
+    "stage": "a",
+    "storage": {
+      "disk_created_at": "2026-10-28T12:38:30.154807+00:00",
+      "disk_id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/MC_rg-ccp-environment-krc-p6_aks-ccp-krc-p6_koreacentral/providers/Microsoft.Compute/disks/pvc-7fcc3930-6d81-40dc-9f23-1bdd53226b9a",
+      "disk_size_gib": 10,
+      "pv_name": "pvc-7fcc3930-6d81-40dc-9f23-1bdd53226b9a",
+      "pv_uid": "d6d35280-4469-4e7e-8197-2b588bb966d0",
+      "pvc_uid": "7fcc3930-6d81-40dc-9f23-1bdd53226b9a",
+      "stage": "a"
+    },
+    "version": "15.0.9+gitea-1.22.0"
+  },
+  "b-only-new-write.json": {
+    "database_row": {
+      "index": 3,
+      "title": "b-only issue 20261028124303-7edf02"
+    },
+    "filesystem_head": "4cbe54541d3c8f80b1f7e3b428d073c07a21ccef",
+    "git_object_inventory": [
+      "173eeee0a1329254ab39971955d46259c57cb050",
+      "2231eeaa9148476ef0d556edb7a3290a58c053be",
+      "29a69f2402a9a3c17747162b1e00885ff687d235",
+      "2cbac64b740f13af669a6224bc3947a4dbd31e1e",
+      "3286872b5d98fac2d0272d0d49424ecaa130fcc6",
+      "4cbe54541d3c8f80b1f7e3b428d073c07a21ccef",
+      "53a2e6da78ff9dc395f425371d91c68eefbf27e1",
+      "8f6c51a270520c1a60933f8bf0c7d5fc535da004",
+      "b7def505fa89a1f7c4fc55a7c167334bb2fbc98f",
+      "c3d0f317710b1bfc0996f177b171f23ff5206896",
+      "ca8905e1a952bac9ae21bc27cc349878a0c39b08",
+      "d40097e30499c0681d4117ea4dbfd7dc27274927",
+      "e2167c04cd2cbe34db7e31ac3542ec4625cb9ad5"
+    ],
+    "post_write": {
+      "POST_ISSUE_NUMBER": "3",
+      "POST_ISSUE_TITLE": "b-only issue 20261028124303-7edf02",
+      "POST_SHA": "4cbe54541d3c8f80b1f7e3b428d073c07a21ccef"
+    }
+  },
+  "b-runtime.json": {
+    "binding": "127.0.0.1:3000",
+    "cookie_file_sha256": "3f5a2549f98578ac18162407ecc59cbc140e914030865e93402705cf895e456f",
+    "database": {
+      "name": "p7_p7f7118dce_a",
+      "oid": "28053",
+      "owner": "p7_p7f7118dce_role"
+    },
+    "database_authority": {
+      "catalog": [
+        {
+          "column_name": "id",
+          "data_type": "character varying",
+          "ordinal_position": 1,
+          "table_name": "forgejo_migration"
+        },
+        {
+          "column_name": "created_unix",
+          "data_type": "bigint",
+          "ordinal_position": 2,
+          "table_name": "forgejo_migration"
+        },
+        {
+          "column_name": "id",
+          "data_type": "bigint",
+          "ordinal_position": 1,
+          "table_name": "forgejo_version"
+        },
+        {
+          "column_name": "version",
+          "data_type": "bigint",
+          "ordinal_position": 2,
+          "table_name": "forgejo_version"
+        },
+        {
+          "column_name": "id",
+          "data_type": "bigint",
+          "ordinal_position": 1,
+          "table_name": "version"
+        },
+        {
+          "column_name": "version",
+          "data_type": "bigint",
+          "ordinal_position": 2,
+          "table_name": "version"
+        }
+      ],
+      "forgejo_migration": [
+        "v14a_actions-approval-and-trust",
+        "v14a_add-action_task-index",
+        "v14a_add-foreign-keys-collaboration",
+        "v14a_add-foreign-keys-forgejo_auth_token",
+        "v14a_add-foreign-keys-pull_request-1",
+        "v14a_add-forgejo-migrations-table",
+        "v14a_ap-change-fedi-handle-structure",
+        "v14a_migrate_task_secrets",
+        "v14a_migrate_webhook_authorization",
+        "v14a_remove-is-deleted-column-from-activity-action-table",
+        "v14a_rework-notification",
+        "v14a_rm-repository-issue-stat-fields",
+        "v14a_set_remote_user_prohibit_login",
+        "v14b_action-reindexing",
+        "v14b_action-run-add-workflow-directory",
+        "v14b_add-action_run-preexecutionerrorcode",
+        "v14b_rm-repository-actionrun-stat-fields",
+        "v15a_remove-softdelete-action_runner_token",
+        "v15b_add-access_token-owned-repos",
+        "v15b_add-access_token_resource",
+        "v15b_add-ephemeral_runner",
+        "v15b_add-foreign-keys-action_runner_token",
+        "v15b_add-runner_request_key",
+        "v15c_add_job_handle",
+        "v15c_add_mirror_remoteaddressauth",
+        "v15c_add_schedule_spec_time_zones",
+        "v15c_fix-project-sorting-unique-constraints",
+        "v17a_add-action-run-workflow-source-commit"
+      ],
+      "forgejo_version": [
+        {
+          "id": 1,
+          "version": 44
+        }
+      ],
+      "version": [
+        {
+          "id": 1,
+          "version": 305
+        }
+      ]
+    },
+    "image_id": "code.forgejo.org/forgejo/forgejo@sha256:3cd6bc2b74c87cbde0a0fd527c9665cb416f5a0540dee54fe5afb3fa2df9f40c",
+    "image_spec": "code.forgejo.org/forgejo/forgejo:15.0.11-rootless@sha256:3cd6bc2b74c87cbde0a0fd527c9665cb416f5a0540dee54fe5afb3fa2df9f40c",
+    "original_state": {
+      "FEATURE_SHA": "2231eeaa9148476ef0d556edb7a3290a58c053be",
+      "ISSUE_NUMBER": "2",
+      "ISSUE_TITLE": "journey issue 20261028124303-7edf02",
+      "MAIN_SHA": "2cbac64b740f13af669a6224bc3947a4dbd31e1e",
+      "PR_NUMBER": "1",
+      "PR_TITLE": "journey pull request 20261028124303-7edf02",
+      "RUN_ID": "20261028124303-7edf02"
+    },
+    "pat_file_sha256": "580b348330f1bfb50ef8865000a34fb773ff562b8305195feeb654aae62af312",
+    "pod_uid": "4cb937f4-b2e8-4991-bb78-9131c4e99d7f",
+    "public_route": false,
+    "source_dirty": false,
+    "source_sha": "af1ff2a80228b87f6985da86359e188b97d5a370",
+    "stage": "b",
+    "storage": {
+      "disk_created_at": "2026-10-28T12:38:30.154807+00:00",
+      "disk_id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/MC_rg-ccp-environment-krc-p6_aks-ccp-krc-p6_koreacentral/providers/Microsoft.Compute/disks/pvc-7fcc3930-6d81-40dc-9f23-1bdd53226b9a",
+      "disk_size_gib": 10,
+      "pv_name": "pvc-7fcc3930-6d81-40dc-9f23-1bdd53226b9a",
+      "pv_uid": "d6d35280-4469-4e7e-8197-2b588bb966d0",
+      "pvc_uid": "7fcc3930-6d81-40dc-9f23-1bdd53226b9a",
+      "stage": "a"
+    },
+    "version": "15.0.11+gitea-1.22.0"
+  },
+  "doctor-a.json": {
+    "checks": {
+      "check-db-consistency": {
+        "command_exit": 0,
+        "diagnostics": 0,
+        "status": "pass"
+      },
+      "check-db-version": {
+        "command_exit": 0,
+        "diagnostics": 0,
+        "status": "pass"
+      },
+      "check-user-type": {
+        "command_exit": 0,
+        "diagnostics": 0,
+        "status": "pass"
+      },
+      "synchronize-repo-heads": {
+        "command_exit": 0,
+        "diagnostics": 0,
+        "status": "pass"
+      }
+    },
+    "effective_config": {
+      "lfs_setting": "v15.0.9_default",
+      "lfs_start_server": false,
+      "log_mode": "console",
+      "log_mode_setting": "explicit",
+      "log_root_path": "/data/log",
+      "log_root_setting": "v15.0.9_workdir_default",
+      "ssh_disabled": true
+    },
+    "forgejo_image_id": "code.forgejo.org/forgejo/forgejo@sha256:caf1bca332f95cdcf124227a4bfa3b49bbbfbbc8a5e4a97406921cb581165413",
+    "forgejo_version": "15.0.9+gitea-1.22.0",
+    "inventory": [
+      {
+        "default": false,
+        "name": "gc-lfs",
+        "title": "Garbage collect LFS"
+      },
+      {
+        "default": true,
+        "name": "paths",
+        "title": "Check paths and basic configuration"
+      },
+      {
+        "default": false,
+        "name": "storage-archives",
+        "title": "Check if there are orphaned archives in storage"
+      },
+      {
+        "default": false,
+        "name": "storage-attachments",
+        "title": "Check if there are orphaned attachments in storage"
+      },
+      {
+        "default": false,
+        "name": "storage-avatars",
+        "title": "Check if there are orphaned avatars in storage"
+      },
+      {
+        "default": false,
+        "name": "storage-lfs",
+        "title": "Check if there are orphaned lfs files in storage"
+      },
+      {
+        "default": false,
+        "name": "storage-packages",
+        "title": "Check if there are orphaned package blobs in storage"
+      },
+      {
+        "default": false,
+        "name": "storages",
+        "title": "Check if there are orphaned storage files"
+      },
+      {
+        "default": true,
+        "name": "check-db-version",
+        "title": "Check Database Version"
+      },
+      {
+        "default": false,
+        "name": "check-db-consistency",
+        "title": "Check consistency of database"
+      },
+      {
+        "default": true,
+        "name": "check-user-type",
+        "title": "Check if user with wrong type exist"
+      },
+      {
+        "default": true,
+        "name": "authorized-keys",
+        "title": "Check if OpenSSH authorized_keys file is up-to-date"
+      },
+      {
+        "default": false,
+        "name": "delete-orphaned-repos",
+        "title": "Deleted all content related to orphaned repos"
+      },
+      {
+        "default": false,
+        "name": "script-type",
+        "title": "Check if SCRIPT_TYPE is available"
+      },
+      {
+        "default": false,
+        "name": "hooks",
+        "title": "Check if hook files are up-to-date and executable"
+      },
+      {
+        "default": false,
+        "name": "recalculate-stars-number",
+        "title": "Recalculate Stars number for all user"
+      },
+      {
+        "default": false,
+        "name": "check-old-archives",
+        "title": "Check old archives"
+      },
+      {
+        "default": false,
+        "name": "enable-push-options",
+        "title": "Check that all git repositories have receive.advertisePushOptions set to true"
+      },
+      {
+        "default": false,
+        "name": "fix-broken-repo-units",
+        "title": "Check for incorrectly dumped repo_units (See #16961)"
+      },
+      {
+        "default": false,
+        "name": "fix-owner-team-create-org-repo",
+        "title": "Check for incorrect can_create_org_repo for org owner teams"
+      },
+      {
+        "default": false,
+        "name": "fix-push-mirrors-without-git-remote",
+        "title": "Check for push mirrors without a git remote configured"
+      },
+      {
+        "default": true,
+        "name": "synchronize-repo-heads",
+        "title": "Synchronize repo HEADs"
+      },
+      {
+        "default": false,
+        "name": "check-git-daemon-export-ok",
+        "title": "Check git-daemon-export-ok files"
+      },
+      {
+        "default": false,
+        "name": "check-commit-graphs",
+        "title": "Check commit-graphs"
+      },
+      {
+        "default": false,
+        "name": "check-user-email",
+        "title": "Check if users has an valid email address"
+      },
+      {
+        "default": false,
+        "name": "check-user-names",
+        "title": "Check if users have a valid username"
+      },
+      {
+        "default": false,
+        "name": "disable-mirror-actions-unit",
+        "title": "Disable the actions unit for all mirrors"
+      },
+      {
+        "default": false,
+        "name": "packages-nuget-nuspec",
+        "title": "Extract Nuget Nuspec Files to content store"
+      }
+    ],
+    "not_applicable": {
+      "authorized-keys": "SSH disabled in current Core configuration",
+      "gc-lfs": "LFS_START_SERVER=false"
+    },
+    "paths": {
+      "command_exit": 1,
+      "finding": "missing_/data/log",
+      "scope": "console_logging_only",
+      "status": "known_source_baseline_diagnostic"
+    },
+    "selected": [
+      {
+        "name": "check-db-version",
+        "reason": "default; pinned schema version"
+      },
+      {
+        "name": "check-db-consistency",
+        "reason": "database integrity; read-only without --fix"
+      },
+      {
+        "name": "check-user-type",
+        "reason": "default; enabled user model"
+      },
+      {
+        "name": "synchronize-repo-heads",
+        "reason": "default; enabled Git repositories; read-only without --fix"
+      }
+    ]
+  },
+  "doctor-b.json": {
+    "checks": {
+      "check-db-consistency": {
+        "command_exit": 0,
+        "diagnostics": 0,
+        "status": "pass"
+      },
+      "check-db-version": {
+        "command_exit": 0,
+        "diagnostics": 0,
+        "status": "pass"
+      },
+      "check-user-type": {
+        "command_exit": 0,
+        "diagnostics": 0,
+        "status": "pass"
+      },
+      "synchronize-repo-heads": {
+        "command_exit": 0,
+        "diagnostics": 0,
+        "status": "pass"
+      }
+    },
+    "effective_config": {
+      "lfs_setting": "v15.0.11_default",
+      "lfs_start_server": false,
+      "log_mode": "console",
+      "log_mode_setting": "explicit",
+      "log_root_path": "/data/log",
+      "log_root_setting": "v15.0.11_workdir_default",
+      "ssh_disabled": true
+    },
+    "forgejo_image_id": "code.forgejo.org/forgejo/forgejo@sha256:3cd6bc2b74c87cbde0a0fd527c9665cb416f5a0540dee54fe5afb3fa2df9f40c",
+    "forgejo_version": "15.0.11+gitea-1.22.0",
+    "inventory": [
+      {
+        "default": false,
+        "name": "gc-lfs",
+        "title": "Garbage collect LFS"
+      },
+      {
+        "default": true,
+        "name": "paths",
+        "title": "Check paths and basic configuration"
+      },
+      {
+        "default": false,
+        "name": "storage-archives",
+        "title": "Check if there are orphaned archives in storage"
+      },
+      {
+        "default": false,
+        "name": "storage-attachments",
+        "title": "Check if there are orphaned attachments in storage"
+      },
+      {
+        "default": false,
+        "name": "storage-avatars",
+        "title": "Check if there are orphaned avatars in storage"
+      },
+      {
+        "default": false,
+        "name": "storage-lfs",
+        "title": "Check if there are orphaned lfs files in storage"
+      },
+      {
+        "default": false,
+        "name": "storage-packages",
+        "title": "Check if there are orphaned package blobs in storage"
+      },
+      {
+        "default": false,
+        "name": "storages",
+        "title": "Check if there are orphaned storage files"
+      },
+      {
+        "default": true,
+        "name": "check-db-version",
+        "title": "Check Database Version"
+      },
+      {
+        "default": false,
+        "name": "check-db-consistency",
+        "title": "Check consistency of database"
+      },
+      {
+        "default": true,
+        "name": "check-user-type",
+        "title": "Check if user with wrong type exist"
+      },
+      {
+        "default": true,
+        "name": "authorized-keys",
+        "title": "Check if OpenSSH authorized_keys file is up-to-date"
+      },
+      {
+        "default": false,
+        "name": "delete-orphaned-repos",
+        "title": "Deleted all content related to orphaned repos"
+      },
+      {
+        "default": false,
+        "name": "script-type",
+        "title": "Check if SCRIPT_TYPE is available"
+      },
+      {
+        "default": false,
+        "name": "hooks",
+        "title": "Check if hook files are up-to-date and executable"
+      },
+      {
+        "default": false,
+        "name": "recalculate-stars-number",
+        "title": "Recalculate Stars number for all user"
+      },
+      {
+        "default": false,
+        "name": "check-old-archives",
+        "title": "Check old archives"
+      },
+      {
+        "default": false,
+        "name": "enable-push-options",
+        "title": "Check that all git repositories have receive.advertisePushOptions set to true"
+      },
+      {
+        "default": false,
+        "name": "fix-broken-repo-units",
+        "title": "Check for incorrectly dumped repo_units (See #16961)"
+      },
+      {
+        "default": false,
+        "name": "fix-owner-team-create-org-repo",
+        "title": "Check for incorrect can_create_org_repo for org owner teams"
+      },
+      {
+        "default": false,
+        "name": "fix-push-mirrors-without-git-remote",
+        "title": "Check for push mirrors without a git remote configured"
+      },
+      {
+        "default": true,
+        "name": "synchronize-repo-heads",
+        "title": "Synchronize repo HEADs"
+      },
+      {
+        "default": false,
+        "name": "check-git-daemon-export-ok",
+        "title": "Check git-daemon-export-ok files"
+      },
+      {
+        "default": false,
+        "name": "check-commit-graphs",
+        "title": "Check commit-graphs"
+      },
+      {
+        "default": false,
+        "name": "check-user-email",
+        "title": "Check if users has an valid email address"
+      },
+      {
+        "default": false,
+        "name": "check-user-names",
+        "title": "Check if users have a valid username"
+      },
+      {
+        "default": false,
+        "name": "disable-mirror-actions-unit",
+        "title": "Disable the actions unit for all mirrors"
+      },
+      {
+        "default": false,
+        "name": "packages-nuget-nuspec",
+        "title": "Extract Nuget Nuspec Files to content store"
+      }
+    ],
+    "not_applicable": {
+      "authorized-keys": "SSH disabled in current Core configuration",
+      "gc-lfs": "LFS_START_SERVER=false"
+    },
+    "paths": {
+      "command_exit": 1,
+      "finding": "missing_/data/log",
+      "scope": "console_logging_only",
+      "status": "known_source_baseline_diagnostic"
+    },
+    "selected": [
+      {
+        "name": "check-db-version",
+        "reason": "default; pinned schema version"
+      },
+      {
+        "name": "check-db-consistency",
+        "reason": "database integrity; read-only without --fix"
+      },
+      {
+        "name": "check-user-type",
+        "reason": "default; enabled user model"
+      },
+      {
+        "name": "synchronize-repo-heads",
+        "reason": "default; enabled Git repositories; read-only without --fix"
+      }
+    ]
+  },
+  "doctor-restored-clean-source.json": {
+    "checks": {
+      "check-db-consistency": {
+        "command_exit": 0,
+        "diagnostics": 0,
+        "status": "pass"
+      },
+      "check-db-version": {
+        "command_exit": 0,
+        "diagnostics": 0,
+        "status": "pass"
+      },
+      "check-user-type": {
+        "command_exit": 0,
+        "diagnostics": 0,
+        "status": "pass"
+      },
+      "synchronize-repo-heads": {
+        "command_exit": 0,
+        "diagnostics": 0,
+        "status": "pass"
+      }
+    },
+    "effective_config": {
+      "lfs_setting": "v15.0.11_default",
+      "lfs_start_server": false,
+      "log_mode": "console",
+      "log_mode_setting": "explicit",
+      "log_root_path": "/data/log",
+      "log_root_setting": "v15.0.11_workdir_default",
+      "ssh_disabled": true
+    },
+    "forgejo_image_id": "code.forgejo.org/forgejo/forgejo@sha256:3cd6bc2b74c87cbde0a0fd527c9665cb416f5a0540dee54fe5afb3fa2df9f40c",
+    "forgejo_version": "15.0.11+gitea-1.22.0",
+    "inventory": [
+      {
+        "default": false,
+        "name": "gc-lfs",
+        "title": "Garbage collect LFS"
+      },
+      {
+        "default": true,
+        "name": "paths",
+        "title": "Check paths and basic configuration"
+      },
+      {
+        "default": false,
+        "name": "storage-archives",
+        "title": "Check if there are orphaned archives in storage"
+      },
+      {
+        "default": false,
+        "name": "storage-attachments",
+        "title": "Check if there are orphaned attachments in storage"
+      },
+      {
+        "default": false,
+        "name": "storage-avatars",
+        "title": "Check if there are orphaned avatars in storage"
+      },
+      {
+        "default": false,
+        "name": "storage-lfs",
+        "title": "Check if there are orphaned lfs files in storage"
+      },
+      {
+        "default": false,
+        "name": "storage-packages",
+        "title": "Check if there are orphaned package blobs in storage"
+      },
+      {
+        "default": false,
+        "name": "storages",
+        "title": "Check if there are orphaned storage files"
+      },
+      {
+        "default": true,
+        "name": "check-db-version",
+        "title": "Check Database Version"
+      },
+      {
+        "default": false,
+        "name": "check-db-consistency",
+        "title": "Check consistency of database"
+      },
+      {
+        "default": true,
+        "name": "check-user-type",
+        "title": "Check if user with wrong type exist"
+      },
+      {
+        "default": true,
+        "name": "authorized-keys",
+        "title": "Check if OpenSSH authorized_keys file is up-to-date"
+      },
+      {
+        "default": false,
+        "name": "delete-orphaned-repos",
+        "title": "Deleted all content related to orphaned repos"
+      },
+      {
+        "default": false,
+        "name": "script-type",
+        "title": "Check if SCRIPT_TYPE is available"
+      },
+      {
+        "default": false,
+        "name": "hooks",
+        "title": "Check if hook files are up-to-date and executable"
+      },
+      {
+        "default": false,
+        "name": "recalculate-stars-number",
+        "title": "Recalculate Stars number for all user"
+      },
+      {
+        "default": false,
+        "name": "check-old-archives",
+        "title": "Check old archives"
+      },
+      {
+        "default": false,
+        "name": "enable-push-options",
+        "title": "Check that all git repositories have receive.advertisePushOptions set to true"
+      },
+      {
+        "default": false,
+        "name": "fix-broken-repo-units",
+        "title": "Check for incorrectly dumped repo_units (See #16961)"
+      },
+      {
+        "default": false,
+        "name": "fix-owner-team-create-org-repo",
+        "title": "Check for incorrect can_create_org_repo for org owner teams"
+      },
+      {
+        "default": false,
+        "name": "fix-push-mirrors-without-git-remote",
+        "title": "Check for push mirrors without a git remote configured"
+      },
+      {
+        "default": true,
+        "name": "synchronize-repo-heads",
+        "title": "Synchronize repo HEADs"
+      },
+      {
+        "default": false,
+        "name": "check-git-daemon-export-ok",
+        "title": "Check git-daemon-export-ok files"
+      },
+      {
+        "default": false,
+        "name": "check-commit-graphs",
+        "title": "Check commit-graphs"
+      },
+      {
+        "default": false,
+        "name": "check-user-email",
+        "title": "Check if users has an valid email address"
+      },
+      {
+        "default": false,
+        "name": "check-user-names",
+        "title": "Check if users have a valid username"
+      },
+      {
+        "default": false,
+        "name": "disable-mirror-actions-unit",
+        "title": "Disable the actions unit for all mirrors"
+      },
+      {
+        "default": false,
+        "name": "packages-nuget-nuspec",
+        "title": "Extract Nuget Nuspec Files to content store"
+      }
+    ],
+    "not_applicable": {
+      "authorized-keys": "SSH disabled in current Core configuration",
+      "gc-lfs": "LFS_START_SERVER=false"
+    },
+    "paths": {
+      "command_exit": 1,
+      "finding": "missing_/data/log",
+      "scope": "console_logging_only",
+      "status": "known_source_baseline_diagnostic"
+    },
+    "selected": [
+      {
+        "name": "check-db-version",
+        "reason": "default; pinned schema version"
+      },
+      {
+        "name": "check-db-consistency",
+        "reason": "database integrity; read-only without --fix"
+      },
+      {
+        "name": "check-user-type",
+        "reason": "default; enabled user model"
+      },
+      {
+        "name": "synchronize-repo-heads",
+        "reason": "default; enabled Git repositories; read-only without --fix"
+      }
+    ]
+  },
+  "doctor-restored.json": {
+    "checks": {
+      "check-db-consistency": {
+        "command_exit": 0,
+        "diagnostics": 0,
+        "status": "pass"
+      },
+      "check-db-version": {
+        "command_exit": 0,
+        "diagnostics": 0,
+        "status": "pass"
+      },
+      "check-user-type": {
+        "command_exit": 0,
+        "diagnostics": 0,
+        "status": "pass"
+      },
+      "synchronize-repo-heads": {
+        "command_exit": 0,
+        "diagnostics": 0,
+        "status": "pass"
+      }
+    },
+    "effective_config": {
+      "lfs_setting": "v15.0.11_default",
+      "lfs_start_server": false,
+      "log_mode": "console",
+      "log_mode_setting": "explicit",
+      "log_root_path": "/data/log",
+      "log_root_setting": "v15.0.11_workdir_default",
+      "ssh_disabled": true
+    },
+    "forgejo_image_id": "code.forgejo.org/forgejo/forgejo@sha256:3cd6bc2b74c87cbde0a0fd527c9665cb416f5a0540dee54fe5afb3fa2df9f40c",
+    "forgejo_version": "15.0.11+gitea-1.22.0",
+    "inventory": [
+      {
+        "default": false,
+        "name": "gc-lfs",
+        "title": "Garbage collect LFS"
+      },
+      {
+        "default": true,
+        "name": "paths",
+        "title": "Check paths and basic configuration"
+      },
+      {
+        "default": false,
+        "name": "storage-archives",
+        "title": "Check if there are orphaned archives in storage"
+      },
+      {
+        "default": false,
+        "name": "storage-attachments",
+        "title": "Check if there are orphaned attachments in storage"
+      },
+      {
+        "default": false,
+        "name": "storage-avatars",
+        "title": "Check if there are orphaned avatars in storage"
+      },
+      {
+        "default": false,
+        "name": "storage-lfs",
+        "title": "Check if there are orphaned lfs files in storage"
+      },
+      {
+        "default": false,
+        "name": "storage-packages",
+        "title": "Check if there are orphaned package blobs in storage"
+      },
+      {
+        "default": false,
+        "name": "storages",
+        "title": "Check if there are orphaned storage files"
+      },
+      {
+        "default": true,
+        "name": "check-db-version",
+        "title": "Check Database Version"
+      },
+      {
+        "default": false,
+        "name": "check-db-consistency",
+        "title": "Check consistency of database"
+      },
+      {
+        "default": true,
+        "name": "check-user-type",
+        "title": "Check if user with wrong type exist"
+      },
+      {
+        "default": true,
+        "name": "authorized-keys",
+        "title": "Check if OpenSSH authorized_keys file is up-to-date"
+      },
+      {
+        "default": false,
+        "name": "delete-orphaned-repos",
+        "title": "Deleted all content related to orphaned repos"
+      },
+      {
+        "default": false,
+        "name": "script-type",
+        "title": "Check if SCRIPT_TYPE is available"
+      },
+      {
+        "default": false,
+        "name": "hooks",
+        "title": "Check if hook files are up-to-date and executable"
+      },
+      {
+        "default": false,
+        "name": "recalculate-stars-number",
+        "title": "Recalculate Stars number for all user"
+      },
+      {
+        "default": false,
+        "name": "check-old-archives",
+        "title": "Check old archives"
+      },
+      {
+        "default": false,
+        "name": "enable-push-options",
+        "title": "Check that all git repositories have receive.advertisePushOptions set to true"
+      },
+      {
+        "default": false,
+        "name": "fix-broken-repo-units",
+        "title": "Check for incorrectly dumped repo_units (See #16961)"
+      },
+      {
+        "default": false,
+        "name": "fix-owner-team-create-org-repo",
+        "title": "Check for incorrect can_create_org_repo for org owner teams"
+      },
+      {
+        "default": false,
+        "name": "fix-push-mirrors-without-git-remote",
+        "title": "Check for push mirrors without a git remote configured"
+      },
+      {
+        "default": true,
+        "name": "synchronize-repo-heads",
+        "title": "Synchronize repo HEADs"
+      },
+      {
+        "default": false,
+        "name": "check-git-daemon-export-ok",
+        "title": "Check git-daemon-export-ok files"
+      },
+      {
+        "default": false,
+        "name": "check-commit-graphs",
+        "title": "Check commit-graphs"
+      },
+      {
+        "default": false,
+        "name": "check-user-email",
+        "title": "Check if users has an valid email address"
+      },
+      {
+        "default": false,
+        "name": "check-user-names",
+        "title": "Check if users have a valid username"
+      },
+      {
+        "default": false,
+        "name": "disable-mirror-actions-unit",
+        "title": "Disable the actions unit for all mirrors"
+      },
+      {
+        "default": false,
+        "name": "packages-nuget-nuspec",
+        "title": "Extract Nuget Nuspec Files to content store"
+      }
+    ],
+    "not_applicable": {
+      "authorized-keys": "SSH disabled in current Core configuration",
+      "gc-lfs": "LFS_START_SERVER=false"
+    },
+    "paths": {
+      "command_exit": 1,
+      "finding": "missing_/data/log",
+      "scope": "console_logging_only",
+      "status": "known_source_baseline_diagnostic"
+    },
+    "selected": [
+      {
+        "name": "check-db-version",
+        "reason": "default; pinned schema version"
+      },
+      {
+        "name": "check-db-consistency",
+        "reason": "database integrity; read-only without --fix"
+      },
+      {
+        "name": "check-user-type",
+        "reason": "default; enabled user model"
+      },
+      {
+        "name": "synchronize-repo-heads",
+        "reason": "default; enabled Git repositories; read-only without --fix"
+      }
+    ]
+  },
+  "doctor-rollback-after-write.json": {
+    "checks": {
+      "check-db-consistency": {
+        "command_exit": 0,
+        "diagnostics": 0,
+        "status": "pass"
+      },
+      "check-db-version": {
+        "command_exit": 0,
+        "diagnostics": 0,
+        "status": "pass"
+      },
+      "check-user-type": {
+        "command_exit": 0,
+        "diagnostics": 0,
+        "status": "pass"
+      },
+      "synchronize-repo-heads": {
+        "command_exit": 0,
+        "diagnostics": 0,
+        "status": "pass"
+      }
+    },
+    "effective_config": {
+      "lfs_setting": "v15.0.9_default",
+      "lfs_start_server": false,
+      "log_mode": "console",
+      "log_mode_setting": "explicit",
+      "log_root_path": "/data/log",
+      "log_root_setting": "v15.0.9_workdir_default",
+      "ssh_disabled": true
+    },
+    "forgejo_image_id": "code.forgejo.org/forgejo/forgejo@sha256:caf1bca332f95cdcf124227a4bfa3b49bbbfbbc8a5e4a97406921cb581165413",
+    "forgejo_version": "15.0.9+gitea-1.22.0",
+    "inventory": [
+      {
+        "default": false,
+        "name": "gc-lfs",
+        "title": "Garbage collect LFS"
+      },
+      {
+        "default": true,
+        "name": "paths",
+        "title": "Check paths and basic configuration"
+      },
+      {
+        "default": false,
+        "name": "storage-archives",
+        "title": "Check if there are orphaned archives in storage"
+      },
+      {
+        "default": false,
+        "name": "storage-attachments",
+        "title": "Check if there are orphaned attachments in storage"
+      },
+      {
+        "default": false,
+        "name": "storage-avatars",
+        "title": "Check if there are orphaned avatars in storage"
+      },
+      {
+        "default": false,
+        "name": "storage-lfs",
+        "title": "Check if there are orphaned lfs files in storage"
+      },
+      {
+        "default": false,
+        "name": "storage-packages",
+        "title": "Check if there are orphaned package blobs in storage"
+      },
+      {
+        "default": false,
+        "name": "storages",
+        "title": "Check if there are orphaned storage files"
+      },
+      {
+        "default": true,
+        "name": "check-db-version",
+        "title": "Check Database Version"
+      },
+      {
+        "default": false,
+        "name": "check-db-consistency",
+        "title": "Check consistency of database"
+      },
+      {
+        "default": true,
+        "name": "check-user-type",
+        "title": "Check if user with wrong type exist"
+      },
+      {
+        "default": true,
+        "name": "authorized-keys",
+        "title": "Check if OpenSSH authorized_keys file is up-to-date"
+      },
+      {
+        "default": false,
+        "name": "delete-orphaned-repos",
+        "title": "Deleted all content related to orphaned repos"
+      },
+      {
+        "default": false,
+        "name": "script-type",
+        "title": "Check if SCRIPT_TYPE is available"
+      },
+      {
+        "default": false,
+        "name": "hooks",
+        "title": "Check if hook files are up-to-date and executable"
+      },
+      {
+        "default": false,
+        "name": "recalculate-stars-number",
+        "title": "Recalculate Stars number for all user"
+      },
+      {
+        "default": false,
+        "name": "check-old-archives",
+        "title": "Check old archives"
+      },
+      {
+        "default": false,
+        "name": "enable-push-options",
+        "title": "Check that all git repositories have receive.advertisePushOptions set to true"
+      },
+      {
+        "default": false,
+        "name": "fix-broken-repo-units",
+        "title": "Check for incorrectly dumped repo_units (See #16961)"
+      },
+      {
+        "default": false,
+        "name": "fix-owner-team-create-org-repo",
+        "title": "Check for incorrect can_create_org_repo for org owner teams"
+      },
+      {
+        "default": false,
+        "name": "fix-push-mirrors-without-git-remote",
+        "title": "Check for push mirrors without a git remote configured"
+      },
+      {
+        "default": true,
+        "name": "synchronize-repo-heads",
+        "title": "Synchronize repo HEADs"
+      },
+      {
+        "default": false,
+        "name": "check-git-daemon-export-ok",
+        "title": "Check git-daemon-export-ok files"
+      },
+      {
+        "default": false,
+        "name": "check-commit-graphs",
+        "title": "Check commit-graphs"
+      },
+      {
+        "default": false,
+        "name": "check-user-email",
+        "title": "Check if users has an valid email address"
+      },
+      {
+        "default": false,
+        "name": "check-user-names",
+        "title": "Check if users have a valid username"
+      },
+      {
+        "default": false,
+        "name": "disable-mirror-actions-unit",
+        "title": "Disable the actions unit for all mirrors"
+      },
+      {
+        "default": false,
+        "name": "packages-nuget-nuspec",
+        "title": "Extract Nuget Nuspec Files to content store"
+      }
+    ],
+    "not_applicable": {
+      "authorized-keys": "SSH disabled in current Core configuration",
+      "gc-lfs": "LFS_START_SERVER=false"
+    },
+    "paths": {
+      "command_exit": 1,
+      "finding": "missing_/data/log",
+      "scope": "console_logging_only",
+      "status": "known_source_baseline_diagnostic"
+    },
+    "selected": [
+      {
+        "name": "check-db-version",
+        "reason": "default; pinned schema version"
+      },
+      {
+        "name": "check-db-consistency",
+        "reason": "database integrity; read-only without --fix"
+      },
+      {
+        "name": "check-user-type",
+        "reason": "default; enabled user model"
+      },
+      {
+        "name": "synchronize-repo-heads",
+        "reason": "default; enabled Git repositories; read-only without --fix"
+      }
+    ]
+  },
+  "doctor-rollback.json": {
+    "checks": {
+      "check-db-consistency": {
+        "command_exit": 0,
+        "diagnostics": 0,
+        "status": "pass"
+      },
+      "check-db-version": {
+        "command_exit": 0,
+        "diagnostics": 0,
+        "status": "pass"
+      },
+      "check-user-type": {
+        "command_exit": 0,
+        "diagnostics": 0,
+        "status": "pass"
+      },
+      "synchronize-repo-heads": {
+        "command_exit": 0,
+        "diagnostics": 0,
+        "status": "pass"
+      }
+    },
+    "effective_config": {
+      "lfs_setting": "v15.0.9_default",
+      "lfs_start_server": false,
+      "log_mode": "console",
+      "log_mode_setting": "explicit",
+      "log_root_path": "/data/log",
+      "log_root_setting": "v15.0.9_workdir_default",
+      "ssh_disabled": true
+    },
+    "forgejo_image_id": "code.forgejo.org/forgejo/forgejo@sha256:caf1bca332f95cdcf124227a4bfa3b49bbbfbbc8a5e4a97406921cb581165413",
+    "forgejo_version": "15.0.9+gitea-1.22.0",
+    "inventory": [
+      {
+        "default": false,
+        "name": "gc-lfs",
+        "title": "Garbage collect LFS"
+      },
+      {
+        "default": true,
+        "name": "paths",
+        "title": "Check paths and basic configuration"
+      },
+      {
+        "default": false,
+        "name": "storage-archives",
+        "title": "Check if there are orphaned archives in storage"
+      },
+      {
+        "default": false,
+        "name": "storage-attachments",
+        "title": "Check if there are orphaned attachments in storage"
+      },
+      {
+        "default": false,
+        "name": "storage-avatars",
+        "title": "Check if there are orphaned avatars in storage"
+      },
+      {
+        "default": false,
+        "name": "storage-lfs",
+        "title": "Check if there are orphaned lfs files in storage"
+      },
+      {
+        "default": false,
+        "name": "storage-packages",
+        "title": "Check if there are orphaned package blobs in storage"
+      },
+      {
+        "default": false,
+        "name": "storages",
+        "title": "Check if there are orphaned storage files"
+      },
+      {
+        "default": true,
+        "name": "check-db-version",
+        "title": "Check Database Version"
+      },
+      {
+        "default": false,
+        "name": "check-db-consistency",
+        "title": "Check consistency of database"
+      },
+      {
+        "default": true,
+        "name": "check-user-type",
+        "title": "Check if user with wrong type exist"
+      },
+      {
+        "default": true,
+        "name": "authorized-keys",
+        "title": "Check if OpenSSH authorized_keys file is up-to-date"
+      },
+      {
+        "default": false,
+        "name": "delete-orphaned-repos",
+        "title": "Deleted all content related to orphaned repos"
+      },
+      {
+        "default": false,
+        "name": "script-type",
+        "title": "Check if SCRIPT_TYPE is available"
+      },
+      {
+        "default": false,
+        "name": "hooks",
+        "title": "Check if hook files are up-to-date and executable"
+      },
+      {
+        "default": false,
+        "name": "recalculate-stars-number",
+        "title": "Recalculate Stars number for all user"
+      },
+      {
+        "default": false,
+        "name": "check-old-archives",
+        "title": "Check old archives"
+      },
+      {
+        "default": false,
+        "name": "enable-push-options",
+        "title": "Check that all git repositories have receive.advertisePushOptions set to true"
+      },
+      {
+        "default": false,
+        "name": "fix-broken-repo-units",
+        "title": "Check for incorrectly dumped repo_units (See #16961)"
+      },
+      {
+        "default": false,
+        "name": "fix-owner-team-create-org-repo",
+        "title": "Check for incorrect can_create_org_repo for org owner teams"
+      },
+      {
+        "default": false,
+        "name": "fix-push-mirrors-without-git-remote",
+        "title": "Check for push mirrors without a git remote configured"
+      },
+      {
+        "default": true,
+        "name": "synchronize-repo-heads",
+        "title": "Synchronize repo HEADs"
+      },
+      {
+        "default": false,
+        "name": "check-git-daemon-export-ok",
+        "title": "Check git-daemon-export-ok files"
+      },
+      {
+        "default": false,
+        "name": "check-commit-graphs",
+        "title": "Check commit-graphs"
+      },
+      {
+        "default": false,
+        "name": "check-user-email",
+        "title": "Check if users has an valid email address"
+      },
+      {
+        "default": false,
+        "name": "check-user-names",
+        "title": "Check if users have a valid username"
+      },
+      {
+        "default": false,
+        "name": "disable-mirror-actions-unit",
+        "title": "Disable the actions unit for all mirrors"
+      },
+      {
+        "default": false,
+        "name": "packages-nuget-nuspec",
+        "title": "Extract Nuget Nuspec Files to content store"
+      }
+    ],
+    "not_applicable": {
+      "authorized-keys": "SSH disabled in current Core configuration",
+      "gc-lfs": "LFS_START_SERVER=false"
+    },
+    "paths": {
+      "command_exit": 1,
+      "finding": "missing_/data/log",
+      "scope": "console_logging_only",
+      "status": "known_source_baseline_diagnostic"
+    },
+    "selected": [
+      {
+        "name": "check-db-version",
+        "reason": "default; pinned schema version"
+      },
+      {
+        "name": "check-db-consistency",
+        "reason": "database integrity; read-only without --fix"
+      },
+      {
+        "name": "check-user-type",
+        "reason": "default; enabled user model"
+      },
+      {
+        "name": "synchronize-repo-heads",
+        "reason": "default; enabled Git repositories; read-only without --fix"
+      }
+    ]
+  },
+  "doctor-source.json": {
+    "checks": {
+      "check-db-consistency": {
+        "command_exit": 0,
+        "diagnostics": 0,
+        "status": "pass"
+      },
+      "check-db-version": {
+        "command_exit": 0,
+        "diagnostics": 0,
+        "status": "pass"
+      },
+      "check-user-type": {
+        "command_exit": 0,
+        "diagnostics": 0,
+        "status": "pass"
+      },
+      "synchronize-repo-heads": {
+        "command_exit": 0,
+        "diagnostics": 0,
+        "status": "pass"
+      }
+    },
+    "effective_config": {
+      "lfs_setting": "v15.0.11_default",
+      "lfs_start_server": false,
+      "log_mode": "console",
+      "log_mode_setting": "explicit",
+      "log_root_path": "/data/log",
+      "log_root_setting": "v15.0.11_workdir_default",
+      "ssh_disabled": true
+    },
+    "forgejo_image_id": "code.forgejo.org/forgejo/forgejo@sha256:3cd6bc2b74c87cbde0a0fd527c9665cb416f5a0540dee54fe5afb3fa2df9f40c",
+    "forgejo_version": "15.0.11+gitea-1.22.0",
+    "inventory": [
+      {
+        "default": false,
+        "name": "gc-lfs",
+        "title": "Garbage collect LFS"
+      },
+      {
+        "default": true,
+        "name": "paths",
+        "title": "Check paths and basic configuration"
+      },
+      {
+        "default": false,
+        "name": "storage-archives",
+        "title": "Check if there are orphaned archives in storage"
+      },
+      {
+        "default": false,
+        "name": "storage-attachments",
+        "title": "Check if there are orphaned attachments in storage"
+      },
+      {
+        "default": false,
+        "name": "storage-avatars",
+        "title": "Check if there are orphaned avatars in storage"
+      },
+      {
+        "default": false,
+        "name": "storage-lfs",
+        "title": "Check if there are orphaned lfs files in storage"
+      },
+      {
+        "default": false,
+        "name": "storage-packages",
+        "title": "Check if there are orphaned package blobs in storage"
+      },
+      {
+        "default": false,
+        "name": "storages",
+        "title": "Check if there are orphaned storage files"
+      },
+      {
+        "default": true,
+        "name": "check-db-version",
+        "title": "Check Database Version"
+      },
+      {
+        "default": false,
+        "name": "check-db-consistency",
+        "title": "Check consistency of database"
+      },
+      {
+        "default": true,
+        "name": "check-user-type",
+        "title": "Check if user with wrong type exist"
+      },
+      {
+        "default": true,
+        "name": "authorized-keys",
+        "title": "Check if OpenSSH authorized_keys file is up-to-date"
+      },
+      {
+        "default": false,
+        "name": "delete-orphaned-repos",
+        "title": "Deleted all content related to orphaned repos"
+      },
+      {
+        "default": false,
+        "name": "script-type",
+        "title": "Check if SCRIPT_TYPE is available"
+      },
+      {
+        "default": false,
+        "name": "hooks",
+        "title": "Check if hook files are up-to-date and executable"
+      },
+      {
+        "default": false,
+        "name": "recalculate-stars-number",
+        "title": "Recalculate Stars number for all user"
+      },
+      {
+        "default": false,
+        "name": "check-old-archives",
+        "title": "Check old archives"
+      },
+      {
+        "default": false,
+        "name": "enable-push-options",
+        "title": "Check that all git repositories have receive.advertisePushOptions set to true"
+      },
+      {
+        "default": false,
+        "name": "fix-broken-repo-units",
+        "title": "Check for incorrectly dumped repo_units (See #16961)"
+      },
+      {
+        "default": false,
+        "name": "fix-owner-team-create-org-repo",
+        "title": "Check for incorrect can_create_org_repo for org owner teams"
+      },
+      {
+        "default": false,
+        "name": "fix-push-mirrors-without-git-remote",
+        "title": "Check for push mirrors without a git remote configured"
+      },
+      {
+        "default": true,
+        "name": "synchronize-repo-heads",
+        "title": "Synchronize repo HEADs"
+      },
+      {
+        "default": false,
+        "name": "check-git-daemon-export-ok",
+        "title": "Check git-daemon-export-ok files"
+      },
+      {
+        "default": false,
+        "name": "check-commit-graphs",
+        "title": "Check commit-graphs"
+      },
+      {
+        "default": false,
+        "name": "check-user-email",
+        "title": "Check if users has an valid email address"
+      },
+      {
+        "default": false,
+        "name": "check-user-names",
+        "title": "Check if users have a valid username"
+      },
+      {
+        "default": false,
+        "name": "disable-mirror-actions-unit",
+        "title": "Disable the actions unit for all mirrors"
+      },
+      {
+        "default": false,
+        "name": "packages-nuget-nuspec",
+        "title": "Extract Nuget Nuspec Files to content store"
+      }
+    ],
+    "not_applicable": {
+      "authorized-keys": "SSH disabled in current Core configuration",
+      "gc-lfs": "LFS_START_SERVER=false"
+    },
+    "paths": {
+      "command_exit": 1,
+      "finding": "missing_/data/log",
+      "scope": "console_logging_only",
+      "status": "known_source_baseline_diagnostic"
+    },
+    "selected": [
+      {
+        "name": "check-db-version",
+        "reason": "default; pinned schema version"
+      },
+      {
+        "name": "check-db-consistency",
+        "reason": "database integrity; read-only without --fix"
+      },
+      {
+        "name": "check-user-type",
+        "reason": "default; enabled user model"
+      },
+      {
+        "name": "synchronize-repo-heads",
+        "reason": "default; enabled Git repositories; read-only without --fix"
+      }
+    ]
+  },
+  "restore-clean-source-reverification.json": {
+    "doctor": "doctor-restored-clean-source.json",
+    "git_api_same_pat": true,
+    "runtime_manifest_matches": true,
+    "same_session": true,
+    "source_dirty": false,
+    "source_sha": "af1ff2a80228b87f6985da86359e188b97d5a370"
+  },
+  "restore-database-authority.json": {
+    "catalog": [
+      {
+        "column_name": "id",
+        "data_type": "character varying",
+        "ordinal_position": 1,
+        "table_name": "forgejo_migration"
+      },
+      {
+        "column_name": "created_unix",
+        "data_type": "bigint",
+        "ordinal_position": 2,
+        "table_name": "forgejo_migration"
+      },
+      {
+        "column_name": "id",
+        "data_type": "bigint",
+        "ordinal_position": 1,
+        "table_name": "forgejo_version"
+      },
+      {
+        "column_name": "version",
+        "data_type": "bigint",
+        "ordinal_position": 2,
+        "table_name": "forgejo_version"
+      },
+      {
+        "column_name": "id",
+        "data_type": "bigint",
+        "ordinal_position": 1,
+        "table_name": "version"
+      },
+      {
+        "column_name": "version",
+        "data_type": "bigint",
+        "ordinal_position": 2,
+        "table_name": "version"
+      }
+    ],
+    "forgejo_migration": [
+      "v14a_actions-approval-and-trust",
+      "v14a_add-action_task-index",
+      "v14a_add-foreign-keys-collaboration",
+      "v14a_add-foreign-keys-forgejo_auth_token",
+      "v14a_add-foreign-keys-pull_request-1",
+      "v14a_add-forgejo-migrations-table",
+      "v14a_ap-change-fedi-handle-structure",
+      "v14a_migrate_task_secrets",
+      "v14a_migrate_webhook_authorization",
+      "v14a_remove-is-deleted-column-from-activity-action-table",
+      "v14a_rework-notification",
+      "v14a_rm-repository-issue-stat-fields",
+      "v14a_set_remote_user_prohibit_login",
+      "v14b_action-reindexing",
+      "v14b_action-run-add-workflow-directory",
+      "v14b_add-action_run-preexecutionerrorcode",
+      "v14b_rm-repository-actionrun-stat-fields",
+      "v15a_remove-softdelete-action_runner_token",
+      "v15b_add-access_token-owned-repos",
+      "v15b_add-access_token_resource",
+      "v15b_add-ephemeral_runner",
+      "v15b_add-foreign-keys-action_runner_token",
+      "v15b_add-runner_request_key",
+      "v15c_add_job_handle",
+      "v15c_add_mirror_remoteaddressauth",
+      "v15c_add_schedule_spec_time_zones",
+      "v15c_fix-project-sorting-unique-constraints",
+      "v17a_add-action-run-workflow-source-commit"
+    ],
+    "forgejo_version": [
+      {
+        "id": 1,
+        "version": 44
+      }
+    ],
+    "version": [
+      {
+        "id": 1,
+        "version": 305
+      }
+    ]
+  },
+  "restore-fresh-guard.json": {
+    "config_database": "target-only",
+    "db_name": "p7_p7f7118dce_restore",
+    "fresh_before_restore": true,
+    "postgres_inet_normalization": "host part of inet_server_addr()::text /32",
+    "pv_uid": "67ac6854-08de-43eb-bc91-dc40d55b2775",
+    "pvc_uid": "ea1db1b3-359f-43a6-8416-082f30c58cd2",
+    "stage": "restore",
+    "target_namespace": "p7-ops-p7f7118dce"
+  },
+  "restore-public-schema-privilege.json": {
+    "after": {
+      "can_create": true,
+      "database": "p7_p7f7118dce_restore",
+      "schema_owner": "azure_pg_admin"
+    },
+    "before": {
+      "acl": [
+        "azure_pg_admin=UC/azure_pg_admin",
+        "=U/azure_pg_admin"
+      ],
+      "database": "p7_p7f7118dce_restore",
+      "schema_owner": "azure_pg_admin"
+    },
+    "mutation_scope": "fresh database only"
+  },
+  "restore-verified.json": {
+    "database": {
+      "name": "p7_p7f7118dce_restore",
+      "oid": "26411",
+      "owner": "p7_p7f7118dce_role"
+    },
+    "doctor": "doctor-restored.json",
+    "new_write_database": {
+      "issue_index": 3,
+      "issue_title": "restored issue 20261028114850-43a2fe"
+    },
+    "new_write_git_sha": "994d2f0f46bd70449d79e97aa0ac23eaa2a6dd76",
+    "original_git_api_state": true,
+    "post_write": {
+      "POST_ISSUE_NUMBER": "3",
+      "POST_ISSUE_TITLE": "restored issue 20261028114850-43a2fe",
+      "POST_SHA": "994d2f0f46bd70449d79e97aa0ac23eaa2a6dd76"
+    },
+    "private_loopback_only": true,
+    "same_native_session_values": true,
+    "same_pat": true,
+    "source_dirty": true,
+    "source_refinement": "GITEA_CUSTOM /data/gitea; HOME /data/gitea/git",
+    "source_sha": "8f085430b354c4d83186eafde6b1fa8146ece66e",
+    "stable_revision": "2f63d283ebba12aaed8705732f1206d71ddc33db",
+    "storage": {
+      "disk_created_at": "2026-10-28T12:18:06.9851642+00:00",
+      "disk_id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/MC_rg-ccp-environment-krc-p6_aks-ccp-krc-p6_koreacentral/providers/Microsoft.Compute/disks/pvc-ea1db1b3-359f-43a6-8416-082f30c58cd2",
+      "disk_size_gib": 10,
+      "pv_name": "pvc-ea1db1b3-359f-43a6-8416-082f30c58cd2",
+      "pv_uid": "67ac6854-08de-43eb-bc91-dc40d55b2775",
+      "pvc_uid": "ea1db1b3-359f-43a6-8416-082f30c58cd2",
+      "stage": "restore"
+    }
+  },
+  "rollback-b-only-absence.json": {
+    "b_only_sha": "4cbe54541d3c8f80b1f7e3b428d073c07a21ccef",
+    "b_only_sha_absent_from_all_git_objects": true,
+    "before_new_write": true,
+    "database_issue_count": 0,
+    "git_object_inventory": [
+      "173eeee0a1329254ab39971955d46259c57cb050",
+      "2231eeaa9148476ef0d556edb7a3290a58c053be",
+      "29a69f2402a9a3c17747162b1e00885ff687d235",
+      "2cbac64b740f13af669a6224bc3947a4dbd31e1e",
+      "53a2e6da78ff9dc395f425371d91c68eefbf27e1",
+      "8f6c51a270520c1a60933f8bf0c7d5fc535da004",
+      "b7def505fa89a1f7c4fc55a7c167334bb2fbc98f",
+      "d40097e30499c0681d4117ea4dbfd7dc27274927",
+      "e2167c04cd2cbe34db7e31ac3542ec4625cb9ad5"
+    ],
+    "issue_http_status": 404,
+    "original_main_sha": "2cbac64b740f13af669a6224bc3947a4dbd31e1e"
+  },
+  "rollback-fresh-guard.json": {
+    "config_database": "target-only",
+    "db_name": "p7_p7f7118dce_rollback",
+    "fresh_before_restore": true,
+    "pv_uid": "57890223-d500-46b7-ab19-d6962dc2d6e3",
+    "pvc_uid": "3ec4ff27-fcdb-478e-9e54-3093f418b032",
+    "stage": "rollback",
+    "target_namespace": "p7-ops-p7f7118dce"
+  },
+  "rollback-new-write.json": {
+    "database_row": {
+      "index": 3,
+      "title": "restored issue 20261028124303-7edf02"
+    },
+    "filesystem_head": "ba89e4b4ff2a2ef28babe94fcf251de32edfe9a5",
+    "git_object_inventory": [
+      "173eeee0a1329254ab39971955d46259c57cb050",
+      "2231eeaa9148476ef0d556edb7a3290a58c053be",
+      "29a69f2402a9a3c17747162b1e00885ff687d235",
+      "2cbac64b740f13af669a6224bc3947a4dbd31e1e",
+      "2cd5f6bf6eaf691297340ea3b01a375158bd7765",
+      "53a2e6da78ff9dc395f425371d91c68eefbf27e1",
+      "8f6c51a270520c1a60933f8bf0c7d5fc535da004",
+      "b7def505fa89a1f7c4fc55a7c167334bb2fbc98f",
+      "ba89e4b4ff2a2ef28babe94fcf251de32edfe9a5",
+      "beb9697b78f7ad288f97b12c2e27ae512fedb8a1",
+      "d40097e30499c0681d4117ea4dbfd7dc27274927",
+      "e2167c04cd2cbe34db7e31ac3542ec4625cb9ad5",
+      "fb37bd40909ae4ed4d6ed1ff8e24232193f815ba"
+    ],
+    "post_write": {
+      "POST_ISSUE_NUMBER": "3",
+      "POST_ISSUE_TITLE": "restored issue 20261028124303-7edf02",
+      "POST_SHA": "ba89e4b4ff2a2ef28babe94fcf251de32edfe9a5"
+    }
+  },
+  "rollback-runtime.json": {
+    "binding": "127.0.0.1:3000",
+    "cookie_file_sha256": "3f5a2549f98578ac18162407ecc59cbc140e914030865e93402705cf895e456f",
+    "database": {
+      "name": "p7_p7f7118dce_rollback",
+      "oid": "29694",
+      "owner": "p7_p7f7118dce_role"
+    },
+    "database_authority": {
+      "catalog": [
+        {
+          "column_name": "id",
+          "data_type": "character varying",
+          "ordinal_position": 1,
+          "table_name": "forgejo_migration"
+        },
+        {
+          "column_name": "created_unix",
+          "data_type": "bigint",
+          "ordinal_position": 2,
+          "table_name": "forgejo_migration"
+        },
+        {
+          "column_name": "id",
+          "data_type": "bigint",
+          "ordinal_position": 1,
+          "table_name": "forgejo_version"
+        },
+        {
+          "column_name": "version",
+          "data_type": "bigint",
+          "ordinal_position": 2,
+          "table_name": "forgejo_version"
+        },
+        {
+          "column_name": "id",
+          "data_type": "bigint",
+          "ordinal_position": 1,
+          "table_name": "version"
+        },
+        {
+          "column_name": "version",
+          "data_type": "bigint",
+          "ordinal_position": 2,
+          "table_name": "version"
+        }
+      ],
+      "forgejo_migration": [
+        "v14a_actions-approval-and-trust",
+        "v14a_add-action_task-index",
+        "v14a_add-foreign-keys-collaboration",
+        "v14a_add-foreign-keys-forgejo_auth_token",
+        "v14a_add-foreign-keys-pull_request-1",
+        "v14a_add-forgejo-migrations-table",
+        "v14a_ap-change-fedi-handle-structure",
+        "v14a_migrate_task_secrets",
+        "v14a_migrate_webhook_authorization",
+        "v14a_remove-is-deleted-column-from-activity-action-table",
+        "v14a_rework-notification",
+        "v14a_rm-repository-issue-stat-fields",
+        "v14a_set_remote_user_prohibit_login",
+        "v14b_action-reindexing",
+        "v14b_action-run-add-workflow-directory",
+        "v14b_add-action_run-preexecutionerrorcode",
+        "v14b_rm-repository-actionrun-stat-fields",
+        "v15a_remove-softdelete-action_runner_token",
+        "v15b_add-access_token-owned-repos",
+        "v15b_add-access_token_resource",
+        "v15b_add-ephemeral_runner",
+        "v15b_add-foreign-keys-action_runner_token",
+        "v15b_add-runner_request_key",
+        "v15c_add_job_handle",
+        "v15c_add_mirror_remoteaddressauth",
+        "v15c_add_schedule_spec_time_zones",
+        "v15c_fix-project-sorting-unique-constraints",
+        "v17a_add-action-run-workflow-source-commit"
+      ],
+      "forgejo_version": [
+        {
+          "id": 1,
+          "version": 44
+        }
+      ],
+      "version": [
+        {
+          "id": 1,
+          "version": 305
+        }
+      ]
+    },
+    "image_id": "code.forgejo.org/forgejo/forgejo@sha256:caf1bca332f95cdcf124227a4bfa3b49bbbfbbc8a5e4a97406921cb581165413",
+    "image_spec": "code.forgejo.org/forgejo/forgejo:15.0.9-rootless@sha256:caf1bca332f95cdcf124227a4bfa3b49bbbfbbc8a5e4a97406921cb581165413",
+    "original_state": {
+      "FEATURE_SHA": "2231eeaa9148476ef0d556edb7a3290a58c053be",
+      "ISSUE_NUMBER": "2",
+      "ISSUE_TITLE": "journey issue 20261028124303-7edf02",
+      "MAIN_SHA": "2cbac64b740f13af669a6224bc3947a4dbd31e1e",
+      "PR_NUMBER": "1",
+      "PR_TITLE": "journey pull request 20261028124303-7edf02",
+      "RUN_ID": "20261028124303-7edf02"
+    },
+    "pat_file_sha256": "580b348330f1bfb50ef8865000a34fb773ff562b8305195feeb654aae62af312",
+    "pod_uid": "e3981ea8-27fe-4793-a40e-228e7a9b11aa",
+    "public_route": false,
+    "source_dirty": false,
+    "source_sha": "af1ff2a80228b87f6985da86359e188b97d5a370",
+    "stage": "rollback",
+    "storage": {
+      "disk_created_at": "2026-10-28T12:45:51.3097287+00:00",
+      "disk_id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/MC_rg-ccp-environment-krc-p6_aks-ccp-krc-p6_koreacentral/providers/Microsoft.Compute/disks/pvc-3ec4ff27-fcdb-478e-9e54-3093f418b032",
+      "disk_size_gib": 10,
+      "pv_name": "pvc-3ec4ff27-fcdb-478e-9e54-3093f418b032",
+      "pv_uid": "57890223-d500-46b7-ab19-d6962dc2d6e3",
+      "pvc_uid": "3ec4ff27-fcdb-478e-9e54-3093f418b032",
+      "stage": "rollback"
+    },
+    "version": "15.0.9+gitea-1.22.0"
+  },
+  "source-credential-continuity.json": {
+    "at_utc": "2026-10-28T11:57:11.342679+00:00",
+    "cookie_file_sha256": "911bc87f52f9c081d73eff54d23cc7570c12f7fa492e5ec52587f16a79e69a03",
+    "execution_source_sha": "4fd450c54e468d1fff9ca8d8352ad97f278e1867",
+    "native_session_settings_identity": true,
+    "pat_file_sha256": "ef09aa54bc3b065eb66f42f9cd4b6ce52410f173f7d04befec98b3b38d476b48",
+    "session_login_count": 1
+  },
+  "source-fixture-state.json": {
+    "developer": "dev-20261028114850-43a2fe",
+    "feature_sha": "26f60ab7751ad1ab1c3f82be3f0bcf496e0dc747",
+    "issue_number": 2,
+    "main_sha": "a17211bbf3b509b93ffabc1fb04a0624ba5e7edb",
+    "pull_number": 1,
+    "repository": "journey",
+    "run_id": "20261028114850-43a2fe"
+  },
+  "stable-checkpoint-manifest.json": {
+    "backup_complete": true,
+    "components": {
+      "application-data.tar": {
+        "sha256": "2290a4b4f1d3d1cc1f16ab2a8cee6a2891e8ebfea28855ac1e3fe47a8324cd8b",
+        "size": 1050624
+      },
+      "database.dump": {
+        "sha256": "cedaaa5a7898f28e894a07f63c724482d33b4afb1d03e2d8180dbc4da08d7fd7",
+        "size": 429573
+      },
+      "secrets.json": {
+        "sha256": "b263748d34f2cf22ed7e0b37b942be2ac5d281a850bc5f1dbefd6c941ee5b0cf",
+        "size": 1687
+      }
+    },
+    "fixture": {
+      "FEATURE_SHA": "26f60ab7751ad1ab1c3f82be3f0bcf496e0dc747",
+      "ISSUE_NUMBER": "2",
+      "ISSUE_TITLE": "journey issue 20261028114850-43a2fe",
+      "MAIN_SHA": "a17211bbf3b509b93ffabc1fb04a0624ba5e7edb",
+      "PR_NUMBER": "1",
+      "PR_TITLE": "journey pull request 20261028114850-43a2fe",
+      "RUN_ID": "20261028114850-43a2fe"
+    },
+    "image_id": "code.forgejo.org/forgejo/forgejo@sha256:3cd6bc2b74c87cbde0a0fd527c9665cb416f5a0540dee54fe5afb3fa2df9f40c",
+    "image_spec": "code.forgejo.org/forgejo/forgejo:15.0.11-rootless@sha256:3cd6bc2b74c87cbde0a0fd527c9665cb416f5a0540dee54fe5afb3fa2df9f40c",
+    "input": {
+      "campaign": "p7f7118dce",
+      "source_sha": "a7f61355e1d60bd397c67fdf7bd888e73f461513",
+      "stable": {
+        "db_host": "pg-ccp-p6-krc-57781024.postgres.database.azure.com",
+        "db_name": "forgejo",
+        "db_role": "forgejo",
+        "deployment": "forgejo",
+        "disk_id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/MC_rg-ccp-environment-krc-p6_aks-ccp-krc-p6_koreacentral/providers/Microsoft.Compute/disks/pvc-5e9d8389-bdaf-49ad-98d9-97612e5db63f",
+        "namespace": "forgejo",
+        "pv_name": "pvc-5e9d8389-bdaf-49ad-98d9-97612e5db63f",
+        "pv_uid": "2395842e-e567-482d-ba83-da7fdd9fffb6",
+        "pvc": "forgejo-data",
+        "pvc_uid": "5e9d8389-bdaf-49ad-98d9-97612e5db63f"
+      },
+      "stable_deployed_revision": "2f63d283ebba12aaed8705732f1206d71ddc33db",
+      "stage": "restore",
+      "target": {
+        "db_host": "pg-ccp-p6-krc-57781024.postgres.database.azure.com",
+        "db_ipv4": "10.20.4.4",
+        "db_name": "p7_p7f7118dce_restore",
+        "db_role": "p7_p7f7118dce_role",
+        "namespace": "p7-ops-p7f7118dce",
+        "pvc": "p7-data"
+      }
+    },
+    "queue_flushed": true,
+    "version": "15.0.11+gitea-1.22.0",
+    "writer_absent": true
+  },
+  "stable-checkpoint-resume.json": {
+    "argo_policy": {
+      "automated": {
+        "prune": false,
+        "selfHeal": true
+      }
+    },
+    "at_utc": "2026-10-28T12:13:30.901108+00:00",
+    "deployed_revision": "2f63d283ebba12aaed8705732f1206d71ddc33db",
+    "deployment_uid_unchanged": true,
+    "https_health": "success",
+    "maintenance_seconds": 228.79296772199996,
+    "pvc_uid_unchanged": true,
+    "service_spec_restored": true
+  },
+  "stable-final-restoration.json": {
+    "argo_policy_restored": {
+      "automated": {
+        "prune": false,
+        "selfHeal": true
+      }
+    },
+    "argo_sources_unchanged": true,
+    "argo_synced_healthy": true,
+    "deployed_revision": "2f63d283ebba12aaed8705732f1206d71ddc33db",
+    "deployment_uid_unchanged": true,
+    "effective_bootstrap_matcher": {
+      "inclusion_list": {
+        "patterns": [
+          {
+            "prefix": "reporter="
+          },
+          {
+            "prefix": "cluster_manager"
+          },
+          {
+            "prefix": "listener_manager"
+          },
+          {
+            "prefix": "server"
+          },
+          {
+            "prefix": "cluster.xds-grpc"
+          },
+          {
+            "prefix": "wasm"
+          },
+          {
+            "suffix": "rbac.allowed"
+          },
+          {
+            "suffix": "rbac.denied"
+          },
+          {
+            "suffix": "shadow_allowed"
+          },
+          {
+            "suffix": "shadow_denied"
+          },
+          {
+            "safe_regex": {
+              "regex": "vhost\\..*\\.route\\..*"
+            }
+          },
+          {
+            "prefix": "component"
+          },
+          {
+            "prefix": "istio"
+          }
+        ]
+      }
+    },
+    "https_health": true,
+    "maintenance_windows": [
+      {
+        "elapsed_seconds": 228.79296772199996,
+        "end_utc": "2026-10-28T12:13:30.900928+00:00",
+        "start_utc": "2026-10-28T12:09:42.107959+00:00"
+      },
+      {
+        "elapsed_seconds": 46.56518995700026,
+        "end_utc": "2026-10-28T12:52:06.998105+00:00",
+        "start_utc": "2026-10-28T12:51:20.432912+00:00"
+      }
+    ],
+    "mesh_shared_config_restored": true,
+    "pvc_uid_unchanged": true,
+    "same_pat": true,
+    "same_session": true,
+    "service_spec_restored": true,
+    "source_pod_uid": "2d40b599-5ad5-4eb5-99e1-e52afa47ef45",
+    "source_sha": "af1ff2a80228b87f6985da86359e188b97d5a370",
+    "total_maintenance_seconds": 275.3581576790002
+  }
+}

@@ -1,0 +1,255 @@
+{
+  "a-cleanup.json": {
+    "database": {
+      "name": "p7_p7f7118dce_a",
+      "oid": "28053",
+      "owner": "p7_p7f7118dce_role"
+    },
+    "database_absent": true,
+    "observed_at_utc": "2026-10-28T12:45:46.283745+00:00",
+    "pvc_pv_disk_absent": true,
+    "stage": "a",
+    "storage": {
+      "disk_created_at": "2026-10-28T12:38:30.154807+00:00",
+      "disk_id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/MC_rg-ccp-environment-krc-p6_aks-ccp-krc-p6_koreacentral/providers/Microsoft.Compute/disks/pvc-7fcc3930-6d81-40dc-9f23-1bdd53226b9a",
+      "disk_size_gib": 10,
+      "pv_name": "pvc-7fcc3930-6d81-40dc-9f23-1bdd53226b9a",
+      "pv_uid": "d6d35280-4469-4e7e-8197-2b588bb966d0",
+      "pvc_uid": "7fcc3930-6d81-40dc-9f23-1bdd53226b9a",
+      "stage": "a"
+    }
+  },
+  "credential-cleanup.json": {
+    "existing_admin_credential": "version2 reused, no rotation under P7 explicit exception",
+    "native_session": {
+      "logout": "POST /user/logout returned 200; GET /user/logout was 404 and did not revoke",
+      "original_cookie_replay_rejected_http": 303
+    },
+    "private_credential_boundary": "temporary databases/apps removed; protected operator copies pending local removal",
+    "source_sha": "af1ff2a80228b87f6985da86359e188b97d5a370",
+    "tokens": [
+      {
+        "deletion": "exact token id from live inventory; prior compound cleanup completed all seven DELETEs before logout failed",
+        "original_token_header_rejected_http": 401,
+        "remaining_tokens": 0,
+        "token_name": "journey",
+        "user": "dev-20261028114317-95d397"
+      },
+      {
+        "deletion": "exact token id from live inventory; prior compound cleanup completed all seven DELETEs before logout failed",
+        "original_token_header_rejected_http": 401,
+        "remaining_tokens": 0,
+        "token_name": "journey",
+        "user": "dev-20261028114322-8d4f68"
+      },
+      {
+        "deletion": "exact token id from live inventory; prior compound cleanup completed all seven DELETEs before logout failed",
+        "original_token_header_rejected_http": 401,
+        "remaining_tokens": 0,
+        "token_name": "journey",
+        "user": "dev-20261028114330-eb50c7"
+      },
+      {
+        "deletion": "exact token id from live inventory; prior compound cleanup completed all seven DELETEs before logout failed",
+        "original_token_header_rejected_http": 401,
+        "remaining_tokens": 0,
+        "token_name": "journey",
+        "user": "dev-20261028114337-e37249"
+      },
+      {
+        "deletion": "exact token id from live inventory; prior compound cleanup completed all seven DELETEs before logout failed",
+        "original_token_header_rejected_http": 401,
+        "remaining_tokens": 0,
+        "token_name": "journey",
+        "user": "dev-20261028114345-a602c5"
+      },
+      {
+        "deletion": "exact token id from live inventory; prior compound cleanup completed all seven DELETEs before logout failed",
+        "original_token_header_rejected_http": 401,
+        "remaining_tokens": 0,
+        "token_name": "journey",
+        "user": "dev-20261028114352-9d9c05"
+      },
+      {
+        "deletion": "exact token id from live inventory; prior compound cleanup completed all seven DELETEs before logout failed",
+        "original_token_header_rejected_http": 401,
+        "remaining_tokens": 0,
+        "token_name": "journey",
+        "user": "dev-20261028114850-43a2fe"
+      }
+    ]
+  },
+  "final-temporary-inventory-cleanup.json": {
+    "all_three_disks_absent": true,
+    "database_inventory": [
+      {
+        "name": "p7_p7f7118dce_restore",
+        "oid": "26411",
+        "owner": "p7_p7f7118dce_role"
+      },
+      {
+        "name": "p7_p7f7118dce_a",
+        "oid": "28053",
+        "owner": "p7_p7f7118dce_role"
+      },
+      {
+        "name": "p7_p7f7118dce_rollback",
+        "oid": "29694",
+        "owner": "p7_p7f7118dce_role"
+      }
+    ],
+    "environment_teardown": false,
+    "namespace_absent": true,
+    "namespace_uid": "70addae0-dd36-4618-b078-b10abf8d956a",
+    "new_monitoring_iam": false,
+    "observed_at_utc": "2026-10-28T12:54:56.408647+00:00",
+    "original_three_secret_values_unchanged": true,
+    "pods_absent": true,
+    "preexisting_assignments_preserved": [
+      {
+        "id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/providers/Microsoft.Authorization/roleAssignments/75eaed6e-275d-41cf-bb11-bc90abe69020",
+        "role": "Owner",
+        "scope": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609"
+      },
+      {
+        "id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/providers/Microsoft.Authorization/roleAssignments/699bd8da-8362-4b10-882e-7d8f1081cfc0",
+        "role": "Owner",
+        "scope": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609"
+      }
+    ],
+    "pvc_pv_disk_inventory": [
+      {
+        "disk_created_at": "2026-10-28T12:18:06.9851642+00:00",
+        "disk_id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/MC_rg-ccp-environment-krc-p6_aks-ccp-krc-p6_koreacentral/providers/Microsoft.Compute/disks/pvc-ea1db1b3-359f-43a6-8416-082f30c58cd2",
+        "disk_size_gib": 10,
+        "pv_name": "pvc-ea1db1b3-359f-43a6-8416-082f30c58cd2",
+        "pv_uid": "67ac6854-08de-43eb-bc91-dc40d55b2775",
+        "pvc_uid": "ea1db1b3-359f-43a6-8416-082f30c58cd2",
+        "stage": "restore"
+      },
+      {
+        "disk_created_at": "2026-10-28T12:38:30.154807+00:00",
+        "disk_id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/MC_rg-ccp-environment-krc-p6_aks-ccp-krc-p6_koreacentral/providers/Microsoft.Compute/disks/pvc-7fcc3930-6d81-40dc-9f23-1bdd53226b9a",
+        "disk_size_gib": 10,
+        "pv_name": "pvc-7fcc3930-6d81-40dc-9f23-1bdd53226b9a",
+        "pv_uid": "d6d35280-4469-4e7e-8197-2b588bb966d0",
+        "pvc_uid": "7fcc3930-6d81-40dc-9f23-1bdd53226b9a",
+        "stage": "a"
+      },
+      {
+        "disk_created_at": "2026-10-28T12:45:51.3097287+00:00",
+        "disk_id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/MC_rg-ccp-environment-krc-p6_aks-ccp-krc-p6_koreacentral/providers/Microsoft.Compute/disks/pvc-3ec4ff27-fcdb-478e-9e54-3093f418b032",
+        "disk_size_gib": 10,
+        "pv_name": "pvc-3ec4ff27-fcdb-478e-9e54-3093f418b032",
+        "pv_uid": "57890223-d500-46b7-ab19-d6962dc2d6e3",
+        "pvc_uid": "3ec4ff27-fcdb-478e-9e54-3093f418b032",
+        "stage": "rollback"
+      }
+    ],
+    "retention": {
+      "environment_kst": "2026-10-30 10:30",
+      "extended": false,
+      "foundation_bootstrap_kst": "2026-10-31 00:33"
+    },
+    "role_absent": true,
+    "secret_absent": true,
+    "source_sha": "af1ff2a80228b87f6985da86359e188b97d5a370",
+    "stable_deployment_pvc_pv_disk_preserved": true,
+    "temporary_assignment": {
+      "deleted": true,
+      "id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6/providers/Microsoft.ContainerService/managedClusters/aks-ccp-krc-p6/providers/Microsoft.Authorization/roleAssignments/3c9598bd-477f-4098-8ca9-55d95d6b45b9",
+      "role": "Azure Kubernetes Service RBAC Cluster Admin",
+      "scope": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6/providers/Microsoft.ContainerService/managedClusters/aks-ccp-krc-p6"
+    },
+    "temporary_secret_uid": "b115f428-97ca-47e4-83f8-efd4cdef00e0"
+  },
+  "fixture-account-credential-cleanup.json": {
+    "accounts": [
+      {
+        "prohibit_login": true,
+        "temporary_password_usable": false,
+        "user": "dev-20261028114317-95d397"
+      },
+      {
+        "prohibit_login": true,
+        "temporary_password_usable": false,
+        "user": "dev-20261028114322-8d4f68"
+      },
+      {
+        "prohibit_login": true,
+        "temporary_password_usable": false,
+        "user": "dev-20261028114330-eb50c7"
+      },
+      {
+        "prohibit_login": true,
+        "temporary_password_usable": false,
+        "user": "dev-20261028114337-e37249"
+      },
+      {
+        "prohibit_login": true,
+        "temporary_password_usable": false,
+        "user": "dev-20261028114345-a602c5"
+      },
+      {
+        "prohibit_login": true,
+        "temporary_password_usable": false,
+        "user": "dev-20261028114352-9d9c05"
+      },
+      {
+        "prohibit_login": true,
+        "temporary_password_usable": false,
+        "user": "dev-20261028114850-43a2fe"
+      }
+    ],
+    "other_users_modified": false,
+    "owned_fixture_records": "P7 user/repository/issue records retained; logins disabled and PATs revoked"
+  },
+  "restore-cleanup.json": {
+    "database": {
+      "name": "p7_p7f7118dce_restore",
+      "oid": "26411",
+      "owner": "p7_p7f7118dce_role"
+    },
+    "database_absent": true,
+    "observed_at_utc": "2026-10-28T12:38:24.506123+00:00",
+    "pvc_pv_disk_absent": true,
+    "stage": "restore",
+    "storage": {
+      "disk_created_at": "2026-10-28T12:18:06.9851642+00:00",
+      "disk_id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/MC_rg-ccp-environment-krc-p6_aks-ccp-krc-p6_koreacentral/providers/Microsoft.Compute/disks/pvc-ea1db1b3-359f-43a6-8416-082f30c58cd2",
+      "disk_size_gib": 10,
+      "pv_name": "pvc-ea1db1b3-359f-43a6-8416-082f30c58cd2",
+      "pv_uid": "67ac6854-08de-43eb-bc91-dc40d55b2775",
+      "pvc_uid": "ea1db1b3-359f-43a6-8416-082f30c58cd2",
+      "stage": "restore"
+    }
+  },
+  "rollback-cleanup.json": {
+    "database": {
+      "name": "p7_p7f7118dce_rollback",
+      "oid": "29694",
+      "owner": "p7_p7f7118dce_role"
+    },
+    "database_absent": true,
+    "observed_at_utc": "2026-10-28T12:51:00.522140+00:00",
+    "pvc_pv_disk_absent": true,
+    "stage": "rollback",
+    "storage": {
+      "disk_created_at": "2026-10-28T12:45:51.3097287+00:00",
+      "disk_id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/MC_rg-ccp-environment-krc-p6_aks-ccp-krc-p6_koreacentral/providers/Microsoft.Compute/disks/pvc-3ec4ff27-fcdb-478e-9e54-3093f418b032",
+      "disk_size_gib": 10,
+      "pv_name": "pvc-3ec4ff27-fcdb-478e-9e54-3093f418b032",
+      "pv_uid": "57890223-d500-46b7-ab19-d6962dc2d6e3",
+      "pvc_uid": "3ec4ff27-fcdb-478e-9e54-3093f418b032",
+      "stage": "rollback"
+    }
+  },
+  "temporary-role-cleanup.json": {
+    "all_three_temporary_databases_absent": true,
+    "deleted": true,
+    "role": {
+      "name": "p7_p7f7118dce_role",
+      "oid": "26408"
+    }
+  }
+}

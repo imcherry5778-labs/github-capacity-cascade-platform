@@ -1,0 +1,383 @@
+{
+  "admissions": {
+    "a-checkpoint-admission.json": {
+      "cpu_millicores": 350,
+      "memory_bytes": 671088640,
+      "pods": 2
+    },
+    "a-preparation-admission.json": {
+      "cpu_millicores": 350,
+      "memory_bytes": 671088640,
+      "pods": 2
+    },
+    "a-runtime-admission.json": {
+      "cpu_millicores": 750,
+      "memory_bytes": 1610612736,
+      "pods": 2
+    },
+    "b-runtime-admission.json": {
+      "cpu_millicores": 750,
+      "memory_bytes": 1610612736,
+      "pods": 2
+    },
+    "checkpoint-admission.json": {
+      "cpu_millicores": 350,
+      "memory_bytes": 671088640,
+      "pods": 2
+    },
+    "restore-corrected-runtime-admission.json": {
+      "cpu_millicores": 750,
+      "memory_bytes": 1610612736,
+      "pods": 2
+    },
+    "restore-data-admission.json": {
+      "cpu_millicores": 350,
+      "memory_bytes": 671088640,
+      "pods": 2
+    },
+    "restore-preparation-admission.json": {
+      "cpu_millicores": 350,
+      "memory_bytes": 671088640,
+      "pods": 2
+    },
+    "restore-runtime-admission.json": {
+      "cpu_millicores": 750,
+      "image": "code.forgejo.org/forgejo/forgejo:15.0.11-rootless@sha256:3cd6bc2b74c87cbde0a0fd527c9665cb416f5a0540dee54fe5afb3fa2df9f40c",
+      "image_id": "code.forgejo.org/forgejo/forgejo@sha256:3cd6bc2b74c87cbde0a0fd527c9665cb416f5a0540dee54fe5afb3fa2df9f40c",
+      "memory_bytes": 1610612736,
+      "pods": 2,
+      "uid": "25957f6c-f97c-4825-a217-9f5bad1a855f"
+    },
+    "rollback-preparation-admission.json": {
+      "cpu_millicores": 350,
+      "memory_bytes": 671088640,
+      "pods": 2
+    },
+    "rollback-runtime-admission.json": {
+      "cpu_millicores": 750,
+      "memory_bytes": 1610612736,
+      "pods": 2
+    },
+    "source-db-client-admission.json": {
+      "cpu_millicores": 250,
+      "memory_bytes": 536870912,
+      "pods": 1
+    }
+  },
+  "checkpoint_total_bytes": 2110688,
+  "disk_retail_delta": {
+    "actual_cost": "unknown",
+    "at_utc": "2026-10-28T11:39:13.815265+00:00",
+    "filter": "armRegionName eq 'koreacentral' and serviceName eq 'Storage' and productName eq 'Standard SSD Managed Disks'",
+    "items": [
+      {
+        "armRegionName": "koreacentral",
+        "currencyCode": "USD",
+        "effectiveStartDate": "2019-01-01T00:00:00Z",
+        "meterName": "E4 LRS Disk",
+        "retailPrice": 2.4,
+        "skuName": "E4 LRS",
+        "type": "Consumption",
+        "unitOfMeasure": "1/Month"
+      },
+      {
+        "armRegionName": "koreacentral",
+        "currencyCode": "USD",
+        "effectiveStartDate": "2018-11-01T00:00:00Z",
+        "meterName": "E4 LRS Disk Operations",
+        "retailPrice": 0.002,
+        "skuName": "E4 LRS",
+        "type": "Consumption",
+        "unitOfMeasure": "10K"
+      },
+      {
+        "armRegionName": "koreacentral",
+        "currencyCode": "USD",
+        "effectiveStartDate": "2021-07-01T00:00:00Z",
+        "meterName": "E4 LRS Disk Mount",
+        "retailPrice": 0.351,
+        "skuName": "E4 LRS",
+        "type": "Consumption",
+        "unitOfMeasure": "1/Month"
+      },
+      {
+        "armRegionName": "koreacentral",
+        "currencyCode": "USD",
+        "effectiveStartDate": "2021-07-01T00:00:00Z",
+        "meterName": "E3 LRS Disk Mount",
+        "retailPrice": 0.162,
+        "skuName": "E3 LRS",
+        "type": "Consumption",
+        "unitOfMeasure": "1/Month"
+      },
+      {
+        "armRegionName": "koreacentral",
+        "currencyCode": "USD",
+        "effectiveStartDate": "2020-07-01T00:00:00Z",
+        "meterName": "E3 LRS Disk",
+        "retailPrice": 1.2,
+        "skuName": "E3 LRS",
+        "type": "Consumption",
+        "unitOfMeasure": "1/Month"
+      }
+    ],
+    "limits": "one 10Gi disk at a time, three sequential creations; no new VM/server; existing preservation cost separate"
+  },
+  "preflight": {
+    "approval-start.json": {
+      "actual_cost": "unknown",
+      "aks_id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6/providers/Microsoft.ContainerService/managedClusters/aks-ccp-krc-p6",
+      "approval": "explicit user P7 Task 2 approval in current session",
+      "billing_hard_cap": false,
+      "environment_deadline_kst": "2026-10-30 10:30",
+      "foundation_bootstrap_deadline_kst": "2026-10-31 00:33",
+      "operator_oid": "6f750efc-cb1a-4a49-b6e7-23fc6061e25a",
+      "pg_host": "pg-ccp-p6-krc-57781024.postgres.database.azure.com",
+      "record": "p7_approved_start",
+      "recorded_at_utc": "2026-10-28T11:29:08.965223+00:00",
+      "review_budget_usd": 10,
+      "rotation": "P7 administrator version 2 credential reuse; rotation omission explicitly approved",
+      "source_sha": "8bb6a590dcf72a3dea82341d3a7016544bb86e6e",
+      "stable_deployed_revision": "2f63d283ebba12aaed8705732f1206d71ddc33db",
+      "temporary_limits": {
+        "checkpoint_max_gi": 16,
+        "cpu_m": 750,
+        "credential_secrets": 1,
+        "db_roles": 1,
+        "fresh_db_concurrent": 1,
+        "fresh_db_pvc_cumulative": 3,
+        "memory_mi": 1536,
+        "pods": 2,
+        "pvc_disk_gi": 10
+      }
+    },
+    "checkpoint-size-preflight.json": {
+      "at_utc": "2026-10-28T11:36:54.257348+00:00",
+      "data_kib": 700,
+      "max_checkpoint_gi": 16,
+      "symlink_count": 0
+    },
+    "mesh-operator-ownership-preflight.json": {
+      "at_utc": "2026-10-28T11:54:02.058460+00:00",
+      "name": "istio-shared-configmap-asm-1-30",
+      "namespace": "aks-istio-system",
+      "original_mesh": {
+        "accessLogEncoding": "JSON",
+        "accessLogFile": "/dev/stdout",
+        "accessLogFormat": "{\"status\":\"%RESPONSE_CODE%\",\"detail\":\"%RESPONSE_CODE_DETAILS%\",\"duration_ms\":\"%DURATION%\",\"cluster\":\"%UPSTREAM_CLUSTER%\"}",
+        "defaultConfig": {
+          "holdApplicationUntilProxyStarts": true
+        }
+      },
+      "owner_references_absent": true,
+      "permitted_field": "defaultConfig.proxyStatsMatcher = Allowed, outside Microsoft support scope",
+      "source_owner": "P6 operator-owned shared mesh configuration; not Argo-owned managed controller",
+      "temporary_suffixes": [
+        "upstream_rq_active",
+        "upstream_rq_active_overflow",
+        "upstream_rq_pending_active",
+        "upstream_rq_pending_overflow",
+        "upstream_rq_total"
+      ],
+      "uid": "e8c02cbc-3bbf-424e-a7e3-564d8c52e074",
+      "upstream": "https://learn.microsoft.com/azure/aks/istio-meshconfig"
+    },
+    "postgres-admin-preflight.json": {
+      "create_db": true,
+      "create_role": true,
+      "database": "postgres",
+      "server_version": "17.11",
+      "source_database_bytes": 16799411,
+      "user": "forgejoadmin"
+    },
+    "postgres-source-preflight.json": {
+      "database": "forgejo",
+      "database_bytes": 16799411,
+      "db_owner": "forgejoadmin",
+      "private_address": "10.20.4.4",
+      "server_version": "17.11",
+      "ssl": true,
+      "user": "forgejo"
+    },
+    "postgres-storage-headroom.json": {
+      "allocated_gib": 32,
+      "at_utc": "2026-10-28T11:35:22.742408+00:00",
+      "new_db_concurrent": 1,
+      "new_db_size_basis": "source database size inventory; sequential private drills",
+      "observed_storage_used_bytes_max": 4413263872.0
+    },
+    "preflight-headroom.json": {
+      "additional_limit": {
+        "cpu_m": 750,
+        "memory_mi": 1536
+      },
+      "at_utc": "2026-10-28T11:30:26.111129+00:00",
+      "effective_requests_including_native_init_and_overhead": true,
+      "nodes": [
+        {
+          "cpu_free_m": 1408.0,
+          "memory_free_mi": 5486.7109375,
+          "node": "aks-system-28424879-vmss000000",
+          "pod_loopback_target_max_cpu_m": 500,
+          "pod_loopback_target_max_memory_mi": 1024
+        },
+        {
+          "cpu_free_m": 1596.0,
+          "memory_free_mi": 7664.7109375,
+          "node": "aks-system-28424879-vmss000001",
+          "pod_loopback_target_max_cpu_m": 500,
+          "pod_loopback_target_max_memory_mi": 1024
+        }
+      ]
+    },
+    "preflight-node-identities.json": [
+      {
+        "allocatable": {
+          "cpu": "3860m",
+          "ephemeral-storage": "118810356745",
+          "hugepages-1Gi": "0",
+          "hugepages-2Mi": "0",
+          "memory": "12075736Ki",
+          "pods": "250"
+        },
+        "conditions": [
+          {
+            "status": "False",
+            "type": "ContainerRuntimeProblem"
+          },
+          {
+            "status": "False",
+            "type": "FrequentKubeletRestart"
+          },
+          {
+            "status": "False",
+            "type": "FrequentDockerRestart"
+          },
+          {
+            "status": "False",
+            "type": "FrequentUnregisterNetDevice"
+          },
+          {
+            "status": "False",
+            "type": "FrequentContainerdRestart"
+          },
+          {
+            "status": "False",
+            "type": "KubeletProblem"
+          },
+          {
+            "status": "False",
+            "type": "VMEventScheduled"
+          },
+          {
+            "status": "False",
+            "type": "KernelDeadlock"
+          },
+          {
+            "status": "False",
+            "type": "ReadonlyFilesystem"
+          },
+          {
+            "status": "False",
+            "type": "FilesystemCorruptionProblem"
+          },
+          {
+            "status": "False",
+            "type": "MemoryPressure"
+          },
+          {
+            "status": "False",
+            "type": "DiskPressure"
+          },
+          {
+            "status": "False",
+            "type": "PIDPressure"
+          },
+          {
+            "status": "True",
+            "type": "Ready"
+          }
+        ],
+        "name": "aks-system-28424879-vmss000000",
+        "uid": "38f9096b-9a31-4ff1-b7e9-db4cc72477da"
+      },
+      {
+        "allocatable": {
+          "cpu": "3860m",
+          "ephemeral-storage": "118810356745",
+          "hugepages-1Gi": "0",
+          "hugepages-2Mi": "0",
+          "memory": "12075736Ki",
+          "pods": "250"
+        },
+        "conditions": [
+          {
+            "status": "False",
+            "type": "ReadonlyFilesystem"
+          },
+          {
+            "status": "False",
+            "type": "FrequentUnregisterNetDevice"
+          },
+          {
+            "status": "False",
+            "type": "FilesystemCorruptionProblem"
+          },
+          {
+            "status": "False",
+            "type": "VMEventScheduled"
+          },
+          {
+            "status": "False",
+            "type": "FrequentDockerRestart"
+          },
+          {
+            "status": "False",
+            "type": "FrequentContainerdRestart"
+          },
+          {
+            "status": "False",
+            "type": "KubeletProblem"
+          },
+          {
+            "status": "False",
+            "type": "FrequentKubeletRestart"
+          },
+          {
+            "status": "False",
+            "type": "ContainerRuntimeProblem"
+          },
+          {
+            "status": "False",
+            "type": "KernelDeadlock"
+          },
+          {
+            "status": "False",
+            "type": "MemoryPressure"
+          },
+          {
+            "status": "False",
+            "type": "DiskPressure"
+          },
+          {
+            "status": "False",
+            "type": "PIDPressure"
+          },
+          {
+            "status": "True",
+            "type": "Ready"
+          }
+        ],
+        "name": "aks-system-28424879-vmss000001",
+        "uid": "ac2c3627-6f8d-40bf-b6f0-9bb3e17a532b"
+      }
+    ],
+    "temporary-iam-created.json": {
+      "id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6/providers/Microsoft.ContainerService/managedClusters/aks-ccp-krc-p6/providers/Microsoft.Authorization/roleAssignments/3c9598bd-477f-4098-8ca9-55d95d6b45b9",
+      "principalId": "6f750efc-cb1a-4a49-b6e7-23fc6061e25a",
+      "principalType": "User",
+      "roleDefinitionId": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/providers/Microsoft.Authorization/roleDefinitions/b1ff04bb-8a4e-4dc4-8eb5-8693973ce19b",
+      "scope": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6/providers/Microsoft.ContainerService/managedClusters/aks-ccp-krc-p6"
+    }
+  }
+}

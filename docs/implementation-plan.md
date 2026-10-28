@@ -194,7 +194,9 @@ P6–P11에서 **paid Azure resource를 사용·변경·삭제하는 action**을
 
 이전 milestone 또는 이전 날의 approval을 다음 paid campaign에 자동 승계하지 않는다.
 
-P6와 P7을 같은 approval/session에서 연속 수행할 수 있으면 environment를 재생성하기 위해 중간 destroy하지 않는다. 같은 승인 범위에서 P7을 바로 진행하지 않으면 same-day destroy가 기본이고, 24시간 초과 유지에는 새 explicit approval이 필요하다.
+P11까지 기존 environment 재사용을 우선한다. Milestone 종료를 same-day destroy에 연결하지 않는다. 기존 resource의 보존 승인과 다음 작업의 실행 승인은 별개이며, 현재 명시적 승인 범위와 보존 기한을 유지한다. 자동 연장·자동 삭제는 없다. 기한 조정 또는 범위 밖 실행·삭제가 필요하면 새 explicit approval을 받는다. 같은 branch/PR/evidence를 이어 쓰며 기한 조정만으로 다시 만들지 않는다.
+
+P7-W1 시작 시 Environment 기한은 **2026-10-30 10:30 KST**, Foundation/Bootstrap은 **2026-10-31 00:33 KST**다. 이번 source 구현은 보존 기한을 변경하지 않는다. 실행 시 current state/승인과 기한을 다시 확인한다. 과거 6시간 비용 추정은 시간 무제한 비용 보장이 아니며 ActualCost는 조회 전 unknown이다.
 
 P8–P10은 실제 Azure controlled experiment 단계다. 각 milestone 시작 시 existing environment를 이어 쓸지 P5 source에서 재생성할지 위 공통 gate에서 결정한다.
 

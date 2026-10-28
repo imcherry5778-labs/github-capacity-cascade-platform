@@ -1,0 +1,390 @@
+{
+  "attempt_samples": 45,
+  "environment": {
+    "cluster_resource_id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6/providers/Microsoft.ContainerService/managedClusters/aks-ccp-krc-p6",
+    "cluster_uid": "407dcf3f-5345-4166-9070-90609e2c91a9",
+    "istio_revision": "asm-1-30",
+    "kind": "azure-aks",
+    "kubernetes_version": "v1.36.4"
+  },
+  "measured_run_ids": [
+    "20261028114322-8d4f68",
+    "20261028114330-eb50c7",
+    "20261028114337-e37249",
+    "20261028114345-a602c5",
+    "20261028114352-9d9c05"
+  ],
+  "measured_window_utc": {
+    "end": "2026-10-28T11:43:58Z",
+    "start": "2026-10-28T11:43:22Z"
+  },
+  "measurement_boundary": "public HTTPS client command",
+  "metrics": [
+    {
+      "count": 5,
+      "duration_count": 5,
+      "duration_sum_seconds": 0.72,
+      "family": "developer_operation_attempt_duration_seconds",
+      "max_seconds": 0.18,
+      "mean_seconds": 0.144,
+      "min_seconds": 0.12,
+      "operation_type": "git_clone",
+      "outcome": "success"
+    },
+    {
+      "count": 5,
+      "duration_count": 5,
+      "duration_sum_seconds": 0.68,
+      "family": "developer_operation_attempt_duration_seconds",
+      "max_seconds": 0.15,
+      "mean_seconds": 0.136,
+      "min_seconds": 0.12,
+      "operation_type": "git_fetch",
+      "outcome": "success"
+    },
+    {
+      "count": 5,
+      "duration_count": 5,
+      "duration_sum_seconds": 2.33,
+      "family": "developer_operation_attempt_duration_seconds",
+      "max_seconds": 0.52,
+      "mean_seconds": 0.466,
+      "min_seconds": 0.42,
+      "operation_type": "git_push_feature",
+      "outcome": "success"
+    },
+    {
+      "count": 5,
+      "duration_count": 5,
+      "duration_sum_seconds": 2.36,
+      "family": "developer_operation_attempt_duration_seconds",
+      "max_seconds": 0.54,
+      "mean_seconds": 0.472,
+      "min_seconds": 0.41,
+      "operation_type": "git_push_initial",
+      "outcome": "success"
+    },
+    {
+      "count": 5,
+      "duration_count": 5,
+      "duration_sum_seconds": 0.6,
+      "family": "developer_operation_attempt_duration_seconds",
+      "max_seconds": 0.18,
+      "mean_seconds": 0.12,
+      "min_seconds": 0.09,
+      "operation_type": "issue_create",
+      "outcome": "success"
+    },
+    {
+      "count": 5,
+      "duration_count": 5,
+      "duration_sum_seconds": 0.42,
+      "family": "developer_operation_attempt_duration_seconds",
+      "max_seconds": 0.1,
+      "mean_seconds": 0.084,
+      "min_seconds": 0.07,
+      "operation_type": "issue_read",
+      "outcome": "success"
+    },
+    {
+      "count": 5,
+      "duration_count": 5,
+      "duration_sum_seconds": 0.56,
+      "family": "developer_operation_attempt_duration_seconds",
+      "max_seconds": 0.13,
+      "mean_seconds": 0.112,
+      "min_seconds": 0.1,
+      "operation_type": "private_repository_create",
+      "outcome": "success"
+    },
+    {
+      "count": 5,
+      "duration_count": 5,
+      "duration_sum_seconds": 1.38,
+      "family": "developer_operation_attempt_duration_seconds",
+      "max_seconds": 0.36,
+      "mean_seconds": 0.276,
+      "min_seconds": 0.23,
+      "operation_type": "pull_request_create",
+      "outcome": "success"
+    },
+    {
+      "count": 5,
+      "duration_count": 5,
+      "duration_sum_seconds": 0.52,
+      "family": "developer_operation_attempt_duration_seconds",
+      "max_seconds": 0.13,
+      "mean_seconds": 0.104,
+      "min_seconds": 0.08,
+      "operation_type": "pull_request_read",
+      "outcome": "success"
+    },
+    {
+      "count": 5,
+      "duration_count": 0,
+      "duration_sum_seconds": 0.0,
+      "family": "developer_operation_attempts_total",
+      "operation_type": "git_clone",
+      "outcome": "success"
+    },
+    {
+      "count": 5,
+      "duration_count": 0,
+      "duration_sum_seconds": 0.0,
+      "family": "developer_operation_attempts_total",
+      "operation_type": "git_fetch",
+      "outcome": "success"
+    },
+    {
+      "count": 5,
+      "duration_count": 0,
+      "duration_sum_seconds": 0.0,
+      "family": "developer_operation_attempts_total",
+      "operation_type": "git_push_feature",
+      "outcome": "success"
+    },
+    {
+      "count": 5,
+      "duration_count": 0,
+      "duration_sum_seconds": 0.0,
+      "family": "developer_operation_attempts_total",
+      "operation_type": "git_push_initial",
+      "outcome": "success"
+    },
+    {
+      "count": 5,
+      "duration_count": 0,
+      "duration_sum_seconds": 0.0,
+      "family": "developer_operation_attempts_total",
+      "operation_type": "issue_create",
+      "outcome": "success"
+    },
+    {
+      "count": 5,
+      "duration_count": 0,
+      "duration_sum_seconds": 0.0,
+      "family": "developer_operation_attempts_total",
+      "operation_type": "issue_read",
+      "outcome": "success"
+    },
+    {
+      "count": 5,
+      "duration_count": 0,
+      "duration_sum_seconds": 0.0,
+      "family": "developer_operation_attempts_total",
+      "operation_type": "private_repository_create",
+      "outcome": "success"
+    },
+    {
+      "count": 5,
+      "duration_count": 0,
+      "duration_sum_seconds": 0.0,
+      "family": "developer_operation_attempts_total",
+      "operation_type": "pull_request_create",
+      "outcome": "success"
+    },
+    {
+      "count": 5,
+      "duration_count": 0,
+      "duration_sum_seconds": 0.0,
+      "family": "developer_operation_attempts_total",
+      "operation_type": "pull_request_read",
+      "outcome": "success"
+    },
+    {
+      "count": 5,
+      "duration_count": 5,
+      "duration_sum_seconds": 0.72,
+      "family": "developer_operation_duration_seconds",
+      "max_seconds": 0.18,
+      "mean_seconds": 0.144,
+      "min_seconds": 0.12,
+      "operation_type": "git_clone",
+      "outcome": "success"
+    },
+    {
+      "count": 5,
+      "duration_count": 5,
+      "duration_sum_seconds": 0.68,
+      "family": "developer_operation_duration_seconds",
+      "max_seconds": 0.15,
+      "mean_seconds": 0.136,
+      "min_seconds": 0.12,
+      "operation_type": "git_fetch",
+      "outcome": "success"
+    },
+    {
+      "count": 5,
+      "duration_count": 5,
+      "duration_sum_seconds": 2.33,
+      "family": "developer_operation_duration_seconds",
+      "max_seconds": 0.52,
+      "mean_seconds": 0.466,
+      "min_seconds": 0.42,
+      "operation_type": "git_push_feature",
+      "outcome": "success"
+    },
+    {
+      "count": 5,
+      "duration_count": 5,
+      "duration_sum_seconds": 2.36,
+      "family": "developer_operation_duration_seconds",
+      "max_seconds": 0.54,
+      "mean_seconds": 0.472,
+      "min_seconds": 0.41,
+      "operation_type": "git_push_initial",
+      "outcome": "success"
+    },
+    {
+      "count": 5,
+      "duration_count": 5,
+      "duration_sum_seconds": 0.6,
+      "family": "developer_operation_duration_seconds",
+      "max_seconds": 0.18,
+      "mean_seconds": 0.12,
+      "min_seconds": 0.09,
+      "operation_type": "issue_create",
+      "outcome": "success"
+    },
+    {
+      "count": 5,
+      "duration_count": 5,
+      "duration_sum_seconds": 0.42,
+      "family": "developer_operation_duration_seconds",
+      "max_seconds": 0.1,
+      "mean_seconds": 0.084,
+      "min_seconds": 0.07,
+      "operation_type": "issue_read",
+      "outcome": "success"
+    },
+    {
+      "count": 5,
+      "duration_count": 5,
+      "duration_sum_seconds": 0.56,
+      "family": "developer_operation_duration_seconds",
+      "max_seconds": 0.13,
+      "mean_seconds": 0.112,
+      "min_seconds": 0.1,
+      "operation_type": "private_repository_create",
+      "outcome": "success"
+    },
+    {
+      "count": 5,
+      "duration_count": 5,
+      "duration_sum_seconds": 1.38,
+      "family": "developer_operation_duration_seconds",
+      "max_seconds": 0.36,
+      "mean_seconds": 0.276,
+      "min_seconds": 0.23,
+      "operation_type": "pull_request_create",
+      "outcome": "success"
+    },
+    {
+      "count": 5,
+      "duration_count": 5,
+      "duration_sum_seconds": 0.52,
+      "family": "developer_operation_duration_seconds",
+      "max_seconds": 0.13,
+      "mean_seconds": 0.104,
+      "min_seconds": 0.08,
+      "operation_type": "pull_request_read",
+      "outcome": "success"
+    },
+    {
+      "count": 5,
+      "duration_count": 0,
+      "duration_sum_seconds": 0.0,
+      "family": "developer_operations_total",
+      "operation_type": "git_clone",
+      "outcome": "success"
+    },
+    {
+      "count": 5,
+      "duration_count": 0,
+      "duration_sum_seconds": 0.0,
+      "family": "developer_operations_total",
+      "operation_type": "git_fetch",
+      "outcome": "success"
+    },
+    {
+      "count": 5,
+      "duration_count": 0,
+      "duration_sum_seconds": 0.0,
+      "family": "developer_operations_total",
+      "operation_type": "git_push_feature",
+      "outcome": "success"
+    },
+    {
+      "count": 5,
+      "duration_count": 0,
+      "duration_sum_seconds": 0.0,
+      "family": "developer_operations_total",
+      "operation_type": "git_push_initial",
+      "outcome": "success"
+    },
+    {
+      "count": 5,
+      "duration_count": 0,
+      "duration_sum_seconds": 0.0,
+      "family": "developer_operations_total",
+      "operation_type": "issue_create",
+      "outcome": "success"
+    },
+    {
+      "count": 5,
+      "duration_count": 0,
+      "duration_sum_seconds": 0.0,
+      "family": "developer_operations_total",
+      "operation_type": "issue_read",
+      "outcome": "success"
+    },
+    {
+      "count": 5,
+      "duration_count": 0,
+      "duration_sum_seconds": 0.0,
+      "family": "developer_operations_total",
+      "operation_type": "private_repository_create",
+      "outcome": "success"
+    },
+    {
+      "count": 5,
+      "duration_count": 0,
+      "duration_sum_seconds": 0.0,
+      "family": "developer_operations_total",
+      "operation_type": "pull_request_create",
+      "outcome": "success"
+    },
+    {
+      "count": 5,
+      "duration_count": 0,
+      "duration_sum_seconds": 0.0,
+      "family": "developer_operations_total",
+      "operation_type": "pull_request_read",
+      "outcome": "success"
+    }
+  ],
+  "operation_samples": 45,
+  "plan": {
+    "api_timeout_seconds": 60,
+    "concurrency": 1,
+    "git_kill_after_seconds": 5,
+    "git_timeout_seconds": 65,
+    "max_attempts": 1,
+    "measured": 5,
+    "warmup": 1
+  },
+  "runtime_images": {
+    "forgejo": "code.forgejo.org/forgejo/forgejo@sha256:3cd6bc2b74c87cbde0a0fd527c9665cb416f5a0540dee54fe5afb3fa2df9f40c",
+    "postgresql_server_version": "17.11"
+  },
+  "schema_version": 1,
+  "source_dirty": false,
+  "source_sha": "7cd7a9c88e529d74c979d75fd4a3e130819134c5",
+  "stable_deployed_revision": "2f63d283ebba12aaed8705732f1206d71ddc33db",
+  "transport": {
+    "dns_client_override": "20.200.252.239",
+    "endpoint": "https://forgejo.imcherry5778.xyz",
+    "scheme": "https",
+    "tls_verification": "certificate-and-hostname"
+  }
+}

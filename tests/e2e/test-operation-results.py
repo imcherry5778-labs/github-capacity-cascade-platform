@@ -24,11 +24,14 @@ spec.loader.exec_module(module)
 CURL_STUB = r'''#!/usr/bin/env bash
 set -euo pipefail
 original=("$@")
+if [[ "${JOURNEY_ENVIRONMENT:-}" == azure-aks ]]; then
+  [[ "$1" == -q && " $* " == *" --resolve forgejo.example.com:443:1.1.1.1 "* ]] || exit 99
+fi
 out= url= method=GET
 while (($#)); do
   case "$1" in
     -o|-X|-w|-H|-K|--max-time|--data-binary) key="$1"; shift; if [[ "$key" == -o ]]; then out="$1"; elif [[ "$key" == -X ]]; then method="$1"; fi ;;
-    http://*) url="$1" ;;
+    http://*|https://*) url="$1" ;;
   esac
   shift
 done
@@ -55,6 +58,9 @@ printf '%s' "$status"
 '''
 
 GIT_STUB = r'''#!/usr/bin/env bash
+if [[ "${JOURNEY_ENVIRONMENT:-}" == azure-aks && " ${*} " == *" push "* ]]; then
+  [[ " $* " == *" http.sslVerify=true "* && " $* " == *" http.curloptResolve=forgejo.example.com:443:1.1.1.1 "* ]] || exit 99
+fi
 if [[ " ${*} " == *" push "* ]]; then
   echo credential-bearing-response >&2
   if [[ "$TEST_MODE" == git_timeout ]]; then exit 124; fi
@@ -153,7 +159,7 @@ def check_prefixes_and_inventory(temp, rows):
     assert module.validate(invalid)["validity"] == "invalid" and cli(invalid).returncode == 2
 
 
-def run_failure(mode):
+def run_failure(mode, azure=False, shared_gate_endpoint=None):
     with tempfile.TemporaryDirectory() as temp:
         temp = Path(temp)
         bindir = temp / "bin"
@@ -168,13 +174,28 @@ def run_failure(mode):
         context = temp / "context.json"
         context.write_text(json.dumps({
             "source_sha": "0" * 40, "dirty": False,
-            "environment": {"kind": "test"}, "tool_versions": {},
+            "environment": {"kind": "azure-aks" if azure else "local-k3d"}, "tool_versions": {},
             "argo_values_revision": "1" * 40,
             "forgejo_chart_version": "test", "forgejo_chart_digest": "sha256:test",
             "runtime_images": {},
         }))
+        if shared_gate_endpoint:
+            baseline = temp / "events.jsonl"
+            baseline.write_text(json.dumps(dict(json.loads(context.read_text()),
+                record="run_start", schema_version=1, run_id="baseline", phase="measured",
+                started_at_utc="2026-10-28T00:00:00Z", scenario="local_healthy_developer_journey",
+                parameters={}, measurement_boundary=module.LOCAL_BOUNDARY,
+                transport=module.transport("http://127.0.0.1:13000", "local-k3d"))) + "\n")
+            work = temp / "shared-gate"
+            work.mkdir()
+            # Exercise the actual P4 extraction command without starting a cluster.
+            extraction = next(line for line in (ROOT / "scripts/local-shared-gate.sh").read_text().splitlines()
+                              if line.startswith('sed -n 1p "$context_source"'))
+            subprocess.run(["bash", "-euc", extraction], check=True,
+                           env=dict(os.environ, context_source=str(baseline), work=str(work)))
+            context = work / "context.json"
         server = None
-        forgejo_url = "http://127.0.0.1:13000"
+        forgejo_url = "https://forgejo.example.com" if azure else "http://127.0.0.1:13000"
         if mode == "api_partial_real":
             server = ThreadingHTTPServer(("127.0.0.1", 0), PartialResponse)
             threading.Thread(target=server.serve_forever, daemon=True).start()
@@ -185,6 +206,10 @@ def run_failure(mode):
                    JOURNEY_DIR=str(temp / "journey"), RESULTS_ROOT=str(temp / "results"),
                    RESULT_CONTEXT_FILE=str(context), RESULT_PHASE="measured",
                    FORGEJO_ADMIN_USERNAME="admin", FORGEJO_ADMIN_PASSWORD="secret-admin-password")
+        if azure:
+            env.update(JOURNEY_ENVIRONMENT="azure-aks", JOURNEY_DNS_OVERRIDE="1.1.1.1", GIT_SSL_NO_VERIFY="1")
+        if shared_gate_endpoint:
+            env.update(JOURNEY_ENDPOINT_URL=shared_gate_endpoint, JOURNEY_GATE_CORRELATION="1")
         if mode == "git_timeout_kill":
             env["JOURNEY_GIT_TIMEOUT_SECONDS"] = "0.2"
             env["JOURNEY_GIT_KILL_AFTER_SECONDS"] = "0.2"
@@ -210,6 +235,10 @@ def run_failure(mode):
         assert result["completion"] == expected_completion and result["validity"] == "valid", result
         assert cli(files[0]).returncode == 0, (mode, contents)
         rows = [json.loads(line) for line in contents.splitlines()]
+        if shared_gate_endpoint:
+            assert "transport" not in json.loads(context.read_text())
+            assert rows[0]["transport"] == module.transport(shared_gate_endpoint, "local-k3d")
+            assert rows[0]["measurement_boundary"] == module.LOCAL_BOUNDARY
         attempt = next(row for row in rows if row["record"] == "attempt" and
                        (not mode.startswith("git_") or row["operation_id"].endswith("operation-2")))
         if mode == "api_failure":
@@ -256,7 +285,7 @@ def run_failure(mode):
         incomplete = temp / "incomplete.jsonl"
         incomplete.write_text("\n".join(contents.splitlines()[:-1]) + "\n")
         assert module.validate(incomplete)["completion"] == "incomplete"
-        if mode == "git_failure":
+        if mode == "git_failure" and not azure:
             check_prefixes_and_inventory(temp, rows)
             broken = [dict(row) for row in rows]
             event = next(row for row in broken if row["record"] == "auxiliary_event" and row["attempt_id"])
@@ -284,3 +313,11 @@ for scenario in ("api_failure", "api_timeout", "api_status_then_timeout", "api_p
                  "assertion_delay", "git_failure", "git_timeout", "git_timeout_kill", "git_killed_early"):
     run_failure(scenario)
 print("PASS deterministic R1-R4 prefixes/inventory/CLI/timing/curl, Git timeout/kill-after and credential hygiene")
+
+run_failure("api_failure", azure=True)
+run_failure("git_failure", azure=True)
+print("PASS HTTPS producer, DNS override and TLS verification configuration")
+
+for endpoint in ("http://127.0.0.1:13000", "http://127.0.0.1:18080"):
+    run_failure("api_failure", shared_gate_endpoint=endpoint)
+print("PASS P4 baseline context extraction and direct/gated endpoint-specific transport")

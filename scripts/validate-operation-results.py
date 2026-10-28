@@ -2,10 +2,14 @@
 """Validate sanitized developer journey JSONL and derive the four project metrics."""
 
 import json
+import ipaddress
 import math
+import os
+import re
 import sys
 from collections import Counter, defaultdict
 from pathlib import Path
+from urllib.parse import urlsplit
 
 
 ERROR_CLASSES = {"none", "command_error", "transport_error", "http_status", "timeout", "semantic_error"}
@@ -28,6 +32,49 @@ EXPECTED_KEYS = {
                         "operation_id", "attempt_id", "timestamp_utc"},
     "run_end": {"record", "run_id", "completion", "validity", "ended_at_utc"},
 }
+LOCAL_BOUNDARY = "loopback kubectl port-forward client command"
+AZURE_BOUNDARY = "public HTTPS client command"
+
+
+def transport(endpoint, kind, override=None):
+    """Closed transport contract, also used before the producer sends credentials."""
+    url = urlsplit(endpoint)
+    require(url.username is None and url.password is None and not url.query and not url.fragment
+            and url.path == "" and endpoint == f"{url.scheme}://{url.netloc}", "endpoint must be an origin")
+    require(kind in {"local-k3d", "azure-aks"}, "environment kind")
+    if kind == "local-k3d":
+        require(url.scheme == "http" and url.hostname == "127.0.0.1" and
+                url.port and not override, "Local transport must be loopback HTTP without DNS override")
+    else:
+        require(url.scheme == "https" and url.port in {None, 443} and
+                re.fullmatch(r"[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?", url.hostname or "") and
+                "." in url.hostname and not url.hostname.endswith((".localhost", ".local")), "Azure HTTPS hostname")
+        try:
+            ipaddress.ip_address(url.hostname)
+        except ValueError:
+            pass
+        else:
+            raise ValueError("Azure endpoint requires a TLS hostname")
+        if override:
+            require(ipaddress.IPv4Address(override).is_global, "DNS override must be public IPv4")
+    return {"endpoint": endpoint, "scheme": url.scheme,
+            "tls_verification": "certificate-and-hostname" if kind == "azure-aks" else "not-applicable",
+            "dns_client_override": override or None}
+
+
+def measurement(start):
+    kind = start["environment"].get("kind")
+    require(kind in {"local-k3d", "azure-aks"}, "environment kind")
+    boundary = AZURE_BOUNDARY if kind == "azure-aks" else LOCAL_BOUNDARY
+    require(start["measurement_boundary"] == boundary, "measurement boundary/environment mismatch")
+    observed = start.get("transport")
+    # Original Local raw runs have no transport field. Never infer HTTPS for them.
+    if observed is None:
+        require(kind == "local-k3d", "Azure transport metadata required")
+    else:
+        require(set(observed) == {"endpoint", "scheme", "tls_verification", "dns_client_override"}, "transport fields")
+        require(observed == transport(observed["endpoint"], kind, observed["dns_client_override"]), "transport mismatch")
+    return {"measurement_boundary": boundary, "environment": start["environment"], "transport": observed}
 
 
 def require(condition, message):
@@ -44,7 +91,7 @@ def validate(path):
     require(records and records[0].get("record") == "run_start", "missing run_start")
     start = records[0]
     require(start["schema_version"] == 1, "unsupported schema_version")
-    require(set(start) == EXPECTED_KEYS["run_start"], "run_start fields differ from sanitized allowlist")
+    require(set(start) in (EXPECTED_KEYS["run_start"], EXPECTED_KEYS["run_start"] | {"transport"}), "run_start fields differ from sanitized allowlist")
     require(start["phase"] in {"warmup", "measured"}, "invalid phase")
     require(isinstance(start["dirty"], bool) and len(start["source_sha"]) == 40, "source provenance")
     parameters = start["parameters"]
@@ -55,8 +102,8 @@ def validate(path):
             duration(parameters["git_timeout_seconds"]) and parameters["git_timeout_seconds"] > 0 and
             duration(parameters["git_kill_after_seconds"]) and parameters["git_kill_after_seconds"] > 0,
             "parameter drift")
-    require(start["measurement_boundary"] == "loopback kubectl port-forward client command", "measurement boundary")
     require(isinstance(start["environment"], dict) and isinstance(start["tool_versions"], dict), "environment fields")
+    boundary = measurement(start)
     require(isinstance(start["runtime_images"], dict), "runtime image identity")
     run_id = start["run_id"]
     require(isinstance(run_id, str) and run_id, "run_id")
@@ -143,7 +190,7 @@ def validate(path):
                 metrics[key]["duration_count"] += 1
                 metrics[key]["durations_seconds"].append(attempt["duration_seconds"])
     return {
-        "run_id": run_id, "phase": start["phase"], "source_sha": start["source_sha"],
+        "run_id": run_id, "phase": start["phase"], "source_sha": start["source_sha"], **boundary,
         "completion": ended["completion"] if ended else "incomplete",
         "validity": ended["validity"] if ended and complete else "incomplete",
         "operation_count": len(operations), "attempt_count": len(attempts),
@@ -161,6 +208,11 @@ def summarize(directory):
     require(len(measured) == 5, "five measured runs required")
     require(all(run["completion"] == "success" and run["validity"] == "valid" for run in runs), "unhealthy baseline run")
     require(len({run["source_sha"] for run in runs}) == 1, "mixed source commits")
+    require(len({run["run_id"] for run in runs}) == 6, "duplicate baseline run IDs")
+    headers = [json.loads(path.read_text().splitlines()[0]) for path in paths]
+    for key in ("measurement_boundary", "environment", "transport", "dirty", "scenario",
+                "argo_values_revision", "forgejo_chart_version", "forgejo_chart_digest", "runtime_images"):
+        require(all(h.get(key) == headers[0].get(key) for h in headers), f"mixed baseline {key}")
     require(all(json.loads(path.read_text().splitlines()[0])["parameters"]["git_timeout_seconds"] == 65 and
                 json.loads(path.read_text().splitlines()[0])["parameters"]["git_kill_after_seconds"] == 5
                 for path in paths), "baseline Git timeout drift")
@@ -190,6 +242,9 @@ def summarize(directory):
             starts.append(rows[0]["started_at_utc"])
             ends.append(rows[-1]["ended_at_utc"])
     return {"schema_version": 1, "source_sha": measured[0]["source_sha"],
+            "source_dirty": headers[0]["dirty"], **measurement(headers[0]),
+            "stable_deployed_revision": headers[0]["argo_values_revision"],
+            "runtime_images": headers[0]["runtime_images"],
             "plan": {"warmup": 1, "measured": 5, "concurrency": 1, "max_attempts": 1,
                      "api_timeout_seconds": 60, "git_timeout_seconds": 65, "git_kill_after_seconds": 5},
             "measured_window_utc": {"start": min(starts), "end": max(ends)},
@@ -200,6 +255,22 @@ def summarize(directory):
 
 
 def main():
+    if len(sys.argv) in {4, 5} and sys.argv[1] == "transport":
+        print(json.dumps(transport(sys.argv[2], sys.argv[3], sys.argv[4] if len(sys.argv) == 5 else None)))
+        return 0
+    if len(sys.argv) == 3 and sys.argv[1] == "context":
+        context = json.loads(Path(sys.argv[2]).read_text())
+        expected = EXPECTED_KEYS["run_start"] - {"record", "schema_version", "run_id", "phase", "started_at_utc",
+                                                 "scenario", "parameters", "measurement_boundary"}
+        require(set(context) == expected, "context fields differ from sanitized allowlist")
+        kind = context["environment"].get("kind")
+        require(kind == os.environ.get("JOURNEY_ENVIRONMENT", "local-k3d"), "producer environment mismatch")
+        context.update(transport=json.loads(os.environ["JOURNEY_TRANSPORT_JSON"]),
+                       measurement_boundary=AZURE_BOUNDARY if kind == "azure-aks" else LOCAL_BOUNDARY,
+                       scenario="azure_https_healthy_developer_journey" if kind == "azure-aks" else "local_healthy_developer_journey")
+        measurement(context)
+        print(json.dumps(context))
+        return 0
     if len(sys.argv) != 3 or sys.argv[1] not in {"validate", "summarize"}:
         raise SystemExit("usage: validate-operation-results.py validate EVENTS.jsonl | summarize BASELINE_DIR")
     if sys.argv[1] == "summarize":
