@@ -1,0 +1,46 @@
+{
+  "source_sha": "c06ce67b2d438c7affde6b6934368b43afa4c1f4",
+  "artifact_validation": "passed",
+  "raw_archive_sha256": "8dca74dba05b1ae6177d8629274caca0bf34375a096a7e11b93fb38107da7bc2",
+  "raw_files_checked": 118,
+  "checks": [
+    "all archive entries/size/SHA256/JSON checked",
+    "shared mesh original data/UID equal",
+    "KEDA original SA annotations and Deployment template equal",
+    "stable Argo/Deployment spec and PVC/PV/node UID sets equal",
+    "scoped role/UAMI/namespace/image/PAT/login/local cleanup evidence retained",
+    "run ledger empty and flags block campaign execution",
+    "exact source queries empty; actual label mismatch retained",
+    "two allowed operator rollouts and request ledger counts checked",
+    "normal semantic validation and final verify passed",
+    "runtime source files equal approved c06 source; no implementation diff",
+    "known-secret scan retained before protected-copy deletion; publication path/key/JWT scan passed"
+  ],
+  "direct_regressions": {
+    "p9": {
+      "tests": 25,
+      "result": "passed"
+    },
+    "p8": {
+      "tests": 38,
+      "result": "passed"
+    },
+    "saturation": {
+      "tests": 10,
+      "result": "passed"
+    }
+  },
+  "make_static": {
+    "result": "passed",
+    "exit_code": 0,
+    "log": "static-validation.log",
+    "sha256": "a18e3b9ae10cc8fac44bc47067502327a1f943478526fd5ba8e56585fb9dd774",
+    "scope": "credential-free static/render and Terraform mock-only checks; no Azure workload"
+  },
+  "final_ci": "reported from GitHub after evidence commit/push; no pending check treated as success",
+  "local_check_source": {
+    "repository_head": "c06ce67b2d438c7affde6b6934368b43afa4c1f4",
+    "uncommitted_delta": "docs/evidence only",
+    "implementation_source_equal_approved": true
+  }
+}

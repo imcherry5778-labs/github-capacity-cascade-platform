@@ -1,7 +1,11 @@
 # P9-W1 Mitigation & Recovery
 
-상태: **source 준비 / Azure 실행 미승인·미실행**. 이번 deliverable은 cost-free 검증과
-Draft PR이다. Source gate와 이 문서의 통합 승인을 받은 뒤 **같은 branch/PR**에서 이어간다.
+상태: **승인 source의 runtime telemetry gate 중단 / P9-owned controls 원복 완료**.
+승인·실제 execution source는 `c06ce67b2d438c7affde6b6934368b43afa4c1f4`이며
+[승인 기록](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6483350700)과
+[실제 실행·negative·원복 evidence](evidence/p9-mitigation-preflight-20261029/README.md)를 연결한다.
+Calibration/measured는 모두0회, freeze·mitigation/recovery 결과는 없다. 아래 C0–C3 contract와 상한은 유지하며
+actual label/초기화 contract의 새 source gate와 필요한 실행 승인 뒤 **같은 branch/PR**에서 재개한다.
 P8 [reviewed evidence](evidence/p8-controlled-cascade-20261029/README.md)와
 [incident](incidents/p8-controlled-cascade.md)를 재사용하며 historical raw/validator는 보존한다.
 P6/P7 drill, P8 전체 실험, factorial/조합 최적화, P10은 범위 밖이다.
@@ -76,7 +80,7 @@ Issue12/Git1 worker와 최대49 pending으로 client backlog를 제한한다. �
 
 기존 managed KEDA/Managed Prometheus를 재사용한다. [Microsoft managed KEDA 문서](https://learn.microsoft.com/en-us/azure/aks/keda-workload-identity)의
 version별 실제 image/CRD/operator/SA 상태를 먼저 보존한다. 읽을 수 없으면 필수 실행 gate다.
-현재 [2.18 scaler](https://keda.sh/docs/2.18/scalers/prometheus/)와
+승인 source 후보의 [2.18 scaler](https://keda.sh/docs/2.18/scalers/prometheus/)와
 [identity override](https://keda.sh/docs/2.18/authentication-providers/azure-ad-workload-identity/)는
 source candidate의 참조이며 actual version이 다르면 그 version의 공식 schema/동작으로 재검증한다.
 Managed controller의 Helm/resource/spec 임의 변경이나 self-managed 대체는 하지 않는다.
@@ -156,22 +160,24 @@ C2 queue는 측정 대상, 다른 arm에서는 경쟁 병목 guard다.
 같은 incident의 backoff/admission/proxy-scaling corrective action에 연결한다.
 결과가 없는 현재 corrective action은 검증 완료가 아니다.
 
-## 통합 승인 요청 — 현재 미승인
+## 통합 승인 범위 — 승인 source 실행 중단·원복 완료
 
-승인 source는 **이 Draft PR 최종 보고의 exact HEAD**다. 승인 기록 URL과 exact source,
-identity, plan hash, limits를 보호된 승인 JSON에 기록하고 `P9_AZURE_APPROVED`도 같은 SHA로
-설정한다. 이는 사용자의 승인 기록을 대체하지 않는다. Normal/healthy/live preflight의 실제
+이번 승인·실행 source는 **`c06ce67b2d438c7affde6b6934368b43afa4c1f4`**다. 승인 기록 URL과
+actual identity, plan hash, limits를 보호된 입력에 연결했고 `P9_AZURE_APPROVED`도 같은 SHA를 사용했다.
+Gate 중단·원복 상태와 실제 flag는 evidence의 `approval-binding.json`에 보존했다.
+아래는 그 승인 범위이며 후속 문서/evidence HEAD나 다른 SHA를 실행 승인으로 치환하지 않는다. Normal/healthy/live preflight의 실제
 evidence 없이 approval JSON의 flag를 true로 채우지 않는다.
 
-[현재 management read](evidence/p9-source-20261029/management.json): subscription
+[승인 요청 시 management read](evidence/p9-source-20261029/management.json): subscription
 `e5a6bc91-44fb-46aa-90ee-badd6d197609`, Entra User object ID
 `6f750efc-cb1a-4a49-b6e7-23fc6061e25a`, Korea Central, `rg-ccp-environment-krc-p6`.
 AKS `aks-ccp-krc-p6`는 Running/Succeeded,1.36.4, asm-1-30, D4s_v4 node2/autoscaling OFF다.
 PG `pg-ccp-p6-krc-57781024`/ACR `acrccpp6krc57781024`/AMW `amw-ccp-krc-p6`/LAW
-`law-ccp-krc-p6`와 기존 Disk/PVC를 재사용한다. Cluster UID/Argo/CRD/operator/SA/admission은
-현재 관측하지 않았다. 이들은 승인 직후 **mutation 전 read-only gate**이며 mismatch 시 중단한다.
+`law-ccp-krc-p6`와 기존 Disk/PVC를 재사용한다. 이 사전 조회에서는 Cluster UID/Argo/CRD/operator/SA/admission을
+관측하지 않았다. 이후 실제 확인·미확인·중단 상태는 연결된 실행 evidence를 따른다.
+이들은 관련 **mutation 전 read-only gate**이며 mismatch 시 중단한다.
 
-요청하는 exact 외부 행동과 원복은 다음과 같다.
+이 source에 승인된 exact 외부 행동과 원복은 다음과 같다.
 
 - 위 User에 AKS resource 하나의 임시 `Azure Kubernetes Service RBAC Cluster Admin` assignment.
   전용 mode0600 kubeconfig의 Entra user auth를 사용하고 종료 시 소유 assignment ID만 삭제한다.
@@ -208,9 +214,9 @@ Experiment는 **Pod4 / requests와 limits 각각 CPU1500m / memory2048Mi** 상�
 memory1664Mi다. 실제 주입/overhead와 node headroom을 다시 검증한다. 새 node/server/Disk/PVC,
 node autoscaling 변경은 없다. 부족하면 상한/acceptance를 임의 확대·완화하지 않는다.
 
-[현재 비용](evidence/p9-source-20261029/cost.json)은 두 RG의2026-10-28 합계
+[승인 요청 시 비용](evidence/p9-source-20261029/cost.json)은 두 RG의2026-10-28 합계
 **KRW16,015.5402320629**다. 조회는 성공했지만 청구 지연/완전성 제한이 있고 P9 증가분은 unknown이다.
-[현재 retail 입력](evidence/p9-source-20261029/prices.json)을 기준으로 추가 image0.2GB
+[승인 요청 시 retail 입력](evidence/p9-source-20261029/prices.json)을 기준으로 추가 image0.2GB
 월 환산USD0.02 + logs1GB×USD3.11 + metrics100만×USD0.11/천만=USD0.011 + egress1GB×USD0.12,
 query/변동 여유USD1.739를 합친 **증가분 검토 예상USD5**, 추가 검토 예산USD10을 요청한다.
 이는 계측량 가정이며 billing hard cap이 아니다. 기존 node/server 유지비와 shared controller
@@ -228,7 +234,8 @@ KEDA annotation/rollout 원복은 FIC 삭제 전에 수행한다. 정상 HTTPS/n
 ## 실행 entrypoint와 남은 gate
 
 Source gate는 직접 회귀, P8 historical replay, `make static`, exact-head PR CI와 독립 review다.
-현재는 local source 검증만 완료할 수 있다. 실행을 승인한 뒤 보호된 operator context에서 사용한다.
+승인 source의 CI/source gate는 통과했으나 actual telemetry contract gate에서 중단했다.
+아래는 entrypoint 사용 형식이며 성공한 campaign 기록이 아니다. 재개 전 새 source gate와 필요한 승인을 확인한다.
 
 ```bash
 python3 scripts/azure-mitigation.py render "$IDENTITY" "$PLAN" C0 "$NEW_RENDER_DIR"
