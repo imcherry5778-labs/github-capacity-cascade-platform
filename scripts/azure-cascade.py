@@ -87,7 +87,7 @@ def render(value):
         return dict(apiVersion=api, kind=kind, metadata=dict(name=name, namespace=ns, labels=labels), **kw)
     # Reuse the exact P4 HAProxy policy; replace only the experiment namespace.
     source = (ROOT / 'experiments/fixtures/shared-gate/resources.yaml').read_text()
-    hp = textwrap.dedent(source.split('  haproxy.cfg: |\n', 1)[1].split('\n---', 1)[0]).replace('shared-gate.svc', NS + '.svc')
+    hp = textwrap.dedent(source.split('  haproxy.cfg: |\n', 1)[1].split('\n---', 1)[0]).replace('shared-gate.svc', NS + '.svc').rstrip() + '\n'
     resources = [dict(apiVersion='v1', kind='Namespace', metadata={'name': NS, 'labels': labels | {'istio.io/rev': value['revision']}}),
                  obj('v1', 'ResourceQuota', 'p8-boundary', spec={'hard': {'pods': '4', 'requests.cpu': '1500m',
                      'requests.memory': '2048Mi', 'limits.cpu': '1500m', 'limits.memory': '2048Mi', 'persistentvolumeclaims': '0'}}),
@@ -105,7 +105,7 @@ def render(value):
         annotations = {'sidecar.istio.io/inject': str(inject).lower()}
         if inject:
             annotations.update({'sidecar.istio.io/proxyCPU': '100m', 'sidecar.istio.io/proxyMemory': '128Mi',
-                                'sidecar.istio.io/proxyCPULimit': '250m', 'sidecar.istio.io/proxyMemoryLimit': '256Mi'})
+                                'sidecar.istio.io/proxyCPULimit': '225m', 'sidecar.istio.io/proxyMemoryLimit': '256Mi'})
         resources += [obj('apps/v1', 'Deployment', name, spec={'replicas': 1, 'strategy': {'type': 'Recreate'},
             'selector': {'matchLabels': {'app': name}}, 'template': {'metadata': {'labels': labels | {'app': name}, 'annotations': annotations},
                 'spec': {'automountServiceAccountToken': False, 'containers': [container],

@@ -63,6 +63,29 @@ class SourceTests(unittest.TestCase):
         self.assertEqual(rendered['policy.json']['spec']['action'], 'CUSTOM')
         self.assertNotIn('forgejo', {o['metadata']['name'] for o in items})
 
+    def test_haproxy_config_has_required_final_newline_and_two_targets_fit_with_validation_init(self):
+        items = a.render(identity())['fixtures.json']['items']
+        config = next(o['data']['haproxy.cfg'] for o in items if o['kind'] == 'ConfigMap' and o['metadata']['name'] == 'haproxy')
+        self.assertTrue(config.endswith('\n'))
+        self.assertIn('ext-authz-sim.p8-shared-gate.svc.cluster.local:8080', config)
+        pods = []
+        for obj in items:
+            if obj['kind'] not in {'Deployment', 'Pod'}: continue
+            template = obj['spec']['template'] if obj['kind'] == 'Deployment' else obj
+            for index in range(2 if obj['metadata']['name'] == 'ext-authz-sim' else 1):
+                pod = copy.deepcopy(template)
+                pod['metadata'].update(namespace=a.NS, name=obj['metadata']['name'] + str(index), uid=obj['metadata']['name'] + str(index))
+                if obj['metadata']['name'] == 'ext-authz-sim':
+                    annotations = template['metadata']['annotations']
+                    resources = {'requests': {'cpu': annotations['sidecar.istio.io/proxyCPU'], 'memory': annotations['sidecar.istio.io/proxyMemory']},
+                                 'limits': {'cpu': annotations['sidecar.istio.io/proxyCPULimit'], 'memory': annotations['sidecar.istio.io/proxyMemoryLimit']}}
+                    pod['spec']['initContainers'] = [{'name': 'istio-validation', 'resources': resources},
+                                                     {'name': 'istio-proxy', 'restartPolicy': 'Always', 'resources': resources}]
+                pods.append(pod)
+        admitted = a.admission(identity(), pods)
+        self.assertEqual(len(admitted['pods']), 4)
+        self.assertAlmostEqual(admitted['conservative_sum']['limits']['cpu'], 1.45)
+
     def test_unpinned_or_non_acr_image_rejected(self):
         for image in ('test.azurecr.io/ext-authz-sim:latest', 'docker.io/test@sha256:' + 'a' * 64):
             value = identity(); value['ext_authz_image'] = image
