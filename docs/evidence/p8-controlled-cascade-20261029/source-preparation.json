@@ -1,0 +1,69 @@
+{
+  "work_unit": "P8-W1",
+  "state": "source-prepared-awaiting-explicit-azure-approval",
+  "baseline_sha": "a3bf43f4a2c423cfa7974d481a94f788149174aa",
+  "recorded_at_utc": "2026-10-28T16:03:35.138199+00:00",
+  "source_identity": "exact execution SHA will be the Draft PR HEAD explicitly approved in the session; file hashes below identify prepared source",
+  "file_sha256": {
+    "scripts/azure-cascade.py": "588714de57931a5bb31f4762a63a46c0f8cd4b2b32e3d1e94fc8dd5c19adfd08",
+    "experiments/fixtures/shared-gate/azure-saturation.json": "ec602a383306417abeaf4e01e93546935fd8fec8a8bfd0e2a128c49f571a142c",
+    "tests/e2e/test-azure-cascade.py": "778d19cb560ab5d408162998936c82a1a528a02875275afa3e4a8609568f66cb",
+    "scripts/local-verify.sh": "4af419c559f47a9b3cb43a236fb64d1b96e526f34ef90cd589436b57e584a886"
+  },
+  "validation": {
+    "make_static": "passed; credential-free lint/render/pins/unit suites/Terraform fmt-init-validate and mock security/platform verifier",
+    "azure_cascade_direct_regression": "22 tests passed after latest source changes",
+    "p4_saturation_regression": "10 tests passed",
+    "p7_operations_regression": "passed; includes native-session/doctor guards",
+    "evidence_json_ast_and_diff_whitespace": "passed",
+    "local_cluster_runtime": "not run locally; existing full-runtime CI gate retained",
+    "azure_workload_runtime": "not executed"
+  },
+  "management_metrics_smoke": {
+    "file": "postgres-management-smoke.json",
+    "source": "uncommitted preparation; exploratory management API read only, not final runtime evidence",
+    "observed": [
+      "cpu_percent",
+      "active_connections",
+      "storage_percent",
+      "storage_used",
+      "read_iops",
+      "disk_iops_consumed_percentage"
+    ],
+    "no_data": [
+      "write_iops",
+      "disk_queue_depth"
+    ],
+    "interpretation": "no-data is retained; no normality/saturation claim"
+  },
+  "upstream_revalidation": [
+    {
+      "url": "https://forgejo.org/releases/",
+      "finding": "15.0.11 published 2026-10-26; existing v15 LTS pin reused, no Forgejo upgrade in P8"
+    },
+    {
+      "url": "https://learn.microsoft.com/en-us/azure/aks/istio-meshconfig",
+      "finding": "revision-specific shared ConfigMap; extensionProviders and proxyStatsMatcher Allowed/outside support"
+    },
+    {
+      "url": "https://kubernetes.io/docs/concepts/workloads/autoscaling/horizontal-pod-autoscale/",
+      "finding": "ContainerResource app CPU; default controller sync 15s; actual metric timestamps and HPA status required"
+    },
+    {
+      "url": "https://github.com/envoyproxy/envoy/blob/main/docs/root/configuration/upstream/cluster_manager/cluster_stats.rst",
+      "finding": "active-overflow/pending/total semantics are candidate mechanism; actual Azure target build/config/stat/rejection mapping must be measured"
+    }
+  ],
+  "approval_request": "approval-request.md",
+  "initial_incident": "../../incidents/p8-controlled-cascade.md",
+  "not_executed": [
+    "workload probes or experiment",
+    "fixture deployment",
+    "image push",
+    "IAM or Secret mutation",
+    "DNS change",
+    "paid resource mutation",
+    "retention extension or deletion"
+  ],
+  "runtime_acceptance": "pending; source/static checks do not claim P8 completion"
+}

@@ -1,0 +1,65 @@
+{
+  "recorded_at_utc": "2026-10-28T15:44:33.626992+00:00",
+  "query": {
+    "type": "ActualCost",
+    "timeframe": "Custom",
+    "timePeriod": {
+      "from": "2026-10-28T00:00:00Z",
+      "to": "2026-10-30T00:00:00Z"
+    },
+    "dataset": {
+      "granularity": "Daily",
+      "aggregation": {
+        "totalCost": {
+          "name": "PreTaxCost",
+          "function": "Sum"
+        }
+      },
+      "filter": {
+        "dimensions": {
+          "name": "ResourceGroup",
+          "operator": "In",
+          "values": [
+            "rg-ccp-environment-krc-p6",
+            "MC_rg-ccp-environment-krc-p6_aks-ccp-krc-p6_koreacentral"
+          ]
+        }
+      }
+    }
+  },
+  "status": "observed",
+  "billing_hard_cap": false,
+  "p8_execution_cost": "not incurred by P8; execution unapproved",
+  "result": {
+    "eTag": null,
+    "id": "subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/providers/Microsoft.CostManagement/query/05b1519c-5460-4f76-927d-e7f388577b2b",
+    "location": null,
+    "name": "05b1519c-5460-4f76-927d-e7f388577b2b",
+    "properties": {
+      "columns": [
+        {
+          "name": "PreTaxCost",
+          "type": "Number"
+        },
+        {
+          "name": "UsageDate",
+          "type": "Number"
+        },
+        {
+          "name": "Currency",
+          "type": "String"
+        }
+      ],
+      "nextLink": null,
+      "rows": [
+        [
+          9140.01008933979,
+          20261028,
+          "KRW"
+        ]
+      ]
+    },
+    "sku": null,
+    "type": "Microsoft.CostManagement/query"
+  }
+}

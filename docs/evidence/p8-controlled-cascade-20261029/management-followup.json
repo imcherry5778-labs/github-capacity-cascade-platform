@@ -1,0 +1,45 @@
+{
+  "recorded_at_utc": "2026-10-28T15:59:07.634534+00:00",
+  "queries": {
+    "acr_usage": {
+      "value": [
+        {
+          "currentValue": 0,
+          "limit": 10737418240,
+          "name": "Size",
+          "unit": "Bytes"
+        },
+        {
+          "currentValue": 0,
+          "limit": 43980465111040,
+          "name": "MaximumStorageCapacity",
+          "unit": "Bytes"
+        },
+        {
+          "currentValue": 0,
+          "limit": 2,
+          "name": "Webhooks",
+          "unit": "Count"
+        },
+        {
+          "currentValue": 0,
+          "limit": 100,
+          "name": "ScopeMaps",
+          "unit": "Count"
+        },
+        {
+          "currentValue": 0,
+          "limit": 100,
+          "name": "Tokens",
+          "unit": "Count"
+        }
+      ]
+    },
+    "disk_size": [
+      {
+        "diskSizeGB": 10,
+        "name": "pvc-5e9d8389-bdaf-49ad-98d9-97612e5db63f"
+      }
+    ]
+  }
+}

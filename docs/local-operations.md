@@ -461,3 +461,9 @@ Infrastructure/Terraform ownership은 유지한다. 성공/실패 모두 stable 
 각각 actual 조회로 확인한다. Rotation 생략은 새 explicit exception 승인 전 실행하지 않는다.
 Final evidence는 execution HEAD와 stable deployed revision/runtime identity를 따로 기록하고 query no-data,
 실패 phase, session/tracing 제한, ActualCost unknown을 숨기지 않는다. Runtime 확인 전 PASS/zero residual을 쓰지 않는다.
+
+## P8 Azure controlled cascade
+
+P8-W1의 Azure adapter, 승인 gate, calibration/freeze/paired measurement와 원복 절차는
+[P8 controlled cascade 실행 절차](p8-controlled-cascade.md)를 따른다.
+현재 source 준비 단계이며 P7 실행 승인은 P8에 승계하지 않는다.

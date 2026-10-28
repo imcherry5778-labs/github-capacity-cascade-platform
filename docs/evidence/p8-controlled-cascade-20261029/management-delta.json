@@ -1,0 +1,617 @@
+{
+  "recorded_at_utc": "2026-10-28T15:44:10.573596+00:00",
+  "boundary": "management API read-only; no workload probe/deploy/image push/IAM mutation",
+  "operator_principal_id": "6f750efc-cb1a-4a49-b6e7-23fc6061e25a",
+  "queries": {
+    "aks": {
+      "status": "observed",
+      "value": {
+        "id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourcegroups/rg-ccp-environment-krc-p6/providers/Microsoft.ContainerService/managedClusters/aks-ccp-krc-p6",
+        "kubernetesVersion": "1.36.4",
+        "mesh": {
+          "istio": {
+            "certificateAuthority": null,
+            "components": {
+              "egressGateways": null,
+              "ingressGateways": [
+                {
+                  "enabled": null,
+                  "mode": "Internal"
+                },
+                {
+                  "enabled": true,
+                  "mode": "External"
+                }
+              ],
+              "proxyRedirectionMechanism": "CNIChaining"
+            },
+            "revisions": [
+              "asm-1-30"
+            ]
+          },
+          "mode": "Istio"
+        },
+        "nodeResourceGroup": "MC_rg-ccp-environment-krc-p6_aks-ccp-krc-p6_koreacentral",
+        "pools": [
+          {
+            "artifactStreamingProfile": null,
+            "availabilityZones": null,
+            "capacityReservationGroupId": null,
+            "count": 2,
+            "creationData": null,
+            "currentOrchestratorVersion": "1.36.4",
+            "eTag": "840009d2-9582-47b1-b74b-33c845bde1e8",
+            "enableAutoScaling": false,
+            "enableEncryptionAtHost": false,
+            "enableFips": false,
+            "enableNodePublicIp": false,
+            "enableUltraSsd": false,
+            "gatewayProfile": null,
+            "gpuInstanceProfile": null,
+            "gpuProfile": null,
+            "hostGroupId": null,
+            "kubeletConfig": null,
+            "kubeletDiskType": "OS",
+            "linuxOsConfig": null,
+            "localDnsProfile": null,
+            "maxCount": null,
+            "maxPods": 250,
+            "messageOfTheDay": null,
+            "minCount": null,
+            "mode": "System",
+            "name": "system",
+            "networkProfile": null,
+            "nodeImageVersion": "AKSUbuntu-2404gen2containerd-202610.23.0",
+            "nodeLabels": null,
+            "nodePublicIpPrefixId": null,
+            "nodeTaints": null,
+            "orchestratorVersion": "1.36.4",
+            "osDiskSizeGb": 128,
+            "osDiskType": "Managed",
+            "osSku": "Ubuntu",
+            "osType": "Linux",
+            "podIpAllocationMode": null,
+            "podSubnetId": null,
+            "powerState": {
+              "code": "Running"
+            },
+            "provisioningState": "Succeeded",
+            "proximityPlacementGroupId": null,
+            "scaleDownMode": "Delete",
+            "scaleSetEvictionPolicy": null,
+            "scaleSetPriority": null,
+            "securityProfile": {
+              "enableSecureBoot": false,
+              "enableVtpm": false,
+              "sshAccess": "LocalUser"
+            },
+            "spotMaxPrice": null,
+            "status": null,
+            "tags": null,
+            "type": "VirtualMachineScaleSets",
+            "upgradeSettings": {
+              "drainTimeoutInMinutes": null,
+              "maxSurge": "10%",
+              "maxUnavailable": "0",
+              "nodeSoakDurationInMinutes": null,
+              "undrainableNodeBehavior": null
+            },
+            "virtualMachineNodesStatus": null,
+            "virtualMachinesProfile": null,
+            "vmSize": "Standard_D4s_v4",
+            "vnetSubnetId": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6/providers/Microsoft.Network/virtualNetworks/vnet-ccp-krc-p6/subnets/aks-nodes",
+            "windowsProfile": null,
+            "workloadRuntime": null
+          }
+        ],
+        "power": {
+          "code": "Running"
+        },
+        "state": "Succeeded"
+      }
+    },
+    "postgres": {
+      "status": "observed",
+      "value": {
+        "ha": {
+          "mode": "Disabled",
+          "standbyAvailabilityZone": null,
+          "state": "NotEnabled"
+        },
+        "id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6/providers/Microsoft.DBforPostgreSQL/flexibleServers/pg-ccp-p6-krc-57781024",
+        "sku": {
+          "name": "Standard_D2ds_v5",
+          "tier": "GeneralPurpose"
+        },
+        "state": "Ready",
+        "storage": {
+          "autoGrow": "Disabled",
+          "iops": 120,
+          "storageSizeGb": 32,
+          "throughput": null,
+          "tier": "P4",
+          "type": "Premium_LRS"
+        },
+        "version": "17"
+      }
+    },
+    "acr": {
+      "status": "observed",
+      "value": {
+        "adminUserEnabled": false,
+        "id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6/providers/Microsoft.ContainerRegistry/registries/acrccpp6krc57781024",
+        "loginServer": "acrccpp6krc57781024.azurecr.io",
+        "roleAssignmentMode": "LegacyRegistryPermissions",
+        "sku": {
+          "name": "Basic",
+          "tier": "Basic"
+        }
+      }
+    },
+    "iam": {
+      "status": "observed",
+      "value": [
+        {
+          "id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/providers/Microsoft.Authorization/roleAssignments/75eaed6e-275d-41cf-bb11-bc90abe69020",
+          "role": "Owner",
+          "scope": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609"
+        },
+        {
+          "id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/providers/Microsoft.Authorization/roleAssignments/699bd8da-8362-4b10-882e-7d8f1081cfc0",
+          "role": "Owner",
+          "scope": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609"
+        }
+      ]
+    },
+    "inventory": {
+      "status": "observed",
+      "value": [
+        {
+          "id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6/providers/Microsoft.ManagedIdentity/userAssignedIdentities/aks-ccp-krc-p6-forgejo-secrets",
+          "name": "aks-ccp-krc-p6-forgejo-secrets",
+          "type": "Microsoft.ManagedIdentity/userAssignedIdentities"
+        },
+        {
+          "id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6/providers/Microsoft.Network/privateDnsZones/pg-ccp-p6-krc-57781024.private.postgres.database.azure.com",
+          "name": "pg-ccp-p6-krc-57781024.private.postgres.database.azure.com",
+          "type": "Microsoft.Network/privateDnsZones"
+        },
+        {
+          "id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6/providers/Microsoft.ManagedIdentity/userAssignedIdentities/aks-ccp-krc-p6-kubelet",
+          "name": "aks-ccp-krc-p6-kubelet",
+          "type": "Microsoft.ManagedIdentity/userAssignedIdentities"
+        },
+        {
+          "id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6/providers/Microsoft.ContainerRegistry/registries/acrccpp6krc57781024",
+          "name": "acrccpp6krc57781024",
+          "type": "Microsoft.ContainerRegistry/registries"
+        },
+        {
+          "id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6/providers/Microsoft.Network/privateDnsZones/privatelink.vaultcore.azure.net",
+          "name": "privatelink.vaultcore.azure.net",
+          "type": "Microsoft.Network/privateDnsZones"
+        },
+        {
+          "id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6/providers/Microsoft.Monitor/accounts/amw-ccp-krc-p6",
+          "name": "amw-ccp-krc-p6",
+          "type": "Microsoft.Monitor/accounts"
+        },
+        {
+          "id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6/providers/Microsoft.ManagedIdentity/userAssignedIdentities/aks-ccp-krc-p6-control-plane",
+          "name": "aks-ccp-krc-p6-control-plane",
+          "type": "Microsoft.ManagedIdentity/userAssignedIdentities"
+        },
+        {
+          "id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6/providers/Microsoft.ManagedIdentity/userAssignedIdentities/aks-ccp-krc-p6-cert-manager",
+          "name": "aks-ccp-krc-p6-cert-manager",
+          "type": "Microsoft.ManagedIdentity/userAssignedIdentities"
+        },
+        {
+          "id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6/providers/Microsoft.Network/virtualNetworks/vnet-ccp-krc-p6",
+          "name": "vnet-ccp-krc-p6",
+          "type": "Microsoft.Network/virtualNetworks"
+        },
+        {
+          "id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6/providers/Microsoft.OperationalInsights/workspaces/law-ccp-krc-p6",
+          "name": "law-ccp-krc-p6",
+          "type": "Microsoft.OperationalInsights/workspaces"
+        },
+        {
+          "id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6/providers/Microsoft.Insights/dataCollectionEndpoints/aks-ccp-krc-p6-prometheus",
+          "name": "aks-ccp-krc-p6-prometheus",
+          "type": "Microsoft.Insights/dataCollectionEndpoints"
+        },
+        {
+          "id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6/providers/Microsoft.Insights/dataCollectionRules/aks-ccp-krc-p6-prometheus",
+          "name": "aks-ccp-krc-p6-prometheus",
+          "type": "Microsoft.Insights/dataCollectionRules"
+        },
+        {
+          "id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6/providers/Microsoft.Dashboard/grafana/grafana-ccp-p6-krc-5778",
+          "name": "grafana-ccp-p6-krc-5778",
+          "type": "Microsoft.Dashboard/grafana"
+        },
+        {
+          "id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6/providers/Microsoft.Network/privateDnsZones/pg-ccp-p6-krc-57781024.private.postgres.database.azure.com/virtualNetworkLinks/postgresql",
+          "name": "pg-ccp-p6-krc-57781024.private.postgres.database.azure.com/postgresql",
+          "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks"
+        },
+        {
+          "id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6/providers/Microsoft.Network/privateDnsZones/privatelink.vaultcore.azure.net/virtualNetworkLinks/key-vault",
+          "name": "privatelink.vaultcore.azure.net/key-vault",
+          "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks"
+        },
+        {
+          "id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6/providers/Microsoft.Network/privateEndpoints/vnet-ccp-krc-p6-key-vault",
+          "name": "vnet-ccp-krc-p6-key-vault",
+          "type": "Microsoft.Network/privateEndpoints"
+        },
+        {
+          "id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6/providers/Microsoft.Network/networkInterfaces/vnet-ccp-krc-p6-key-vault.nic.41b946f8-3067-4565-9120-a6c54648d780",
+          "name": "vnet-ccp-krc-p6-key-vault.nic.41b946f8-3067-4565-9120-a6c54648d780",
+          "type": "Microsoft.Network/networkInterfaces"
+        },
+        {
+          "id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6/providers/Microsoft.Insights/components/appi-ccp-krc-p6",
+          "name": "appi-ccp-krc-p6",
+          "type": "Microsoft.Insights/components"
+        },
+        {
+          "id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6/providers/Microsoft.Insights/dataCollectionRules/aks-ccp-krc-p6-container-insights",
+          "name": "aks-ccp-krc-p6-container-insights",
+          "type": "Microsoft.Insights/dataCollectionRules"
+        },
+        {
+          "id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6/providers/Microsoft.ContainerService/managedClusters/aks-ccp-krc-p6",
+          "name": "aks-ccp-krc-p6",
+          "type": "Microsoft.ContainerService/managedClusters"
+        },
+        {
+          "id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6/providers/Microsoft.DBforPostgreSQL/flexibleServers/pg-ccp-p6-krc-57781024",
+          "name": "pg-ccp-p6-krc-57781024",
+          "type": "Microsoft.DBforPostgreSQL/flexibleServers"
+        },
+        {
+          "id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6/providers/microsoft.insights/actiongroups/Application Insights Smart Detection",
+          "name": "Application Insights Smart Detection",
+          "type": "microsoft.insights/actiongroups"
+        },
+        {
+          "id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6/providers/microsoft.alertsmanagement/smartDetectorAlertRules/Failure Anomalies - appi-ccp-krc-p6",
+          "name": "Failure Anomalies - appi-ccp-krc-p6",
+          "type": "microsoft.alertsmanagement/smartDetectorAlertRules"
+        }
+      ]
+    },
+    "disks": {
+      "status": "observed",
+      "value": [
+        {
+          "diskSizeGb": null,
+          "managedBy": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/MC_rg-ccp-environment-krc-p6_aks-ccp-krc-p6_koreacentral/providers/Microsoft.Compute/virtualMachineScaleSets/aks-system-28424879-vmss/virtualMachines/aks-system-28424879-vmss_0",
+          "name": "pvc-5e9d8389-bdaf-49ad-98d9-97612e5db63f"
+        }
+      ]
+    },
+    "quota": {
+      "status": "observed",
+      "value": [
+        {
+          "current": "8",
+          "limit": "10",
+          "name": "standardDSv4Family"
+        },
+        {
+          "current": "8",
+          "limit": "10",
+          "name": "cores"
+        }
+      ]
+    },
+    "pg_metric_definitions": {
+      "status": "observed",
+      "value": [
+        {
+          "name": "bloat_percent",
+          "unit": "Percent"
+        },
+        {
+          "name": "database_size_bytes",
+          "unit": "Bytes"
+        },
+        {
+          "name": "tps",
+          "unit": "Count"
+        },
+        {
+          "name": "is_db_alive",
+          "unit": "Count"
+        },
+        {
+          "name": "backup_storage_used",
+          "unit": "Bytes"
+        },
+        {
+          "name": "cpu_credits_consumed",
+          "unit": "Count"
+        },
+        {
+          "name": "cpu_credits_remaining",
+          "unit": "Count"
+        },
+        {
+          "name": "cpu_percent",
+          "unit": "Percent"
+        },
+        {
+          "name": "memory_percent",
+          "unit": "Percent"
+        },
+        {
+          "name": "iops",
+          "unit": "Count"
+        },
+        {
+          "name": "disk_bandwidth_consumed_percentage",
+          "unit": "Percent"
+        },
+        {
+          "name": "disk_iops_consumed_percentage",
+          "unit": "Percent"
+        },
+        {
+          "name": "disk_queue_depth",
+          "unit": "Count"
+        },
+        {
+          "name": "read_throughput",
+          "unit": "Count"
+        },
+        {
+          "name": "write_throughput",
+          "unit": "Count"
+        },
+        {
+          "name": "read_iops",
+          "unit": "Count"
+        },
+        {
+          "name": "write_iops",
+          "unit": "Count"
+        },
+        {
+          "name": "storage_percent",
+          "unit": "Percent"
+        },
+        {
+          "name": "storage_used",
+          "unit": "Bytes"
+        },
+        {
+          "name": "storage_free",
+          "unit": "Bytes"
+        },
+        {
+          "name": "txlogs_storage_used",
+          "unit": "Bytes"
+        },
+        {
+          "name": "xact_total",
+          "unit": "Count"
+        },
+        {
+          "name": "xact_commit",
+          "unit": "Count"
+        },
+        {
+          "name": "xact_rollback",
+          "unit": "Count"
+        },
+        {
+          "name": "numbackends",
+          "unit": "Count"
+        },
+        {
+          "name": "deadlocks",
+          "unit": "Count"
+        },
+        {
+          "name": "tup_inserted",
+          "unit": "Count"
+        },
+        {
+          "name": "tup_deleted",
+          "unit": "Count"
+        },
+        {
+          "name": "tup_updated",
+          "unit": "Count"
+        },
+        {
+          "name": "tup_returned",
+          "unit": "Count"
+        },
+        {
+          "name": "tup_fetched",
+          "unit": "Count"
+        },
+        {
+          "name": "temp_files",
+          "unit": "Count"
+        },
+        {
+          "name": "temp_bytes",
+          "unit": "Bytes"
+        },
+        {
+          "name": "blks_read",
+          "unit": "Count"
+        },
+        {
+          "name": "blks_hit",
+          "unit": "Count"
+        },
+        {
+          "name": "sessions_by_state",
+          "unit": "Count"
+        },
+        {
+          "name": "sessions_by_wait_event_type",
+          "unit": "Count"
+        },
+        {
+          "name": "oldest_backend_time_sec",
+          "unit": "Seconds"
+        },
+        {
+          "name": "oldest_backend_xmin",
+          "unit": "Count"
+        },
+        {
+          "name": "oldest_backend_xmin_age",
+          "unit": "Count"
+        },
+        {
+          "name": "longest_query_time_sec",
+          "unit": "Seconds"
+        },
+        {
+          "name": "longest_transaction_time_sec",
+          "unit": "Seconds"
+        },
+        {
+          "name": "physical_replication_delay_in_seconds",
+          "unit": "Seconds"
+        },
+        {
+          "name": "physical_replication_delay_in_bytes",
+          "unit": "Bytes"
+        },
+        {
+          "name": "logical_replication_delay_in_bytes",
+          "unit": "Bytes"
+        },
+        {
+          "name": "logical_replication_slot_sync_status",
+          "unit": "Count"
+        },
+        {
+          "name": "active_connections",
+          "unit": "Count"
+        },
+        {
+          "name": "cpu_limit",
+          "unit": "Count"
+        },
+        {
+          "name": "max_connections",
+          "unit": "Count"
+        },
+        {
+          "name": "network_bytes_egress",
+          "unit": "Bytes"
+        },
+        {
+          "name": "network_bytes_ingress",
+          "unit": "Bytes"
+        },
+        {
+          "name": "connections_failed",
+          "unit": "Count"
+        },
+        {
+          "name": "connections_succeeded",
+          "unit": "Count"
+        },
+        {
+          "name": "maximum_used_transactionIDs",
+          "unit": "Count"
+        },
+        {
+          "name": "analyze_count_user_tables",
+          "unit": "Count"
+        },
+        {
+          "name": "autoanalyze_count_user_tables",
+          "unit": "Count"
+        },
+        {
+          "name": "autovacuum_count_user_tables",
+          "unit": "Count"
+        },
+        {
+          "name": "n_dead_tup_user_tables",
+          "unit": "Count"
+        },
+        {
+          "name": "n_live_tup_user_tables",
+          "unit": "Count"
+        },
+        {
+          "name": "n_mod_since_analyze_user_tables",
+          "unit": "Count"
+        },
+        {
+          "name": "tables_analyzed_user_tables",
+          "unit": "Count"
+        },
+        {
+          "name": "tables_autoanalyzed_user_tables",
+          "unit": "Count"
+        },
+        {
+          "name": "tables_autovacuumed_user_tables",
+          "unit": "Count"
+        },
+        {
+          "name": "tables_counter_user_tables",
+          "unit": "Count"
+        },
+        {
+          "name": "tables_vacuumed_user_tables",
+          "unit": "Count"
+        },
+        {
+          "name": "vacuum_count_user_tables",
+          "unit": "Count"
+        },
+        {
+          "name": "client_connections_total",
+          "unit": "Count"
+        },
+        {
+          "name": "client_connections_active",
+          "unit": "Count"
+        },
+        {
+          "name": "client_connections_waiting",
+          "unit": "Count"
+        },
+        {
+          "name": "server_connections_active",
+          "unit": "Count"
+        },
+        {
+          "name": "server_connections_idle",
+          "unit": "Count"
+        },
+        {
+          "name": "total_pooled_connections",
+          "unit": "Count"
+        },
+        {
+          "name": "num_pools",
+          "unit": "Count"
+        },
+        {
+          "name": "tcp_connection_backlog",
+          "unit": "Count"
+        },
+        {
+          "name": "postmaster_process_cpu_usage_percent",
+          "unit": "Percent"
+        }
+      ]
+    }
+  }
+}
