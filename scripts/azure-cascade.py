@@ -320,7 +320,7 @@ class Runtime:
                 'images': {s['name']: s['imageID'] for s in statuses},
                 'proxy_version': self.admin(NS, name, 'server_info')['version'],
                 'runtime_guard': self.admin(NS, name, 'runtime?format=json').get('entries', {}).get(p4.GUARD),
-                'stats_matcher': [v['stats_matcher'] for v in walk(self.admin(NS, name, 'config_dump?resource=bootstrap')) if 'stats_matcher' in v]})
+                'stats_matcher': [v['stats_matcher'] for v in walk(self.admin(NS, name, 'config_dump?mask=bootstrap.stats_config')) if 'stats_matcher' in v]})
         require(len(result['targets']) == 1, 'paired scenario requires one replica and scale headroom to two')
         hp = self.pod(NS, 'app=haproxy')
         require(next(c['image'] for c in hp['spec']['containers'] if c['name'] == 'haproxy') == PINS['HAPROXY_IMAGE'], 'HAProxy source image drift')
