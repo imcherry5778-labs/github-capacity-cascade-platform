@@ -67,6 +67,7 @@ class SourceTests(unittest.TestCase):
         items = a.render(identity())['fixtures.json']['items']
         config = next(o['data']['haproxy.cfg'] for o in items if o['kind'] == 'ConfigMap' and o['metadata']['name'] == 'haproxy')
         self.assertTrue(config.endswith('\n'))
+        self.assertIn('frontend check\n  option httpclose\n', config)
         self.assertIn('ext-authz-sim.p8-shared-gate.svc.cluster.local:8080', config)
         pods = []
         for obj in items:

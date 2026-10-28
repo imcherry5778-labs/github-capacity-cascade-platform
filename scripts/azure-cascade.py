@@ -88,6 +88,7 @@ def render(value):
     # Reuse the exact P4 HAProxy policy; replace only the experiment namespace.
     source = (ROOT / 'experiments/fixtures/shared-gate/resources.yaml').read_text()
     hp = textwrap.dedent(source.split('  haproxy.cfg: |\n', 1)[1].split('\n---', 1)[0]).replace('shared-gate.svc', NS + '.svc').rstrip() + '\n'
+    hp = hp.replace('frontend check\n', 'frontend check\n  option httpclose\n')
     resources = [dict(apiVersion='v1', kind='Namespace', metadata={'name': NS, 'labels': labels | {'istio.io/rev': value['revision']}}),
                  obj('v1', 'ResourceQuota', 'p8-boundary', spec={'hard': {'pods': '4', 'requests.cpu': '1500m',
                      'requests.memory': '2048Mi', 'limits.cpu': '1500m', 'limits.memory': '2048Mi', 'persistentvolumeclaims': '0'}}),
