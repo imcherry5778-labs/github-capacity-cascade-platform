@@ -133,6 +133,18 @@ class SourceTests(unittest.TestCase):
                                         ({'configs': [{'cluster': cluster}]}, stats, 3)):
             with self.assertRaises(ValueError): a.target_mapping(dump, payload, capacity)
 
+    def test_original_dst_requires_actual_8080_listener_route_binding(self):
+        cluster = {'name': 'inbound|8080||', 'alt_stat_name': 'inbound|8080||;', 'type': 'ORIGINAL_DST',
+                   'circuit_breakers': {'thresholds': [{'max_requests': 2}]}}
+        dump = {'configs': [{'cluster': cluster}]}
+        stats = {'stats': [{'name': 'cluster.inbound|8080||;.' + suffix, 'value': 0} for suffix in a.p4.SUFFIXES]}
+        listener = {'filter_chain_match': {'destination_port': 8080}, 'route_config': {'route': {'cluster': cluster['name']}}}
+        mapping, _ = a.target_mapping(dump, stats, 2, listener)
+        self.assertEqual(mapping['endpoint_mapping'], 'listener-port-8080-to-ORIGINAL_DST')
+        for binding in (None, {'filter_chain_match': {'destination_port': 3000}, 'route': {'cluster': cluster['name']}},
+                        {'filter_chain_match': {'destination_port': 8080}, 'route': {'cluster': 'other'}}):
+            with self.assertRaises(ValueError): a.target_mapping(dump, stats, 2, binding)
+
     def test_window_and_bounded_demand(self):
         value = a.load(ROOT / 'experiments/fixtures/shared-gate/azure-saturation.json')
         a.plan(value)

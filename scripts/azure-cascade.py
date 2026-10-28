@@ -212,10 +212,13 @@ def gateway_scope(value, policy, listeners):
             'policy_spec_sha256': digest(policy['spec']), 'effective_policy_id': policy_id, 'filter_chains': matches}
 
 
-def target_mapping(dump, stat_payload, capacity):
+def target_mapping(dump, stat_payload, capacity, listeners=None):
     clusters = [v['cluster'] for v in walk(dump) if isinstance(v.get('cluster'), dict) and
                 v['cluster'].get('name', '').startswith('inbound|')]
-    selected = [c for c in clusters if any(v.get('port_value') == 8080 for v in walk(c.get('load_assignment', {})))]
+    bindings = {v['route']['cluster'] for chain in walk(listeners) if chain.get('filter_chain_match', {}).get('destination_port') == 8080
+                for v in walk(chain) if isinstance(v.get('route'), dict) and v['route'].get('cluster')}
+    selected = [c for c in clusters if any(v.get('port_value') == 8080 for v in walk(c.get('load_assignment', {}))) or
+                c.get('type') == 'ORIGINAL_DST' and c['name'] in bindings]
     require(len(selected) == 1, 'actual inbound app endpoint cluster absent/ambiguous')
     c = selected[0]
     thresholds = c.get('circuit_breakers', {}).get('thresholds', [])
@@ -225,7 +228,7 @@ def target_mapping(dump, stat_payload, capacity):
              s['name'][len(p):] in p4.SUFFIXES for p in prefixes)}
     require(len(names) == len(p4.SUFFIXES) and set(p4.by_suffix(names)) == set(p4.SUFFIXES), 'required actual target stats absent/ambiguous')
     return {'cluster_name': c['name'], 'alt_stat_name': c.get('alt_stat_name'), 'capacity': capacity,
-            'stat_names': sorted(names)}, names
+            'stat_names': sorted(names), 'endpoint_mapping': 'listener-port-8080-to-ORIGINAL_DST' if c.get('type') == 'ORIGINAL_DST' else 'load_assignment'}, names
 
 
 def quantity(value):
@@ -309,7 +312,8 @@ class Runtime:
             name = pod['metadata']['name']
             require(next(c['image'] for c in pod['spec']['containers'] if c['name'] == 'app') == self.value['ext_authz_image'], 'target source image drift')
             mapping, _ = target_mapping(self.admin(NS, name, 'config_dump?resource=dynamic_active_clusters'),
-                self.admin(NS, name, 'stats?format=json&filter=upstream_rq_'), config['max_requests'])
+                self.admin(NS, name, 'stats?format=json&filter=upstream_rq_'), config['max_requests'],
+                self.admin(NS, name, 'config_dump?resource=dynamic_listeners'))
             require(int(self.k('-n', NS, 'exec', name, '-c', 'app', '--', 'cat', '/config/hold-ms')) == config['hold_ms'], 'hold convergence')
             statuses = pod['status'].get('containerStatuses', []) + pod['status'].get('initContainerStatuses', [])
             result['targets'].append({'uid': pod['metadata']['uid'], 'name': name, 'mapping': mapping,
