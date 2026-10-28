@@ -1,0 +1,231 @@
+{
+  "source_sha": "uncommitted-source-adapter-management-read-only",
+  "resource_id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6/providers/Microsoft.DBforPostgreSQL/flexibleServers/pg-ccp-p6-krc-57781024",
+  "window_utc": {
+    "start": "2026-10-28T15:55:38.382132+00:00",
+    "end": "2026-10-28T16:00:38.382132+00:00"
+  },
+  "metrics": [
+    {
+      "name": "cpu_percent",
+      "unit": "Percent",
+      "status": "observed",
+      "points": [
+        {
+          "average": 3.331210719152798,
+          "maximum": 3.5594358629952985,
+          "timeStamp": "2026-10-28T15:55:00Z"
+        },
+        {
+          "average": 3.4740807304009484,
+          "maximum": 3.7978919190229217,
+          "timeStamp": "2026-10-28T15:56:00Z"
+        },
+        {
+          "average": 3.1910421044650015,
+          "maximum": 3.458697112155809,
+          "timeStamp": "2026-10-28T15:57:00Z"
+        },
+        {
+          "average": 2.9913742494280484,
+          "maximum": 3.1857813547954397,
+          "timeStamp": "2026-10-28T15:58:00Z"
+        },
+        {
+          "average": 4.766309863108348,
+          "maximum": 6.74364123159304,
+          "timeStamp": "2026-10-28T15:59:00Z"
+        }
+      ]
+    },
+    {
+      "name": "active_connections",
+      "unit": "Count",
+      "status": "observed",
+      "points": [
+        {
+          "average": 10.0,
+          "maximum": 10.0,
+          "timeStamp": "2026-10-28T15:55:00Z"
+        },
+        {
+          "average": 11.0,
+          "maximum": 11.0,
+          "timeStamp": "2026-10-28T15:56:00Z"
+        },
+        {
+          "average": 10.5,
+          "maximum": 11.0,
+          "timeStamp": "2026-10-28T15:57:00Z"
+        },
+        {
+          "average": 11.0,
+          "maximum": 11.0,
+          "timeStamp": "2026-10-28T15:58:00Z"
+        },
+        {
+          "average": 10.0,
+          "maximum": 10.0,
+          "timeStamp": "2026-10-28T15:59:00Z"
+        }
+      ]
+    },
+    {
+      "name": "storage_percent",
+      "unit": "Percent",
+      "status": "observed",
+      "points": [
+        {
+          "average": 13.223920852314548,
+          "maximum": 13.223920852314548,
+          "timeStamp": "2026-10-28T15:55:00Z"
+        },
+        {
+          "average": 13.223920852314548,
+          "maximum": 13.223920852314548,
+          "timeStamp": "2026-10-28T15:56:00Z"
+        },
+        {
+          "average": 13.223920852314548,
+          "maximum": 13.223920852314548,
+          "timeStamp": "2026-10-28T15:57:00Z"
+        },
+        {
+          "average": 13.223920852314548,
+          "maximum": 13.223920852314548,
+          "timeStamp": "2026-10-28T15:58:00Z"
+        },
+        {
+          "average": 13.223920852314548,
+          "maximum": 13.223920852314548,
+          "timeStamp": "2026-10-28T15:59:00Z"
+        }
+      ]
+    },
+    {
+      "name": "storage_used",
+      "unit": "Bytes",
+      "status": "observed",
+      "points": [
+        {
+          "average": 4430245888.0,
+          "maximum": 4430245888.0,
+          "timeStamp": "2026-10-28T15:55:00Z"
+        },
+        {
+          "average": 4430245888.0,
+          "maximum": 4430245888.0,
+          "timeStamp": "2026-10-28T15:56:00Z"
+        },
+        {
+          "average": 4430245888.0,
+          "maximum": 4430245888.0,
+          "timeStamp": "2026-10-28T15:57:00Z"
+        },
+        {
+          "average": 4430245888.0,
+          "maximum": 4430245888.0,
+          "timeStamp": "2026-10-28T15:58:00Z"
+        },
+        {
+          "average": 4430245888.0,
+          "maximum": 4430245888.0,
+          "timeStamp": "2026-10-28T15:59:00Z"
+        }
+      ]
+    },
+    {
+      "name": "read_iops",
+      "unit": "Count",
+      "status": "observed",
+      "points": [
+        {
+          "average": 0.0,
+          "maximum": 0.0,
+          "timeStamp": "2026-10-28T15:55:00Z"
+        },
+        {
+          "timeStamp": "2026-10-28T15:56:00Z"
+        },
+        {
+          "timeStamp": "2026-10-28T15:57:00Z"
+        },
+        {
+          "timeStamp": "2026-10-28T15:58:00Z"
+        },
+        {
+          "timeStamp": "2026-10-28T15:59:00Z"
+        }
+      ]
+    },
+    {
+      "name": "write_iops",
+      "unit": "Count",
+      "status": "no-data",
+      "points": [
+        {
+          "timeStamp": "2026-10-28T15:55:00Z"
+        },
+        {
+          "timeStamp": "2026-10-28T15:56:00Z"
+        },
+        {
+          "timeStamp": "2026-10-28T15:57:00Z"
+        },
+        {
+          "timeStamp": "2026-10-28T15:58:00Z"
+        },
+        {
+          "timeStamp": "2026-10-28T15:59:00Z"
+        }
+      ]
+    },
+    {
+      "name": "disk_iops_consumed_percentage",
+      "unit": "Percent",
+      "status": "observed",
+      "points": [
+        {
+          "average": 0.0,
+          "maximum": 0.0,
+          "timeStamp": "2026-10-28T15:55:00Z"
+        },
+        {
+          "timeStamp": "2026-10-28T15:56:00Z"
+        },
+        {
+          "timeStamp": "2026-10-28T15:57:00Z"
+        },
+        {
+          "timeStamp": "2026-10-28T15:58:00Z"
+        },
+        {
+          "timeStamp": "2026-10-28T15:59:00Z"
+        }
+      ]
+    },
+    {
+      "name": "disk_queue_depth",
+      "unit": "Count",
+      "status": "no-data",
+      "points": [
+        {
+          "timeStamp": "2026-10-28T15:55:00Z"
+        },
+        {
+          "timeStamp": "2026-10-28T15:56:00Z"
+        },
+        {
+          "timeStamp": "2026-10-28T15:57:00Z"
+        },
+        {
+          "timeStamp": "2026-10-28T15:58:00Z"
+        },
+        {
+          "timeStamp": "2026-10-28T15:59:00Z"
+        }
+      ]
+    }
+  ],
+  "interpretation": "ARM minute bins; assess overlap/aggregation with SQL command latency and direct sentinel, not request-level DB tracing"
+}

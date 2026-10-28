@@ -1,0 +1,52 @@
+{
+  "recorded_at_utc": "2026-10-28T15:50:58.686098+00:00",
+  "url": "https://prices.azure.com/api/retail/prices?%24filter=serviceName+eq+%27Log+Analytics%27+and+armRegionName+eq+%27koreacentral%27",
+  "next_page": false,
+  "items": [
+    {
+      "productName": "Log Analytics",
+      "skuName": "Free",
+      "meterName": "Free Data Analyzed",
+      "unitOfMeasure": "1 GB",
+      "retailPrice": 0.0,
+      "currencyCode": "USD",
+      "type": "Consumption"
+    },
+    {
+      "productName": "Log Analytics",
+      "skuName": "Analytics Logs",
+      "meterName": "Analytics Logs Data Retention",
+      "unitOfMeasure": "1 GB/Month",
+      "retailPrice": 0.14,
+      "currencyCode": "USD",
+      "type": "Consumption"
+    },
+    {
+      "productName": "Log Analytics",
+      "skuName": "Analytics Logs",
+      "meterName": "Analytics Logs Data Analyzed",
+      "unitOfMeasure": "1 GB",
+      "retailPrice": 2.3,
+      "currencyCode": "USD",
+      "type": "Consumption"
+    },
+    {
+      "productName": "Log Analytics",
+      "skuName": "Analytics Logs",
+      "meterName": "Analytics Logs Data Ingestion",
+      "unitOfMeasure": "1 GB",
+      "retailPrice": 0.0,
+      "currencyCode": "USD",
+      "type": "Consumption"
+    },
+    {
+      "productName": "Log Analytics",
+      "skuName": "Analytics Logs",
+      "meterName": "Analytics Logs Data Ingestion",
+      "unitOfMeasure": "1 GB",
+      "retailPrice": 3.11,
+      "currencyCode": "USD",
+      "type": "Consumption"
+    }
+  ]
+}

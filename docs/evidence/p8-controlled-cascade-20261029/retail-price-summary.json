@@ -1,0 +1,75 @@
+{
+  "recorded_at_utc": "2026-10-28T15:46:40.456753+00:00",
+  "source_urls": [
+    "https://prices.azure.com/api/retail/prices?%24filter=serviceName+eq+%27Container+Registry%27+and+armRegionName+eq+%27koreacentral%27",
+    "https://prices.azure.com/api/retail/prices?%24filter=serviceName+eq+%27Azure+Monitor%27+and+armRegionName+eq+%27koreacentral%27",
+    "https://prices.azure.com/api/retail/prices?%24filter=serviceName+eq+%27Bandwidth%27+and+armRegionName+eq+%27koreacentral%27"
+  ],
+  "selected_items": [
+    {
+      "productName": "Container Registry",
+      "skuName": "Basic",
+      "meterName": "Basic Registry Unit",
+      "unitOfMeasure": "1/Day",
+      "retailPrice": 0.1666,
+      "currencyCode": "USD",
+      "effectiveStartDate": "2018-01-01T00:00:00Z",
+      "type": "Consumption"
+    },
+    {
+      "productName": "Container Registry",
+      "skuName": "Basic",
+      "meterName": "Data Stored",
+      "unitOfMeasure": "1 GB/Month",
+      "retailPrice": 0.1,
+      "currencyCode": "USD",
+      "effectiveStartDate": "2018-02-20T00:00:00Z",
+      "type": "Consumption"
+    },
+    {
+      "productName": "Azure Monitor",
+      "skuName": "Metric Samples Ingested",
+      "meterName": "Metric Samples Ingested Metric samples",
+      "unitOfMeasure": "10M",
+      "retailPrice": 0.11,
+      "currencyCode": "USD",
+      "effectiveStartDate": "2026-10-01T00:00:00Z",
+      "type": "Consumption"
+    },
+    {
+      "productName": "Rtn Preference: MGN",
+      "skuName": "Standard",
+      "meterName": "Standard Data Transfer Out",
+      "unitOfMeasure": "1 GB",
+      "retailPrice": 0.12,
+      "currencyCode": "USD",
+      "effectiveStartDate": "2022-05-01T00:00:00Z",
+      "type": "Consumption"
+    }
+  ],
+  "raw": {
+    "file": "results/raw/p8-source-preflight-20261029/retail-price-delta.json",
+    "sha256": "11ab84ca4014a00d7ebf9d9c2edb256a0ed1da2977b7ea38563c3c2c52b984b5"
+  },
+  "log_price_evidence": "log-price-query.json",
+  "estimate": {
+    "new_compute_storage_resources": false,
+    "new_registry": false,
+    "acr_storage_envelope_gb": 0.2,
+    "telemetry_envelope_gb": 0.2,
+    "metric_samples_envelope": 100000,
+    "egress_envelope_gb": 1,
+    "acr_extra_storage_usd_upper_full_month": 0.02,
+    "log_ingestion_usd": 0.622,
+    "metric_ingestion_usd": 0.0011,
+    "egress_usd": 0.12,
+    "allowance_for_queries_and_variance_usd": 1.2369,
+    "total_incremental_review_estimate_usd": 2,
+    "review_budget_usd": 10,
+    "limitations": [
+      "volume envelopes are planning assumptions, not measurements or billing caps",
+      "existing retention costs excluded; no retention extension",
+      "ActualCost is separate, delayed and denominated in KRW; no USD conversion asserted"
+    ]
+  }
+}
