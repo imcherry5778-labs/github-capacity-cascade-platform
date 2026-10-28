@@ -1,0 +1,17 @@
+{
+  "mitigation_seconds": 180,
+  "recovery_seconds": 180,
+  "backoff_ms": [250, 750],
+  "seed": 5778,
+  "queue_limit": 12,
+  "queue_timeout_ms": 250,
+  "threshold": 0.5,
+  "scrape_seconds": 15,
+  "ingestion_seconds": 30,
+  "controller_seconds": 15,
+  "freshness_seconds": 60,
+  "prometheus": "https://amw-ccp-krc-p6-frh3gzbxdugmffa7.koreacentral.prometheus.monitor.azure.com",
+  "prometheus_cluster": "aks-ccp-krc-p6",
+  "identity_client_id": "00000000-0000-0000-0000-000000000000",
+  "keda_version": "2.18.0"
+}

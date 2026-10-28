@@ -1,0 +1,50 @@
+{
+  "work_unit": "P9-W1",
+  "baseline_sha": "3f788a9c1d103f6c07bd403af269133fac287002",
+  "recorded_at_utc": "2026-10-28T21:05:15.145872+00:00",
+  "state": "source-prepared; Azure runtime unapproved and not executed",
+  "source_identity": "exact submitted source is the Draft PR HEAD in the final report; hashes bind the prepared executable source",
+  "file_sha256": {
+    "scripts/azure-mitigation.py": "926adb0e0f03973ac28c000d21c32effd70aaa05c85e4da8d4afe477299de661",
+    "scripts/azure-cascade.py": "245109a232839f799ca251caef55a165269796750cec6309a52de5471d5a14b2",
+    "scripts/azure-operations.py": "f49437808694842610636f3bd06083ba7b8205bc00f414bffe71a075b4df948a",
+    "scripts/local-verify.sh": "dac750c17287c33cc941de05da7249c2b61f4234fa8c46ac0db0dcf2ab61ad82",
+    "experiments/fixtures/shared-gate/mitigation-candidate.json": "8a4567d2b594f57772057546d49a28c80cf6700de372e6d0dfa771f063972941",
+    "tests/e2e/test-azure-mitigation.py": "cad65b2c6866999c65971d34993d615b784e2bf80cbb54170f7247a336da375e"
+  },
+  "validation": {
+    "p9_regression": {
+      "tests": 19,
+      "result": "passed"
+    },
+    "p8_regression": {
+      "tests": 38,
+      "result": "passed"
+    },
+    "p4_saturation_regression": {
+      "tests": 10,
+      "result": "passed"
+    },
+    "p7_operations_regression": "passed",
+    "p8_historical_raw_replay": {
+      "calibration_05": "passed",
+      "no_retry_02_retry_pair": "passed",
+      "archive_sha256": "8d5681eba3f7d31282ab7bd24a3e226577255ec966ca877b9d871d4fd1d6970f"
+    },
+    "make_static": "passed; final prepared executable source hashes unchanged during run",
+    "haproxy_native_parser_and_loopback": "passed; see haproxy-local.json; not container/Azure validation",
+    "ast_json_whitespace": "passed",
+    "local_cluster_runtime": "not run on this host; Docker daemon unavailable; existing full-runtime PR CI retained",
+    "azure_workload_runtime": "not executed"
+  },
+  "live_gates": [
+    "explicit P9 exact-source approval and source gate",
+    "Kubernetes/Argo/normal and healthy-gate validation",
+    "actual KEDA version/CRD/operator/SA/identity/authentication and other ScaledObject impact",
+    "actual per-Pod series name/label/unit/freshness/inventory; scrape/ingestion/controller cadence",
+    "admitted init/native-sidecar resources and node headroom",
+    "bounded calibration/freeze and run ledger",
+    "same-window guard/ownership review and continuing-demand recovery",
+    "P9-owned restoration/cleanup; no environment teardown or retention extension"
+  ]
+}

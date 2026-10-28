@@ -1,0 +1,254 @@
+{
+  "recorded_at_utc": "2026-10-28T20:53:41.744655+00:00",
+  "services": [
+    {
+      "url": "https://prices.azure.com/api/retail/prices?%24filter=serviceName+eq+%27Container+Registry%27+and+armRegionName+eq+%27koreacentral%27",
+      "status": "observed",
+      "selected": [
+        {
+          "productName": "Container Registry",
+          "skuName": "Basic",
+          "meterName": "Basic Registry Unit",
+          "unitOfMeasure": "1/Day",
+          "retailPrice": 0.1666,
+          "currencyCode": "USD",
+          "effectiveStartDate": "2018-01-01T00:00:00Z",
+          "type": "Consumption"
+        },
+        {
+          "productName": "Container Registry",
+          "skuName": "Standard",
+          "meterName": "Data Stored",
+          "unitOfMeasure": "1 GB/Month",
+          "retailPrice": 0.1,
+          "currencyCode": "USD",
+          "effectiveStartDate": "2018-02-20T00:00:00Z",
+          "type": "Consumption"
+        },
+        {
+          "productName": "Container Registry",
+          "skuName": "Premium",
+          "meterName": "Data Stored",
+          "unitOfMeasure": "1 GB/Month",
+          "retailPrice": 0.1,
+          "currencyCode": "USD",
+          "effectiveStartDate": "2018-02-20T00:00:00Z",
+          "type": "Consumption"
+        },
+        {
+          "productName": "Container Registry",
+          "skuName": "Basic",
+          "meterName": "Data Stored",
+          "unitOfMeasure": "1 GB/Month",
+          "retailPrice": 0.1,
+          "currencyCode": "USD",
+          "effectiveStartDate": "2018-02-20T00:00:00Z",
+          "type": "Consumption"
+        }
+      ],
+      "nextPageLink": null
+    },
+    {
+      "url": "https://prices.azure.com/api/retail/prices?%24filter=serviceName+eq+%27Azure+Monitor%27+and+armRegionName+eq+%27koreacentral%27",
+      "status": "observed",
+      "selected": [
+        {
+          "productName": "Azure Monitor",
+          "skuName": "Free Benefit - Az Sentinel Trial",
+          "meterName": "Free Benefit - Az Sentinel Trial Data Ingestion",
+          "unitOfMeasure": "1 GB",
+          "retailPrice": 0.0,
+          "currencyCode": "USD",
+          "effectiveStartDate": "2021-09-01T00:00:00Z",
+          "type": "Consumption"
+        },
+        {
+          "productName": "Azure Monitor",
+          "skuName": "Auxiliary Logs",
+          "meterName": "Auxiliary Logs Data Ingestion",
+          "unitOfMeasure": "1 GB",
+          "retailPrice": 0.07,
+          "currencyCode": "USD",
+          "effectiveStartDate": "2025-08-01T00:00:00Z",
+          "type": "Consumption"
+        },
+        {
+          "productName": "Azure Monitor",
+          "skuName": "Metric Samples Ingested",
+          "meterName": "Metric Samples Ingested Metric samples",
+          "unitOfMeasure": "10M",
+          "retailPrice": 0.11,
+          "currencyCode": "USD",
+          "effectiveStartDate": "2026-10-01T00:00:00Z",
+          "type": "Consumption"
+        },
+        {
+          "productName": "Azure Monitor",
+          "skuName": "Basic Logs",
+          "meterName": "Basic Logs Data Ingestion",
+          "unitOfMeasure": "1 GB",
+          "retailPrice": 0.675,
+          "currencyCode": "USD",
+          "effectiveStartDate": "2022-10-01T00:00:00Z",
+          "type": "Consumption"
+        },
+        {
+          "productName": "Azure Monitor",
+          "skuName": "Free Benefit - M365 Defender",
+          "meterName": "Free Benefit - M365 Defender Data Ingestion",
+          "unitOfMeasure": "1 GB",
+          "retailPrice": 0.0,
+          "currencyCode": "USD",
+          "effectiveStartDate": "2021-09-01T00:00:00Z",
+          "type": "Consumption"
+        }
+      ],
+      "nextPageLink": null
+    },
+    {
+      "url": "https://prices.azure.com/api/retail/prices?%24filter=serviceName+eq+%27Bandwidth%27+and+armRegionName+eq+%27koreacentral%27",
+      "status": "observed",
+      "selected": [
+        {
+          "productName": "Bandwidth - Routing Preference: Internet",
+          "skuName": "Standard",
+          "meterName": "Standard Data Transfer Out",
+          "unitOfMeasure": "1 GB",
+          "retailPrice": 0.0,
+          "currencyCode": "USD",
+          "effectiveStartDate": "2022-03-01T00:00:00Z",
+          "type": "Consumption"
+        },
+        {
+          "productName": "Bandwidth - Routing Preference: Internet",
+          "skuName": "Standard",
+          "meterName": "Standard Data Transfer Out",
+          "unitOfMeasure": "1 GB",
+          "retailPrice": 0.11,
+          "currencyCode": "USD",
+          "effectiveStartDate": "2022-03-01T00:00:00Z",
+          "type": "Consumption"
+        },
+        {
+          "productName": "Bandwidth - Routing Preference: Internet",
+          "skuName": "Standard",
+          "meterName": "Standard Data Transfer Out",
+          "unitOfMeasure": "1 GB",
+          "retailPrice": 0.075,
+          "currencyCode": "USD",
+          "effectiveStartDate": "2022-03-01T00:00:00Z",
+          "type": "Consumption"
+        },
+        {
+          "productName": "Bandwidth - Routing Preference: Internet",
+          "skuName": "Standard",
+          "meterName": "Standard Data Transfer Out",
+          "unitOfMeasure": "1 GB",
+          "retailPrice": 0.06,
+          "currencyCode": "USD",
+          "effectiveStartDate": "2022-03-01T00:00:00Z",
+          "type": "Consumption"
+        },
+        {
+          "productName": "Bandwidth - Routing Preference: Internet",
+          "skuName": "Standard",
+          "meterName": "Standard Data Transfer Out",
+          "unitOfMeasure": "1 GB",
+          "retailPrice": 0.07,
+          "currencyCode": "USD",
+          "effectiveStartDate": "2022-03-01T00:00:00Z",
+          "type": "Consumption"
+        },
+        {
+          "productName": "Rtn Preference: MGN",
+          "skuName": "Standard",
+          "meterName": "Standard Data Transfer Out",
+          "unitOfMeasure": "1 GB",
+          "retailPrice": 0.0,
+          "currencyCode": "USD",
+          "effectiveStartDate": "2022-05-01T00:00:00Z",
+          "type": "Consumption"
+        },
+        {
+          "productName": "Rtn Preference: MGN",
+          "skuName": "Standard",
+          "meterName": "Standard Data Transfer Out",
+          "unitOfMeasure": "1 GB",
+          "retailPrice": 0.12,
+          "currencyCode": "USD",
+          "effectiveStartDate": "2022-05-01T00:00:00Z",
+          "type": "Consumption"
+        },
+        {
+          "productName": "Rtn Preference: MGN",
+          "skuName": "Standard",
+          "meterName": "Standard Data Transfer Out",
+          "unitOfMeasure": "1 GB",
+          "retailPrice": 0.085,
+          "currencyCode": "USD",
+          "effectiveStartDate": "2022-05-01T00:00:00Z",
+          "type": "Consumption"
+        },
+        {
+          "productName": "Rtn Preference: MGN",
+          "skuName": "Standard",
+          "meterName": "Standard Data Transfer Out",
+          "unitOfMeasure": "1 GB",
+          "retailPrice": 0.08,
+          "currencyCode": "USD",
+          "effectiveStartDate": "2022-05-01T00:00:00Z",
+          "type": "Consumption"
+        },
+        {
+          "productName": "Rtn Preference: MGN",
+          "skuName": "Standard",
+          "meterName": "Standard Data Transfer Out",
+          "unitOfMeasure": "1 GB",
+          "retailPrice": 0.08,
+          "currencyCode": "USD",
+          "effectiveStartDate": "2022-05-01T00:00:00Z",
+          "type": "Consumption"
+        },
+        {
+          "productName": "Rtn Preference: MGN",
+          "skuName": "Standard",
+          "meterName": "Standard Data Transfer Out",
+          "unitOfMeasure": "1 GB",
+          "retailPrice": 0.082,
+          "currencyCode": "USD",
+          "effectiveStartDate": "2022-05-01T00:00:00Z",
+          "type": "Consumption"
+        }
+      ],
+      "nextPageLink": null
+    },
+    {
+      "url": "https://prices.azure.com/api/retail/prices?%24filter=serviceName+eq+%27Log+Analytics%27+and+armRegionName+eq+%27koreacentral%27",
+      "status": "observed",
+      "selected": [
+        {
+          "productName": "Log Analytics",
+          "skuName": "Analytics Logs",
+          "meterName": "Analytics Logs Data Ingestion",
+          "unitOfMeasure": "1 GB",
+          "retailPrice": 0.0,
+          "currencyCode": "USD",
+          "effectiveStartDate": "2018-02-01T00:00:00Z",
+          "type": "Consumption"
+        },
+        {
+          "productName": "Log Analytics",
+          "skuName": "Analytics Logs",
+          "meterName": "Analytics Logs Data Ingestion",
+          "unitOfMeasure": "1 GB",
+          "retailPrice": 3.11,
+          "currencyCode": "USD",
+          "effectiveStartDate": "2018-02-01T00:00:00Z",
+          "type": "Consumption"
+        }
+      ],
+      "nextPageLink": null
+    }
+  ],
+  "interpretation": "retail planning inputs; no billed incremental P9 cost or full rate-card claim"
+}

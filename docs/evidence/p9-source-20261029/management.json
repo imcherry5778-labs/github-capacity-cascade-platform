@@ -1,0 +1,256 @@
+{
+  "recorded_at_utc": "2026-10-28T20:53:41.744655+00:00",
+  "boundary": "management-plane read-only; no Kubernetes/workload/Secret access",
+  "cluster": {
+    "id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourcegroups/rg-ccp-environment-krc-p6/providers/Microsoft.ContainerService/managedClusters/aks-ccp-krc-p6",
+    "keda": {
+      "keda": {
+        "enabled": true
+      },
+      "verticalPodAutoscaler": null
+    },
+    "mesh": {
+      "istio": {
+        "certificateAuthority": null,
+        "components": {
+          "egressGateways": null,
+          "ingressGateways": [
+            {
+              "enabled": null,
+              "mode": "Internal"
+            },
+            {
+              "enabled": true,
+              "mode": "External"
+            }
+          ],
+          "proxyRedirectionMechanism": "CNIChaining"
+        },
+        "revisions": [
+          "asm-1-30"
+        ]
+      },
+      "mode": "Istio"
+    },
+    "nodeResourceGroup": "MC_rg-ccp-environment-krc-p6_aks-ccp-krc-p6_koreacentral",
+    "nodes": [
+      {
+        "autoscale": false,
+        "count": 2,
+        "name": "system",
+        "vm": "Standard_D4s_v4"
+      }
+    ],
+    "oidc": {
+      "enabled": true,
+      "issuerUrl": "https://koreacentral.oic.prod-aks.azure.com/2f5f335f-3deb-4703-86a5-2955246260e1/fffbf426-a489-40ce-b385-7b9095717192/"
+    },
+    "provisioning": "Succeeded",
+    "security": {
+      "azureKeyVaultKms": null,
+      "customCaTrustCertificates": null,
+      "defender": null,
+      "imageCleaner": null,
+      "workloadIdentity": {
+        "enabled": true
+      }
+    },
+    "state": "Running",
+    "version": "1.36.4"
+  },
+  "resources": [
+    {
+      "id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6/providers/Microsoft.ManagedIdentity/userAssignedIdentities/aks-ccp-krc-p6-forgejo-secrets",
+      "name": "aks-ccp-krc-p6-forgejo-secrets",
+      "type": "Microsoft.ManagedIdentity/userAssignedIdentities"
+    },
+    {
+      "id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6/providers/Microsoft.Network/privateDnsZones/pg-ccp-p6-krc-57781024.private.postgres.database.azure.com",
+      "name": "pg-ccp-p6-krc-57781024.private.postgres.database.azure.com",
+      "type": "Microsoft.Network/privateDnsZones"
+    },
+    {
+      "id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6/providers/Microsoft.ManagedIdentity/userAssignedIdentities/aks-ccp-krc-p6-kubelet",
+      "name": "aks-ccp-krc-p6-kubelet",
+      "type": "Microsoft.ManagedIdentity/userAssignedIdentities"
+    },
+    {
+      "id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6/providers/Microsoft.ContainerRegistry/registries/acrccpp6krc57781024",
+      "name": "acrccpp6krc57781024",
+      "type": "Microsoft.ContainerRegistry/registries"
+    },
+    {
+      "id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6/providers/Microsoft.Network/privateDnsZones/privatelink.vaultcore.azure.net",
+      "name": "privatelink.vaultcore.azure.net",
+      "type": "Microsoft.Network/privateDnsZones"
+    },
+    {
+      "id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6/providers/Microsoft.Monitor/accounts/amw-ccp-krc-p6",
+      "name": "amw-ccp-krc-p6",
+      "type": "Microsoft.Monitor/accounts"
+    },
+    {
+      "id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6/providers/Microsoft.ManagedIdentity/userAssignedIdentities/aks-ccp-krc-p6-control-plane",
+      "name": "aks-ccp-krc-p6-control-plane",
+      "type": "Microsoft.ManagedIdentity/userAssignedIdentities"
+    },
+    {
+      "id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6/providers/Microsoft.ManagedIdentity/userAssignedIdentities/aks-ccp-krc-p6-cert-manager",
+      "name": "aks-ccp-krc-p6-cert-manager",
+      "type": "Microsoft.ManagedIdentity/userAssignedIdentities"
+    },
+    {
+      "id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6/providers/Microsoft.Network/virtualNetworks/vnet-ccp-krc-p6",
+      "name": "vnet-ccp-krc-p6",
+      "type": "Microsoft.Network/virtualNetworks"
+    },
+    {
+      "id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6/providers/Microsoft.OperationalInsights/workspaces/law-ccp-krc-p6",
+      "name": "law-ccp-krc-p6",
+      "type": "Microsoft.OperationalInsights/workspaces"
+    },
+    {
+      "id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6/providers/Microsoft.Insights/dataCollectionEndpoints/aks-ccp-krc-p6-prometheus",
+      "name": "aks-ccp-krc-p6-prometheus",
+      "type": "Microsoft.Insights/dataCollectionEndpoints"
+    },
+    {
+      "id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6/providers/Microsoft.Insights/dataCollectionRules/aks-ccp-krc-p6-prometheus",
+      "name": "aks-ccp-krc-p6-prometheus",
+      "type": "Microsoft.Insights/dataCollectionRules"
+    },
+    {
+      "id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6/providers/Microsoft.Dashboard/grafana/grafana-ccp-p6-krc-5778",
+      "name": "grafana-ccp-p6-krc-5778",
+      "type": "Microsoft.Dashboard/grafana"
+    },
+    {
+      "id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6/providers/Microsoft.Network/privateDnsZones/pg-ccp-p6-krc-57781024.private.postgres.database.azure.com/virtualNetworkLinks/postgresql",
+      "name": "pg-ccp-p6-krc-57781024.private.postgres.database.azure.com/postgresql",
+      "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks"
+    },
+    {
+      "id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6/providers/Microsoft.Network/privateDnsZones/privatelink.vaultcore.azure.net/virtualNetworkLinks/key-vault",
+      "name": "privatelink.vaultcore.azure.net/key-vault",
+      "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks"
+    },
+    {
+      "id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6/providers/Microsoft.Network/privateEndpoints/vnet-ccp-krc-p6-key-vault",
+      "name": "vnet-ccp-krc-p6-key-vault",
+      "type": "Microsoft.Network/privateEndpoints"
+    },
+    {
+      "id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6/providers/Microsoft.Network/networkInterfaces/vnet-ccp-krc-p6-key-vault.nic.41b946f8-3067-4565-9120-a6c54648d780",
+      "name": "vnet-ccp-krc-p6-key-vault.nic.41b946f8-3067-4565-9120-a6c54648d780",
+      "type": "Microsoft.Network/networkInterfaces"
+    },
+    {
+      "id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6/providers/Microsoft.Insights/components/appi-ccp-krc-p6",
+      "name": "appi-ccp-krc-p6",
+      "type": "Microsoft.Insights/components"
+    },
+    {
+      "id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6/providers/Microsoft.Insights/dataCollectionRules/aks-ccp-krc-p6-container-insights",
+      "name": "aks-ccp-krc-p6-container-insights",
+      "type": "Microsoft.Insights/dataCollectionRules"
+    },
+    {
+      "id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6/providers/Microsoft.ContainerService/managedClusters/aks-ccp-krc-p6",
+      "name": "aks-ccp-krc-p6",
+      "type": "Microsoft.ContainerService/managedClusters"
+    },
+    {
+      "id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6/providers/Microsoft.DBforPostgreSQL/flexibleServers/pg-ccp-p6-krc-57781024",
+      "name": "pg-ccp-p6-krc-57781024",
+      "type": "Microsoft.DBforPostgreSQL/flexibleServers"
+    },
+    {
+      "id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6/providers/microsoft.insights/actiongroups/Application Insights Smart Detection",
+      "name": "Application Insights Smart Detection",
+      "type": "microsoft.insights/actiongroups"
+    },
+    {
+      "id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6/providers/microsoft.alertsmanagement/smartDetectorAlertRules/Failure Anomalies - appi-ccp-krc-p6",
+      "name": "Failure Anomalies - appi-ccp-krc-p6",
+      "type": "microsoft.alertsmanagement/smartDetectorAlertRules"
+    }
+  ],
+  "workspace": {
+    "endpoint": "https://amw-ccp-krc-p6-frh3gzbxdugmffa7.koreacentral.prometheus.monitor.azure.com",
+    "id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourcegroups/rg-ccp-environment-krc-p6/providers/microsoft.monitor/accounts/amw-ccp-krc-p6"
+  },
+  "roles": [
+    {
+      "id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/providers/Microsoft.Authorization/roleAssignments/75eaed6e-275d-41cf-bb11-bc90abe69020",
+      "principalId": "6f750efc-cb1a-4a49-b6e7-23fc6061e25a",
+      "role": "Owner",
+      "scope": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609"
+    },
+    {
+      "id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/providers/Microsoft.Authorization/roleAssignments/699bd8da-8362-4b10-882e-7d8f1081cfc0",
+      "principalId": "6f750efc-cb1a-4a49-b6e7-23fc6061e25a",
+      "role": "Owner",
+      "scope": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609"
+    },
+    {
+      "id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6/providers/Microsoft.Authorization/roleAssignments/2e1b18ce-9de4-79cb-ad24-95e2787b7a2a",
+      "principalId": "2530a764-a608-48f3-855e-0f06ba5da339",
+      "role": "Role Based Access Control Administrator",
+      "scope": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6"
+    },
+    {
+      "id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6/providers/Microsoft.Authorization/roleAssignments/9ad156c5-592e-3386-d4f1-75204efd912f",
+      "principalId": "2530a764-a608-48f3-855e-0f06ba5da339",
+      "role": "Contributor",
+      "scope": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6"
+    }
+  ],
+  "postgres": {
+    "ha": {
+      "mode": "Disabled",
+      "standbyAvailabilityZone": null,
+      "state": "NotEnabled"
+    },
+    "id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6/providers/Microsoft.DBforPostgreSQL/flexibleServers/pg-ccp-p6-krc-57781024",
+    "sku": {
+      "name": "Standard_D2ds_v5",
+      "tier": "GeneralPurpose"
+    },
+    "state": "Ready",
+    "storage": {
+      "autoGrow": "Disabled",
+      "iops": 120,
+      "storageSizeGb": 32,
+      "throughput": null,
+      "tier": "P4",
+      "type": "Premium_LRS"
+    },
+    "version": "17"
+  },
+  "disks": [
+    {
+      "id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/MC_rg-ccp-environment-krc-p6_aks-ccp-krc-p6_koreacentral/providers/Microsoft.Compute/disks/pvc-5e9d8389-bdaf-49ad-98d9-97612e5db63f",
+      "name": "pvc-5e9d8389-bdaf-49ad-98d9-97612e5db63f",
+      "sizeGB": null,
+      "sku": "StandardSSD_LRS",
+      "state": "Attached"
+    }
+  ],
+  "quota": [
+    {
+      "current": "8",
+      "limit": "10",
+      "name": "standardDSv4Family"
+    },
+    {
+      "current": "8",
+      "limit": "10",
+      "name": "cores"
+    }
+  ],
+  "unobserved": [
+    "KEDA actual version/image/CRD/operator/SA",
+    "all workload/Argo/admission state",
+    "actual proxy metric series/freshness/identity authentication"
+  ]
+}

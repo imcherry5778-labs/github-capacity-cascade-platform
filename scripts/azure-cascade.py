@@ -289,10 +289,10 @@ def admission(value, pods):
 
 
 class Runtime:
-    def __init__(self, value):
+    def __init__(self, value, approval_key='P8_AZURE_APPROVED'):
         self.value = identity(value)
         self.since = utc()
-        require(os.environ.get('P8_AZURE_APPROVED') == value['source_sha'], 'explicit P8 execution acknowledgement required')
+        require(os.environ.get(approval_key) == value['source_sha'], 'explicit campaign execution acknowledgement required')
         require(datetime.now(timezone.utc) < datetime(2026, 10, 30, 1, 30, tzinfo=timezone.utc), 'environment retention deadline reached')
         require(os.environ.get('KUBECONFIG') and Path(os.environ['KUBECONFIG']).is_file(), 'dedicated protected kubeconfig required')
         require(Path(os.environ['KUBECONFIG']).stat().st_mode & 0o077 == 0, 'kubeconfig must be protected')
@@ -327,7 +327,7 @@ class Runtime:
     def targets(self):
         return self.pods(NS, 'app=ext-authz-sim')
 
-    def configuration(self, config):
+    def configuration(self, config, *, target_range=(1, 1), haproxy_config=None, hpa_name='hpa-app-cpu'):
         measurement_transport(self.value)
         policy = self.j('-n', 'aks-istio-ingress', 'get', 'authorizationpolicy', 'p8-shared-gate', '-o', 'json')
         result = {'targets': [], 'scenario': config, 'ingress': [], 'forgejo_hostname': self.value['forgejo_hostname']}
@@ -344,11 +344,12 @@ class Runtime:
                 'proxy_version': self.admin(NS, name, 'server_info')['version'],
                 'runtime_guard': self.admin(NS, name, 'runtime?format=json').get('entries', {}).get(p4.GUARD),
                 'stats_matcher': [v['stats_matcher'] for v in walk(self.admin(NS, name, 'config_dump?mask=bootstrap.stats_config')) if 'stats_matcher' in v]})
-        require(len(result['targets']) == 1, 'paired scenario requires one replica and scale headroom to two')
+        require(target_range[0] <= len(result['targets']) <= target_range[1], 'target replica range differs')
         hp = self.pod(NS, 'app=haproxy')
         require(next(c['image'] for c in hp['spec']['containers'] if c['name'] == 'haproxy') == PINS['HAPROXY_IMAGE'], 'HAProxy source image drift')
         hp_config = self.k('-n', NS, 'exec', hp['metadata']['name'], '-c', 'haproxy', '--', 'cat', '/config/haproxy.cfg')
-        require('retries 0' in hp_config and 'maxconn' not in hp_config and 'rate-limit' not in hp_config, 'HAProxy policy drift')
+        require(hp_config == haproxy_config.rstrip('\n') if haproxy_config is not None else
+                'retries 0' in hp_config and 'maxconn' not in hp_config and 'rate-limit' not in hp_config, 'HAProxy policy drift')
         result['haproxy'] = {'uid': hp['metadata']['uid'], 'config_sha256': hashlib.sha256(hp_config.encode()).hexdigest()}
         selector = ','.join(k + '=' + v for k, v in self.value['ingress_selector'].items())
         for ingress in self.pods('aks-istio-ingress', selector):
@@ -372,7 +373,7 @@ class Runtime:
             'deployment_spec_sha256': digest(self.j('-n', 'forgejo', 'get', 'deployment', 'forgejo', '-o', 'json')['spec'])}
         result['targets'].sort(key=lambda t: t['uid'])
         result['ingress'].sort(key=lambda t: t['uid'])
-        result['hpa_spec'] = self.j('-n', NS, 'get', 'hpa', 'hpa-app-cpu', '-o', 'json')['spec']
+        result['hpa_spec'] = self.j('-n', NS, 'get', 'hpa', hpa_name, '-o', 'json')['spec']
         return result
 
     def stats(self, actual):
@@ -411,7 +412,7 @@ class Runtime:
                     proxies[label][pod['uid']].append({k: row[k] for k in ('status', 'detail', 'duration_ms', 'cluster')})
         return {'checks': checks, 'proxies': proxies}
 
-    def guard(self):
+    def guard(self, hpa_name='hpa-app-cpu', event_timestamps=False):
         owned = self.j('-n', NS, 'get', 'pods', '-o', 'json')['items']
         admitted = admission(self.value, owned)
         pods = [self.pod('forgejo', 'app.kubernetes.io/name=forgejo')] + owned
@@ -450,8 +451,9 @@ class Runtime:
             'nodes': [{'name': n['metadata']['name'], 'conditions': {c['type']: c['status'] for c in n['status']['conditions'] if c['type'] in {'Ready', 'MemoryPressure', 'DiskPressure', 'PIDPressure'}}} for n in nodes],
             'pod_metrics': [{k: p[k] for k in ('metadata', 'timestamp', 'window', 'containers')} for p in metric['items'] if p['metadata']['namespace'] in {NS, 'forgejo'}],
             'node_metrics': node_metric['items'], 'postgres': db,
-            'hpa': self.j('-n', NS, 'get', 'hpa', 'hpa-app-cpu', '-o', 'json')['status'],
-            'events': [{'reason': e.get('reason'), 'type': e.get('type')} for e in self.j('get', 'events', '-A', '-o', 'json')['items']
+            'hpa': self.j('-n', NS, 'get', 'hpa', hpa_name, '-o', 'json')['status'],
+            'events': [({'reason': e.get('reason'), 'type': e.get('type')} |
+                        ({'timestamp_utc': e.get('lastTimestamp') or e.get('eventTime') or e['metadata']['creationTimestamp']} if event_timestamps else {})) for e in self.j('get', 'events', '-A', '-o', 'json')['items']
                        if e.get('type') == 'Warning' and e.get('metadata', {}).get('namespace') in {NS, 'forgejo'} and
                        (e.get('lastTimestamp') or e.get('eventTime') or e['metadata']['creationTimestamp']) >= self.since]}
 
