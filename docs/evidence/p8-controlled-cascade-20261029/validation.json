@@ -1,0 +1,16 @@
+{
+  "execution_sha": "bc0a4def4e6b43cf1a748b045869218214730df9",
+  "final_delta": "test-only fixed clock, docs and evidence; runtime source unchanged",
+  "direct_azure_cascade_regression": {
+    "command": "python3 tests/e2e/test-azure-cascade.py",
+    "passed": 38
+  },
+  "static": {
+    "command": "make static",
+    "exit_code": 0,
+    "log_sha256": "1eca207aba8cc4a8854ded37e9c1f678399b64279e90b477d178ccb44b6d86a2",
+    "scope": "existing source/static/render, direct regression suites, credential-free Terraform fmt/init/validate and mock contracts"
+  },
+  "ci": "final exact HEAD GitHub Actions checks required; existing gates unchanged",
+  "azure_recovery_or_full_p7_baseline_repeated": false
+}

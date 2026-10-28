@@ -1,0 +1,819 @@
+{
+  "format": "gzip tar; append-only JSON/JSONL and original scalar timing/status bytes, no private directory or full config dump",
+  "execution_source_sha": "bc0a4def4e6b43cf1a748b045869218214730df9",
+  "archive": "raw-evidence.tar.gz",
+  "archive_sha256": "8d5681eba3f7d31282ab7bd24a3e226577255ec966ca877b9d871d4fd1d6970f",
+  "archive_bytes": 807828,
+  "uncompressed_file_bytes": 8057509,
+  "file_count": 202,
+  "files": {
+    "admission-after-adapter-fix.json": {
+      "bytes": 2306,
+      "sha256": "aae8b9a72063f0b31bb2e663aadbb79011459912f32cf345d4d2c9a206bfe59b"
+    },
+    "calibration-01/after.json": {
+      "bytes": 20104,
+      "sha256": "555978c64bc3b8d7c4e01d2e2399a7a0494db814c68a7f34340adcba250c3a56"
+    },
+    "calibration-01/before.json": {
+      "bytes": 20098,
+      "sha256": "af42651efb3ab0343682de2b6cc4821c7a0f9c2e4b61860f3b56468e6fdac43c"
+    },
+    "calibration-01/cloud-01/forgejo_cpu.json": {
+      "bytes": 1041,
+      "sha256": "f018832351d4db661b2366e71bcae7c6b45f7c902d630cd95b60cba1a76753fd"
+    },
+    "calibration-01/cloud-01/forgejo_memory.json": {
+      "bytes": 988,
+      "sha256": "0fcf4cfc594f5215dd928097528a2c4a5046c0587ee412e290402beff688ca85"
+    },
+    "calibration-01/cloud-01/forgejo_scrape.json": {
+      "bytes": 881,
+      "sha256": "b7fa46e3ea5dbaf2572826d06a529e4503f74ea38e9a9a5533562cbdc1a462b7"
+    },
+    "calibration-01/cloud-01/logs.json": {
+      "bytes": 2062,
+      "sha256": "b83389bbca491e6db465a20a3e3bd55101b80c33ae9242420fedc29307d1c044"
+    },
+    "calibration-01/cloud-01/query-plan.json": {
+      "bytes": 1667,
+      "sha256": "9113dfb526c4af0c08711ce5f8c51516f1c44e644a30fc9e0aa3de557825ec9e"
+    },
+    "calibration-01/cloud-plan-01.json": {
+      "bytes": 1667,
+      "sha256": "b62006c227523ccc564f8bb235770830cd2a03d737e9fef0ce4cb75d89fe5857"
+    },
+    "calibration-01/configuration.json": {
+      "bytes": 7753,
+      "sha256": "13aaccc53bfe74d818f01fc622367db99056862b4220d1ed0c01ad10ff6240db"
+    },
+    "calibration-01/events.jsonl": {
+      "bytes": 458775,
+      "sha256": "b4158fa4615b399dccf9d5635981547974fe1fd55de678949eaf98ed4ac660cb"
+    },
+    "calibration-01/forgejo-cgroup.jsonl": {
+      "bytes": 4800,
+      "sha256": "14466303caedfacd3be9dc440fed8b953f06a1570312c4b2c7052d91deec08d8"
+    },
+    "calibration-01/path.json": {
+      "bytes": 129411,
+      "sha256": "c5a0c7058d3516f0e333ed688e0acb4108a8e6a8e9d6fa7b6be0782ce46fbf7e"
+    },
+    "calibration-01/postgres-01.json": {
+      "bytes": 3153,
+      "sha256": "6ea2111f12926968ba37992195b5117bc1691d1d3804bc79b9d6137e12ac6fea"
+    },
+    "calibration-01/postgres-storage-io-01.json": {
+      "bytes": 1818,
+      "sha256": "abed71d31c481339b467fa66ee0358e26157476412bca22733a4ca94441b0376"
+    },
+    "calibration-02/after.json": {
+      "bytes": 20103,
+      "sha256": "3b2f4cc093c3fb0ba428badc5b3f530464cf9d0783dd7ea7118c11ee33e8fa57"
+    },
+    "calibration-02/before.json": {
+      "bytes": 20092,
+      "sha256": "5d3d19480227a0e48d5f4c4c43d595943ef3c8ce26cee64f1253561d6bf2ab4e"
+    },
+    "calibration-02/cloud-01/forgejo_cpu.json": {
+      "bytes": 1039,
+      "sha256": "9baed979c062bbd6a161f151bb8cf40e2850b50fe3c1ceb9469afe861abea029"
+    },
+    "calibration-02/cloud-01/forgejo_memory.json": {
+      "bytes": 988,
+      "sha256": "8a0fbebb3d6089babf829d0f34b382705121b49bddec689391029d460d5d60fc"
+    },
+    "calibration-02/cloud-01/forgejo_scrape.json": {
+      "bytes": 881,
+      "sha256": "1db059d322f45486de90e5633ea6c6e1677ac04963d85f8bb7c04e57897f1e00"
+    },
+    "calibration-02/cloud-01/logs.json": {
+      "bytes": 2063,
+      "sha256": "5f0621c37118e19a66a2e6122f430f216b85e2414a719a0613c09d684b269744"
+    },
+    "calibration-02/cloud-01/query-plan.json": {
+      "bytes": 1667,
+      "sha256": "56b4f98fc3cba4f67d6b1502afde1b61ffc395cfd9c07a99e1d3082bbd9f33df"
+    },
+    "calibration-02/cloud-plan-01.json": {
+      "bytes": 1667,
+      "sha256": "5e16d8c4ad6528fac498e88c34b53b01bdc762dc614645b1953ae80e98097a6f"
+    },
+    "calibration-02/configuration.json": {
+      "bytes": 7753,
+      "sha256": "e702cf4a36917e1882be22c1dacf32ee9088cd84d9e7236d746eacd2294d0a2a"
+    },
+    "calibration-02/events.jsonl": {
+      "bytes": 457239,
+      "sha256": "e53b50a47caffd81d3380f0de6037a523ee12f56e8ba8ff7d5278616f220f9de"
+    },
+    "calibration-02/forgejo-cgroup.jsonl": {
+      "bytes": 4800,
+      "sha256": "06140987937207982c786ba60d1cfaa04a8451a9ca6ee9c68160760db08c6538"
+    },
+    "calibration-02/late-proxy-log-collection.json": {
+      "bytes": 524630,
+      "sha256": "1e99b8241040c781060e2b2a0436fe6f82e61b8291b90fef37aad239a3eeea9e"
+    },
+    "calibration-02/path.json": {
+      "bytes": 131828,
+      "sha256": "81c215a8a128f7ce2bb55ccd91afa374cbc4ba375caaf84b6935d874056a03cf"
+    },
+    "calibration-02/postgres-01.json": {
+      "bytes": 5611,
+      "sha256": "a214094c2528ce20486d87edf9d1a897205ef5bf6b918c1adeb641b37aef8136"
+    },
+    "calibration-02/proxy-log-framing-diagnostic.json": {
+      "bytes": 71,
+      "sha256": "d99ca767edde0e1f1840a573e84d52341bc9c7e5903fc99669a0ce6a553d9fe7"
+    },
+    "calibration-02/target-route-log-accounting.json": {
+      "bytes": 1482,
+      "sha256": "6d6c88ad84e59e811236db767973943ed338793fe299e3b6b13d315e0104684c"
+    },
+    "calibration-02-runtime-gate.json": {
+      "bytes": 6895,
+      "sha256": "2d90afaa2fda6e696ee4257802116fa4f98fbd18b99d370d02504069892d7a48"
+    },
+    "calibration-03/after.json": {
+      "bytes": 20107,
+      "sha256": "5039d8b9df1a0815f407df48eb79723c87416f2b02e38f5dbaf837d9d1f3096f"
+    },
+    "calibration-03/before.json": {
+      "bytes": 20093,
+      "sha256": "db30a3f04ceea7641ef7e41df30a48737bc48e416cc4327b6ec9a1310363c7bc"
+    },
+    "calibration-03/cloud-01/forgejo_cpu.json": {
+      "bytes": 1039,
+      "sha256": "f18f8c46c896e4760010be90c83e1c4d52b7b8a01e1cc255808a86c5cdefcf87"
+    },
+    "calibration-03/cloud-01/forgejo_memory.json": {
+      "bytes": 988,
+      "sha256": "4f0269c4d36950ce07f6a94a33141b30f3c25bb31a07f720b923c4e9faee13f6"
+    },
+    "calibration-03/cloud-01/forgejo_scrape.json": {
+      "bytes": 881,
+      "sha256": "9ba59283bbf1b44dbc919ff797a1cdf7e4b6855b17ec93798ed215c428e6bba9"
+    },
+    "calibration-03/cloud-01/logs.json": {
+      "bytes": 2062,
+      "sha256": "c665dd8ec863ce848396d0b9da0d93a2bc6983f32a5efa33f112789e92514222"
+    },
+    "calibration-03/cloud-01/query-plan.json": {
+      "bytes": 1667,
+      "sha256": "9f3c66e1de296bf5ffefc22d88c8f6538ac82b05dba97c654897e819ac3aa5ee"
+    },
+    "calibration-03/cloud-plan-01.json": {
+      "bytes": 1667,
+      "sha256": "69dbb31803627a9ea1147c5c59d92ed892e8140f06047f6eeab3c5ce05cdce7f"
+    },
+    "calibration-03/configuration.json": {
+      "bytes": 7752,
+      "sha256": "4a586dca150fe35644df392c8f383eb7f88c23c0b46f56f479799da269f0351b"
+    },
+    "calibration-03/events.jsonl": {
+      "bytes": 606806,
+      "sha256": "b71ef34eb0da7a947625715ae30c83755ee90fc48adf2557bdbf07609fc8b1d9"
+    },
+    "calibration-03/forgejo-cgroup.jsonl": {
+      "bytes": 4800,
+      "sha256": "c0ed7fcf673b10b235f08291b78ca30e2f6207411a628007efb9971e809084c7"
+    },
+    "calibration-03/gateway-provider-accounting-diagnostic.json": {
+      "bytes": 1571,
+      "sha256": "42dc4a0da7508c4fd20806111cd912e36c61bfc419ce8da212cfe4d9469748cf"
+    },
+    "calibration-03/path.json": {
+      "bytes": 255664,
+      "sha256": "842c247c974836983343dd8012c2ae660e0cb36089682c2af0260b02fd4111ff"
+    },
+    "calibration-03/postgres-01.json": {
+      "bytes": 4005,
+      "sha256": "c9075d9aebd48ea7ae0a44911c29d5c5ca3b7a4a075e75efc91928b8fa2e3e1f"
+    },
+    "calibration-03-runtime-gate.json": {
+      "bytes": 6907,
+      "sha256": "de3daa87eacb38690dd22553b7a3c44699bacec81a15ef2478d3cefd7a3de786"
+    },
+    "calibration-04/after.json": {
+      "bytes": 20109,
+      "sha256": "876d0ab0831a0041f8130ed0fbeef71eae1beb4db89151233bc7c256bcb02694"
+    },
+    "calibration-04/before.json": {
+      "bytes": 20093,
+      "sha256": "dc7648cbe566deaa85f777499e27fcb41858f44775346533bfe6e4566059e377"
+    },
+    "calibration-04/cloud-01/forgejo_cpu.json": {
+      "bytes": 982,
+      "sha256": "4d1b47ae6aac92989689fe001783020c97892e8251e6985fabd80d535b0a89d1"
+    },
+    "calibration-04/cloud-01/forgejo_memory.json": {
+      "bytes": 988,
+      "sha256": "95b54df9b5cd399145d4cbe79941da6db1c91072bea0a8a24d8971f539d5da99"
+    },
+    "calibration-04/cloud-01/forgejo_scrape.json": {
+      "bytes": 881,
+      "sha256": "35739244ac255ec9fe7264836778088f1f108299aa923e79ad119231bdca97f2"
+    },
+    "calibration-04/cloud-01/logs.json": {
+      "bytes": 2062,
+      "sha256": "6d0b33b621cbd0219898641a691c6b1d0d623197ffdf0672504e9171c97a4201"
+    },
+    "calibration-04/cloud-01/query-plan.json": {
+      "bytes": 1667,
+      "sha256": "b1ff78d6ea49168dd4fbf56843c0fdcd58a17bca951118067d91519e56c0358a"
+    },
+    "calibration-04/cloud-plan-01.json": {
+      "bytes": 1667,
+      "sha256": "d783a79b99ef06f75a58b56c5499e7859948c572c13205971deca19a473e4e6d"
+    },
+    "calibration-04/configuration.json": {
+      "bytes": 7752,
+      "sha256": "bbeed576ff0368d3e2040b2633999cb23e3736ccd2dd0873ec50eba103561d8d"
+    },
+    "calibration-04/confounder-analysis.json": {
+      "bytes": 5745,
+      "sha256": "c5a72750cb51caaf9cbd48763207fb917941d0542a3fb091c07a1a84065e7d49"
+    },
+    "calibration-04/confounder-review.json": {
+      "bytes": 4772,
+      "sha256": "999eb3239d03a4c8494d3f5cfe871b6b529a1143281cf4c342d2c748b0829b73"
+    },
+    "calibration-04/events.jsonl": {
+      "bytes": 607454,
+      "sha256": "9316543151689f60225c6c70ea28fe255c9c15476f14fd71cbd23370481922f1"
+    },
+    "calibration-04/forgejo-cgroup.jsonl": {
+      "bytes": 4800,
+      "sha256": "8037bda47b415d7ac37161737370a035c8fb8c95b2f15900c5a72716e21d5edc"
+    },
+    "calibration-04/mechanism-summary.json": {
+      "bytes": 1619,
+      "sha256": "078876c40671681d26e7e428fbcb19a33c81e8a47994ea23c90d88fbee7daed2"
+    },
+    "calibration-04/path.json": {
+      "bytes": 257633,
+      "sha256": "7df9b512c69618c9071918e50f6c319889b0d5f652eb0dce4f66682f3a0a0b46"
+    },
+    "calibration-04/postgres-01.json": {
+      "bytes": 3896,
+      "sha256": "0d3d3b2615ec7283b017dfa5a7099a88d53753e7aea3f99c0265fef113cfdbc7"
+    },
+    "calibration-04/reviewed-summary.json": {
+      "bytes": 1766,
+      "sha256": "15e97ef545edb25aa7e996041bcebeb2606a35f846cb97f718af5cd75b5b2d4c"
+    },
+    "calibration-05/after.json": {
+      "bytes": 20114,
+      "sha256": "0eb71e26663ac7980030dff9d75c9bf0680ce1460d2106aad1e02bc986b85648"
+    },
+    "calibration-05/before.json": {
+      "bytes": 20103,
+      "sha256": "ad335974c6ea7383113b769f7763e67d39c02b1360589929a514ce607b3517a3"
+    },
+    "calibration-05/cloud-01/forgejo_cpu.json": {
+      "bytes": 1009,
+      "sha256": "84c30ca558d28f2459a6e061e29285d5c466adbbd4b05955a0e2f97c5b529dc2"
+    },
+    "calibration-05/cloud-01/forgejo_memory.json": {
+      "bytes": 988,
+      "sha256": "61151c4e03211966765665c1e7fce94b023bad9b40c9bfdfc62332881ea8e72b"
+    },
+    "calibration-05/cloud-01/forgejo_scrape.json": {
+      "bytes": 881,
+      "sha256": "3fd4dd9344b0c34d585ac309bc8450300e44f42c48849d964ea79bd3659aa221"
+    },
+    "calibration-05/cloud-01/logs.json": {
+      "bytes": 2059,
+      "sha256": "ee157c62abf504dcb8fe2d63331a9642584db1b6b2f624f567f3fdca333acb17"
+    },
+    "calibration-05/cloud-01/query-plan.json": {
+      "bytes": 1667,
+      "sha256": "da878f74cc9209c7d377592d36b8e9f54e3a7c7a7215114ed3079f0fc1945922"
+    },
+    "calibration-05/cloud-02/forgejo_cpu.json": {
+      "bytes": 1009,
+      "sha256": "84c30ca558d28f2459a6e061e29285d5c466adbbd4b05955a0e2f97c5b529dc2"
+    },
+    "calibration-05/cloud-02/forgejo_memory.json": {
+      "bytes": 988,
+      "sha256": "61151c4e03211966765665c1e7fce94b023bad9b40c9bfdfc62332881ea8e72b"
+    },
+    "calibration-05/cloud-02/forgejo_scrape.json": {
+      "bytes": 881,
+      "sha256": "3fd4dd9344b0c34d585ac309bc8450300e44f42c48849d964ea79bd3659aa221"
+    },
+    "calibration-05/cloud-02/logs.json": {
+      "bytes": 2059,
+      "sha256": "4ff937020406b0d52a02defd268bf8476aa6e1563abe6e2161c58e2b37b83791"
+    },
+    "calibration-05/cloud-02/query-plan.json": {
+      "bytes": 1667,
+      "sha256": "da878f74cc9209c7d377592d36b8e9f54e3a7c7a7215114ed3079f0fc1945922"
+    },
+    "calibration-05/cloud-plan-01.json": {
+      "bytes": 1667,
+      "sha256": "d8ea3db7c80a1690cc94e5f5b071ad15b1629443341ff9a1fdbd2bd85dcf5aec"
+    },
+    "calibration-05/cloud-plan-02.json": {
+      "bytes": 1667,
+      "sha256": "d8ea3db7c80a1690cc94e5f5b071ad15b1629443341ff9a1fdbd2bd85dcf5aec"
+    },
+    "calibration-05/configuration.json": {
+      "bytes": 7752,
+      "sha256": "7c2ce3d09d193d65e578a4928e3fc46a7808aa485a16e577eec5e468e760d760"
+    },
+    "calibration-05/confounder-analysis.json": {
+      "bytes": 5845,
+      "sha256": "6f6c57cd6d60f10df5e43f8ba89d50ae154eebed1448705929b91eadda321f81"
+    },
+    "calibration-05/confounder-review.json": {
+      "bytes": 4781,
+      "sha256": "0e98b1264247f69d0fd826bcfa6b8e69d1a56b18f0774e86eaadbec1582d1020"
+    },
+    "calibration-05/events.jsonl": {
+      "bytes": 604195,
+      "sha256": "d7b9b752a2a706e7f57fc6abdc6f8133331433cb243c748524bb657160128dda"
+    },
+    "calibration-05/forgejo-cgroup.jsonl": {
+      "bytes": 4815,
+      "sha256": "0fe4b5d52eb8d9de658da4cdded211fc67c7ceef41d749ef644ecc30fad9ac05"
+    },
+    "calibration-05/mechanism-summary.json": {
+      "bytes": 1661,
+      "sha256": "b7cf0b5e1b5fca1d3bd923d5d8ab46fcf4beb92d9bbab797a4ab5eebe1ca8ea8"
+    },
+    "calibration-05/path.json": {
+      "bytes": 258948,
+      "sha256": "ec81eddfd491d6ba0cc2fbf0f4b50d409d06c7e994da7ba7c0411818057cad85"
+    },
+    "calibration-05/postgres-01.json": {
+      "bytes": 3913,
+      "sha256": "c608b3ee9e65b92fda6d36b01bf460bd8e21014707f94b66aad1c7e1522f2e41"
+    },
+    "calibration-05/postgres-02.json": {
+      "bytes": 4333,
+      "sha256": "1bca6c78b0cca0a904633b7236fc9da5ee4f058eee13c79c54d0b31937b9d76d"
+    },
+    "calibration-05/reviewed-summary.json": {
+      "bytes": 1808,
+      "sha256": "613b1e4044e5e9f0ac841798561c3a6db1d9529469ddb894a28ab1e3c31badf6"
+    },
+    "calibration-05-runtime-gate.json": {
+      "bytes": 6939,
+      "sha256": "0cfcc490bb759722b18c41ba68f48bedf498c0ea67cf52943eb841b2cbc8f5df"
+    },
+    "confounder-resource-capacity.json": {
+      "bytes": 1958,
+      "sha256": "1f10d7a8c7a03f197e37a8520250f5aeb13deb1d29f6ae407181a5aed9bf030a"
+    },
+    "credential-cleanup.json": {
+      "bytes": 760,
+      "sha256": "65a1e5b37441a0625fb8830d5acd8442e12f57f4de72deabeef4b103e37251e1"
+    },
+    "db-read-after-adapter-fix.json": {
+      "bytes": 297,
+      "sha256": "ee8d6ade5cd80aee90f904345b61c07a27e1ec41ad3663a395011828762ebe0f"
+    },
+    "final-cost-observation.json": {
+      "bytes": 1679,
+      "sha256": "51a2282e9ddbc8e0365efaef20fc53bfc266441eb5e5da350fceb7f0cff171c0"
+    },
+    "final-runtime-delta.json": {
+      "bytes": 1483,
+      "sha256": "66a6cedb9bf5741b1cd7b40c25d998919fbfc97da50e7203eaaa57af315dae96"
+    },
+    "fixture-startup-negative.json": {
+      "bytes": 502,
+      "sha256": "3c02e0cfa6d434afc0a779c69dc01831a80bcaeaa1c63ce8eac94813d9d52adf"
+    },
+    "frozen-02.json": {
+      "bytes": 7752,
+      "sha256": "7c2ce3d09d193d65e578a4928e3fc46a7808aa485a16e577eec5e468e760d760"
+    },
+    "frozen.json": {
+      "bytes": 7752,
+      "sha256": "bbeed576ff0368d3e2040b2633999cb23e3736ccd2dd0873ec50eba103561d8d"
+    },
+    "healthy-controls.json": {
+      "bytes": 20265,
+      "sha256": "6dd365d8e9e1157a5d3b991ad2a75e09540b550386be73452300b82abd68ea51"
+    },
+    "healthy-gate/20261028185553-da0fec/command_end": {
+      "bytes": 8,
+      "sha256": "2210770311069893b5b582e83c0f37c29194813192cd803e7a63dd83c8b99de2"
+    },
+    "healthy-gate/20261028185553-da0fec/command_exit": {
+      "bytes": 1,
+      "sha256": "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9"
+    },
+    "healthy-gate/20261028185553-da0fec/command_start": {
+      "bytes": 8,
+      "sha256": "812b909451d82a791600881ef84dcde1844e0e71a6b24a2b697aad4cd2bd589b"
+    },
+    "healthy-gate/20261028185553-da0fec/command_timestamp": {
+      "bytes": 20,
+      "sha256": "4c3156abd217fc9b52a476d48b63d5f74984d55beede8a7a5f2195c16040dce2"
+    },
+    "healthy-gate/20261028185553-da0fec/events.jsonl": {
+      "bytes": 12929,
+      "sha256": "0c05e1ea996ca3344105e7e604c623da5e2c3bf3892b6849d58be945db8b395e"
+    },
+    "healthy-gate/20261028185553-da0fec/http_status": {
+      "bytes": 3,
+      "sha256": "27badc983df1780b60c2b3fa9d3a19a00e46aac798451f0febdca52920faaddf"
+    },
+    "healthy-gate-preflight-negative.json": {
+      "bytes": 515,
+      "sha256": "ff0b182cdfe860ffb220103b1acfe51d7e71a682f5baaae8a2f6620ee7f84bc7"
+    },
+    "healthy-gateway-configuration.json": {
+      "bytes": 6311,
+      "sha256": "16bf6834db918c7c4219490ba6f2cc6e09f53b09f06b653d7dd5e2334723b35d"
+    },
+    "healthy-initial-http-check.json": {
+      "bytes": 845,
+      "sha256": "94d18db18833eb22847d66f2f80e88ceb002ac2ec7553eab25f379df404b6d1e"
+    },
+    "httpclose-healthy-delta.json": {
+      "bytes": 7267,
+      "sha256": "5e3c28ca0e7ad8c995c7f6bc80bc65eb508aee0e325f4ef0242f4a25378b2c5a"
+    },
+    "image-iam-cleanup.json": {
+      "bytes": 1396,
+      "sha256": "afdd066f0760b21500efee66d6be4d36f28b20b516f054a3adc83f2552451ac1"
+    },
+    "image-publish.json": {
+      "bytes": 572,
+      "sha256": "0cb1e9555cb4c218e44e609682c3caf2491c0a164f5f946f675b2ca8ab624ee3"
+    },
+    "initial-admission.json": {
+      "bytes": 2306,
+      "sha256": "aae8b9a72063f0b31bb2e663aadbb79011459912f32cf345d4d2c9a206bfe59b"
+    },
+    "initial-db-read.json": {
+      "bytes": 306,
+      "sha256": "e1470fe8aea1ad906e643ac1860ce23ca48d12d6cf816b7dfef95bd6cef44c87"
+    },
+    "initial-execution-identity.json": {
+      "bytes": 889,
+      "sha256": "ef9a0bceb44659ba8ca68d799d2a3eec8ea0fe7db160c3986a543f2b68d731c7"
+    },
+    "kubernetes-delta.json": {
+      "bytes": 1642,
+      "sha256": "96b7779c2311fe5859072444583be7a4474eb50dd7f45dace0558fbbbb4b0699"
+    },
+    "local-finalization.json": {
+      "bytes": 695,
+      "sha256": "f6778500cf3e69b2f88a3eff228a4c134b8a8cab1d1b18e1345bcb43d8eba0cb"
+    },
+    "local-forward-cleanup.json": {
+      "bytes": 159,
+      "sha256": "1fd3711413b4e975f3c2ca3186197edb87fe2441200226b3587938000958d119"
+    },
+    "no-retry/after.json": {
+      "bytes": 20111,
+      "sha256": "c2abdc429b140b79b756f0639fd97da68ae76ea5637f566d5b2f48184962de8c"
+    },
+    "no-retry/before.json": {
+      "bytes": 20096,
+      "sha256": "93ac7b71e89671ad55199d561d75e76f58ca8ae71c2dbe1a1d312fadf9a41805"
+    },
+    "no-retry/cloud-01/forgejo_cpu.json": {
+      "bytes": 1037,
+      "sha256": "f0f1418e14bd0813133259943e0b9c41e259da3404b35fb8343995efd343e9f1"
+    },
+    "no-retry/cloud-01/forgejo_memory.json": {
+      "bytes": 988,
+      "sha256": "32eadb5dcde827d6f02802b50d9c1c20006b212dea1201ed16665da0ac2c05a9"
+    },
+    "no-retry/cloud-01/forgejo_scrape.json": {
+      "bytes": 881,
+      "sha256": "11b274f7cc35da33fdb3409a63bc749565a0256b1594a4b070ac25866fcbe807"
+    },
+    "no-retry/cloud-01/logs.json": {
+      "bytes": 2063,
+      "sha256": "40ba707a89f4d58f9b7372f472b878eaf8bb26dc2ceaa1275f0b3beaa7d4fd20"
+    },
+    "no-retry/cloud-01/query-plan.json": {
+      "bytes": 1667,
+      "sha256": "71aa9d318d6f156ffe30e0e4d20c5b91f5ca4e647d662a53a6001dd0138b0393"
+    },
+    "no-retry/cloud-plan-01.json": {
+      "bytes": 1667,
+      "sha256": "605019c2ac4127176633afd4080645b342ba0763ea374694d160700a8ae69fa6"
+    },
+    "no-retry/configuration.json": {
+      "bytes": 7752,
+      "sha256": "bbeed576ff0368d3e2040b2633999cb23e3736ccd2dd0873ec50eba103561d8d"
+    },
+    "no-retry/events.jsonl": {
+      "bytes": 600141,
+      "sha256": "f25b33d79696ae4648a4e08d05e8dbda27eda338d369864bd8814825e337d30d"
+    },
+    "no-retry/forgejo-cgroup.jsonl": {
+      "bytes": 4812,
+      "sha256": "5c456c0c9f190313a5ce812d8ab670b65f25d5ddfc5044d47266d0da229d531d"
+    },
+    "no-retry/path.json": {
+      "bytes": 257882,
+      "sha256": "1f51bd77efb2d4e0311dd761ef38d85db08d031cd1c16a5ffc36073399bbcad4"
+    },
+    "no-retry/postgres-01.json": {
+      "bytes": 4979,
+      "sha256": "42faa2b048884dbbe1bd21ff10f150ff3006bbbee9b1341b569a529b29e98f99"
+    },
+    "no-retry-02/after.json": {
+      "bytes": 20116,
+      "sha256": "9beba5e4cf31613bdba19dc51efae0ed4073b770f93ec2e1ae65b1070b24e62c"
+    },
+    "no-retry-02/before.json": {
+      "bytes": 20103,
+      "sha256": "e3e4ad26f08a36a8b227eb8f4a14ee86018db17d0fe5f249f3a25a90ab8cae94"
+    },
+    "no-retry-02/cloud-01/forgejo_cpu.json": {
+      "bytes": 1008,
+      "sha256": "333d2fce6cb5c76cdec67d0ba799e919d1141d45f9c3ee7c546c6aa09ec54fc8"
+    },
+    "no-retry-02/cloud-01/forgejo_memory.json": {
+      "bytes": 988,
+      "sha256": "10235f32d0637dd9e1a1f2128b8f808e274dd04b3f0824362ad001e6f6b9f840"
+    },
+    "no-retry-02/cloud-01/forgejo_scrape.json": {
+      "bytes": 881,
+      "sha256": "2767df11b0d5c9ea00909ce6964ebf42e78a2138138859b5219dcd71c346c673"
+    },
+    "no-retry-02/cloud-01/logs.json": {
+      "bytes": 2061,
+      "sha256": "2f774c4d960aa02d53dc9a466aabfddf2c4f56e04037c4db4724acbcab436e44"
+    },
+    "no-retry-02/cloud-01/query-plan.json": {
+      "bytes": 1667,
+      "sha256": "ff3bcdacea41bdce002fa77f01bea4fa8f46ee2dd839cec00aef03a42385245a"
+    },
+    "no-retry-02/cloud-02/forgejo_cpu.json": {
+      "bytes": 1008,
+      "sha256": "333d2fce6cb5c76cdec67d0ba799e919d1141d45f9c3ee7c546c6aa09ec54fc8"
+    },
+    "no-retry-02/cloud-02/forgejo_memory.json": {
+      "bytes": 988,
+      "sha256": "10235f32d0637dd9e1a1f2128b8f808e274dd04b3f0824362ad001e6f6b9f840"
+    },
+    "no-retry-02/cloud-02/forgejo_scrape.json": {
+      "bytes": 881,
+      "sha256": "2767df11b0d5c9ea00909ce6964ebf42e78a2138138859b5219dcd71c346c673"
+    },
+    "no-retry-02/cloud-02/logs.json": {
+      "bytes": 2058,
+      "sha256": "40e73bad5607fc055d66601bfcc117892fba4189fdf2be3065d5ee64b0e9fe3a"
+    },
+    "no-retry-02/cloud-02/query-plan.json": {
+      "bytes": 1667,
+      "sha256": "ff3bcdacea41bdce002fa77f01bea4fa8f46ee2dd839cec00aef03a42385245a"
+    },
+    "no-retry-02/cloud-03/forgejo_cpu.json": {
+      "bytes": 1008,
+      "sha256": "333d2fce6cb5c76cdec67d0ba799e919d1141d45f9c3ee7c546c6aa09ec54fc8"
+    },
+    "no-retry-02/cloud-03/forgejo_memory.json": {
+      "bytes": 988,
+      "sha256": "10235f32d0637dd9e1a1f2128b8f808e274dd04b3f0824362ad001e6f6b9f840"
+    },
+    "no-retry-02/cloud-03/forgejo_scrape.json": {
+      "bytes": 881,
+      "sha256": "2767df11b0d5c9ea00909ce6964ebf42e78a2138138859b5219dcd71c346c673"
+    },
+    "no-retry-02/cloud-03/logs.json": {
+      "bytes": 2058,
+      "sha256": "40e73bad5607fc055d66601bfcc117892fba4189fdf2be3065d5ee64b0e9fe3a"
+    },
+    "no-retry-02/cloud-03/query-plan.json": {
+      "bytes": 1667,
+      "sha256": "ff3bcdacea41bdce002fa77f01bea4fa8f46ee2dd839cec00aef03a42385245a"
+    },
+    "no-retry-02/cloud-plan-01.json": {
+      "bytes": 1667,
+      "sha256": "7d723ea196c064b9519ba641c5064305e5f68f06ed57000db2cd6f0f23b644e0"
+    },
+    "no-retry-02/cloud-plan-02.json": {
+      "bytes": 1667,
+      "sha256": "7d723ea196c064b9519ba641c5064305e5f68f06ed57000db2cd6f0f23b644e0"
+    },
+    "no-retry-02/cloud-plan-03.json": {
+      "bytes": 1667,
+      "sha256": "7d723ea196c064b9519ba641c5064305e5f68f06ed57000db2cd6f0f23b644e0"
+    },
+    "no-retry-02/configuration.json": {
+      "bytes": 7752,
+      "sha256": "7c2ce3d09d193d65e578a4928e3fc46a7808aa485a16e577eec5e468e760d760"
+    },
+    "no-retry-02/confounder-analysis.json": {
+      "bytes": 5834,
+      "sha256": "5429f65737969dd88b64ee2d2ce22db7054a1b609cad47007417f52c89b7a840"
+    },
+    "no-retry-02/confounder-review.json": {
+      "bytes": 4772,
+      "sha256": "bbb5225bcf0e886a98db795cefa26c4afff1f81452884fe001758ddda9ff9f6e"
+    },
+    "no-retry-02/events.jsonl": {
+      "bytes": 607116,
+      "sha256": "81f67af5ca6f6d970d1986f753c57748d111e948fa2b5d0abb6475d3a373c66d"
+    },
+    "no-retry-02/forgejo-cgroup.jsonl": {
+      "bytes": 4827,
+      "sha256": "18577e648ea2dfc6d03bb133673a1fdb9406a363cd6b416ccceb2c2f76f83f23"
+    },
+    "no-retry-02/mechanism-summary.json": {
+      "bytes": 1660,
+      "sha256": "193b53ea0bf1cb41dabb8c0ce109882bca928cafe7b9bf9699f769188bcdc567"
+    },
+    "no-retry-02/path.json": {
+      "bytes": 256925,
+      "sha256": "3f021e82ae2e5b4a5f66824b272e961f763ad8aade5b44c04d5b87d59e12ab2f"
+    },
+    "no-retry-02/postgres-01.json": {
+      "bytes": 4981,
+      "sha256": "d9bb7e575ecc22c828f3e73b45124eb76636abbd5f4790ab65d0fc6b37626b75"
+    },
+    "no-retry-02/postgres-02.json": {
+      "bytes": 4981,
+      "sha256": "d9bb7e575ecc22c828f3e73b45124eb76636abbd5f4790ab65d0fc6b37626b75"
+    },
+    "no-retry-02/postgres-03.json": {
+      "bytes": 5609,
+      "sha256": "630862649aafbaa3b092abb6a29e17fa51048e921afdc3c445ad7fe3f43495b1"
+    },
+    "no-retry-02/reviewed-summary.json": {
+      "bytes": 1807,
+      "sha256": "75d6cbb6f32b907db14c4a660bc1531cbe5d64633ec441a0e712cfdab726e9fa"
+    },
+    "normal/20261028184303-d630e9/command_end": {
+      "bytes": 8,
+      "sha256": "0390fd66c2bfa5d2a35d65b37687fc044e51796ec1f7a0b7c1a006e1cc5e2f5a"
+    },
+    "normal/20261028184303-d630e9/command_exit": {
+      "bytes": 1,
+      "sha256": "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9"
+    },
+    "normal/20261028184303-d630e9/command_start": {
+      "bytes": 8,
+      "sha256": "644fe92bec9c54b11e1d06e181d2723c433f9ffdf1cde4e014f110f2c94a3786"
+    },
+    "normal/20261028184303-d630e9/command_timestamp": {
+      "bytes": 20,
+      "sha256": "f429b513d12333c008cbcafeffbf0d312b680b53d0f9931dde6d1460d8f2ebae"
+    },
+    "normal/20261028184303-d630e9/events.jsonl": {
+      "bytes": 12929,
+      "sha256": "e0b0e2aa2303d034bb3a0c4c194999e67792de5e1fe63dc6c022e7f9afbe5a2f"
+    },
+    "normal/20261028184303-d630e9/http_status": {
+      "bytes": 3,
+      "sha256": "27badc983df1780b60c2b3fa9d3a19a00e46aac798451f0febdca52920faaddf"
+    },
+    "paired-result.json": {
+      "bytes": 4086,
+      "sha256": "4963cd8393e95acd1f4eed0ed5f008f0a0955f6c099eeafa80f90a2e0e55f778"
+    },
+    "phase-ledger.jsonl": {
+      "bytes": 19603,
+      "sha256": "b143b34d606c364234af99f718635cdf221c2c72adee0265bfa147dbc687edb9"
+    },
+    "post-restoration-journey-checks.json": {
+      "bytes": 1264,
+      "sha256": "0f094f57558e84ebc35bd2c1c30dee234565fbc74ce34f0cabee8392f82836be"
+    },
+    "postgres-delayed-review.json": {
+      "bytes": 7516,
+      "sha256": "cf8cd70edeff11294471f4c87618ac1a57f43163c750e45b9c766df9f8f7a778"
+    },
+    "restoration.json": {
+      "bytes": 3929,
+      "sha256": "571070b55e4cba4fc04285163a5fb2315f77420312320ac6255fafd2c69bb68c"
+    },
+    "retry/after.json": {
+      "bytes": 20114,
+      "sha256": "80d024237066d946761cad10942133c3b2e828e6ad5aac0cfe961257a78e909a"
+    },
+    "retry/before.json": {
+      "bytes": 20111,
+      "sha256": "9366d3346f01597dbb9bf698fb7bd747069134e251fc858695ec9a19c3abae74"
+    },
+    "retry/cloud-01/forgejo_cpu.json": {
+      "bytes": 1007,
+      "sha256": "27226e1236e6168e71e165e094dcc3e6d56df605a1e42c2387c76a023cfb0403"
+    },
+    "retry/cloud-01/forgejo_memory.json": {
+      "bytes": 988,
+      "sha256": "819132dd97727f74c6d7088fab974e02ee415b39ee3e415640ce43085be6d86e"
+    },
+    "retry/cloud-01/forgejo_scrape.json": {
+      "bytes": 881,
+      "sha256": "6a0e33ec1963a061bf06cbf9e500696505e6896a27cf28431b04d0a7b716f080"
+    },
+    "retry/cloud-01/logs.json": {
+      "bytes": 2062,
+      "sha256": "70b2e37d36cd81d8e38037b2865a56f157d35ca63baaa20faf0f5a7ceb1be810"
+    },
+    "retry/cloud-01/query-plan.json": {
+      "bytes": 1667,
+      "sha256": "3321dfb17b4112cba90a96308d736b0bc44cef5028b77629401b53f51eb1bc3c"
+    },
+    "retry/cloud-02/forgejo_cpu.json": {
+      "bytes": 1007,
+      "sha256": "27226e1236e6168e71e165e094dcc3e6d56df605a1e42c2387c76a023cfb0403"
+    },
+    "retry/cloud-02/forgejo_memory.json": {
+      "bytes": 988,
+      "sha256": "819132dd97727f74c6d7088fab974e02ee415b39ee3e415640ce43085be6d86e"
+    },
+    "retry/cloud-02/forgejo_scrape.json": {
+      "bytes": 881,
+      "sha256": "6a0e33ec1963a061bf06cbf9e500696505e6896a27cf28431b04d0a7b716f080"
+    },
+    "retry/cloud-02/logs.json": {
+      "bytes": 2063,
+      "sha256": "34385360ed4e689b7e64ad56fca1abc4116df39cd689be308e02a471fbd33a46"
+    },
+    "retry/cloud-02/query-plan.json": {
+      "bytes": 1667,
+      "sha256": "3321dfb17b4112cba90a96308d736b0bc44cef5028b77629401b53f51eb1bc3c"
+    },
+    "retry/cloud-plan-01.json": {
+      "bytes": 1667,
+      "sha256": "bbe6ac91d27ff36fa7d8c2c0ed3b2d2496dd5cf4291c92f83962f92438807c45"
+    },
+    "retry/cloud-plan-02.json": {
+      "bytes": 1667,
+      "sha256": "bbe6ac91d27ff36fa7d8c2c0ed3b2d2496dd5cf4291c92f83962f92438807c45"
+    },
+    "retry/configuration.json": {
+      "bytes": 7752,
+      "sha256": "7c2ce3d09d193d65e578a4928e3fc46a7808aa485a16e577eec5e468e760d760"
+    },
+    "retry/confounder-analysis.json": {
+      "bytes": 5799,
+      "sha256": "8c2591d71dfe803749d66813f4560bcf8b48a78487baaab1875e3da70c7a3dc1"
+    },
+    "retry/confounder-review.json": {
+      "bytes": 4784,
+      "sha256": "1946251ac47687bd5e252175271a6431d7bead037daba5337dede21f59c29c0a"
+    },
+    "retry/events.jsonl": {
+      "bytes": 796208,
+      "sha256": "495a143a0bd9615cfeffa47e5e41101658347a345036933940eb9e9ca9b2e121"
+    },
+    "retry/forgejo-cgroup.jsonl": {
+      "bytes": 4830,
+      "sha256": "12ffd7e8b65134c26140dabe2bf3588829f315dc5498a616262d655c9ac3675e"
+    },
+    "retry/mechanism-summary.json": {
+      "bytes": 1664,
+      "sha256": "d632e5fc0acc2cc32046e1a91d760d54ba8439cd1b8c288e1b99a9f5bd75fc0d"
+    },
+    "retry/path.json": {
+      "bytes": 448932,
+      "sha256": "6616048a951bd376b06e0bf8471783d412215adf899ba144c521160a993a43c6"
+    },
+    "retry/postgres-01.json": {
+      "bytes": 4979,
+      "sha256": "fbe03fd9b42408ee04ea3f326ba24983382a8c63882fded11b78fde5b3950952"
+    },
+    "retry/postgres-02.json": {
+      "bytes": 5295,
+      "sha256": "bdea7bd633d952ee327367d3a8a5bd1457a17b4eb18cf093558e9f159fe37383"
+    },
+    "retry/reviewed-summary.json": {
+      "bytes": 1811,
+      "sha256": "3df9c0d18539ca9837bfaff3acb4ecaaa9435de02dff6b0764fef1594ec7f6bf"
+    },
+    "runtime-provenance.json": {
+      "bytes": 2032,
+      "sha256": "9dcf93de44a68ace3931ad4ae69b2dbd7ad8ddb98e018eca4de4c57b35a0096f"
+    },
+    "shared-mesh-data.json": {
+      "bytes": 1623,
+      "sha256": "e735914e224ec793abca2f085998de75b8b4211a33e8741f9e961bca524e4fa9"
+    },
+    "target-bootstrap-stats.json": {
+      "bytes": 1439,
+      "sha256": "678d739ff32eb0509479bf5c29a632455112fa499771239281e2ce03eb37e134"
+    },
+    "target-cluster-preflight-negative.json": {
+      "bytes": 719,
+      "sha256": "2495bc81f9c8fee847160ceec486053d775d17857b5e2b4f4672c0461ae52804"
+    },
+    "target-listener-port-mapping.json": {
+      "bytes": 661,
+      "sha256": "31c4a272247b693be24fc0687e1bf5130f638892d71a20f7dc1ec54dec51c172"
+    },
+    "target-stat-preflight-negative.json": {
+      "bytes": 1493,
+      "sha256": "c52d44f59e8036e23b1bf9b8f3004285b29c5e9524d0c1fa734881aa7637ce5b"
+    },
+    "temporary-iam.json": {
+      "bytes": 685,
+      "sha256": "2ab80af0379177dfac74916d15131d1b4273e3c04a2171ce423db6b651dcb541"
+    }
+  }
+}

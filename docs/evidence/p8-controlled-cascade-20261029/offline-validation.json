@@ -1,0 +1,9 @@
+{
+  "archive_sha256": "8d5681eba3f7d31282ab7bd24a3e226577255ec966ca877b9d871d4fd1d6970f",
+  "file_count": 202,
+  "all_bytes_and_checksums_match": true,
+  "extracted_calibration_and_both_reviewed_runs_revalidated": true,
+  "paired_result_reproduced_exactly": true,
+  "azure_access_or_workload": false,
+  "source_runtime_same_as_execution_bc0a4de": true
+}

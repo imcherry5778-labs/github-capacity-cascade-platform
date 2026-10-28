@@ -1,6 +1,10 @@
 # P8-W1 Controlled Cascade 실행 절차
 
-현재 상태는 **source 준비 / Azure 실행 미승인**이다. 이 문서는 실행 승인이 아니다.
+현재 상태는 **승인된 Azure 측정·원복 완료 / 독립 exact-head review 대기**다.
+승인은 PR #40 comment `6477075377`, 기준 HEAD `033a53fba2a5e4f6196fa5c60654c6648f12f5b5`다.
+실제 execution SHA·같은 범위의 adapter 수정·raw/negative·cleanup은
+[execution evidence](evidence/p8-controlled-cascade-20261029/README.md)와 [초기 incident](incidents/p8-controlled-cascade.md)에 기록한다.
+이 절차 자체를 새 실행의 승인으로 사용하지 않는다.
 기준은 `a3bf43f4a2c423cfa7974d481a94f788149174aa`와 이번 session의 P8-W1 contract다.
 P7의 [baseline](evidence/p7-operations-20261028/baseline-summary.json),
 [고정 SLO](evidence/p7-operations-20261028/initial-slo.json),

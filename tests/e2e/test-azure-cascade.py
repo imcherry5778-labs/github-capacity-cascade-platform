@@ -178,7 +178,8 @@ class SourceTests(unittest.TestCase):
                 if args[0] == 'git': return value['source_sha'] if args[-1] == 'HEAD' else ''
                 if args[0] == 'az': return json.dumps({'fqdn': 'actual.aks.example.com', 'serviceMeshProfile': {'istio': {'revisions': [value['revision']]}}, 'agentPoolProfiles': [{'enableAutoScaling': False}]})
                 return 'https://actual.aks.example.com' if 'config' in args else value['cluster_uid']
-            with patch.dict(os.environ, {'P8_AZURE_APPROVED': value['source_sha'], 'KUBECONFIG': str(config)}), patch.object(a.p7, 'command', side_effect=command) as mocked:
+            with patch.dict(os.environ, {'P8_AZURE_APPROVED': value['source_sha'], 'KUBECONFIG': str(config)}), patch.object(a.p7, 'command', side_effect=command) as mocked, patch.object(a, 'datetime', wraps=a.datetime) as clock:
+                clock.now.return_value = a.datetime(2026, 10, 29, tzinfo=a.timezone.utc)
                 a.Runtime(value)
             az_args = next(c.args[0] for c in mocked.call_args_list if c.args[0][0] == 'az')
             self.assertEqual(az_args, ['az', 'aks', 'show', '--resource-group', 'test', '--name', 'test', '-o', 'json'])

@@ -1,0 +1,223 @@
+{
+  "work_unit": "P8-W1",
+  "state": "measured-and-restored-awaiting-independent-exact-head-review",
+  "baseline_sha": "a3bf43f4a2c423cfa7974d481a94f788149174aa",
+  "approval": {
+    "head": "033a53fba2a5e4f6196fa5c60654c6648f12f5b5",
+    "comment_id": 6477075377,
+    "comment_url": "https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/40#issuecomment-6477075377",
+    "required_original_ci": 40741973677,
+    "required_original_ci_conclusion": "success"
+  },
+  "execution_sha": "bc0a4def4e6b43cf1a748b045869218214730df9",
+  "final_source_delta": "test clock frozen before retention deadline, docs and reviewed evidence only; runtime source unchanged from execution SHA",
+  "image": {
+    "source_sha": "033a53fba2a5e4f6196fa5c60654c6648f12f5b5",
+    "tag": "acrccpp6krc57781024.azurecr.io/ext-authz-sim:033a53fba2a5e4f6196fa5c60654c6648f12f5b5",
+    "digest": "sha256:ca0ad85ddebeca1a4745049e5eb079d05cb1bdcaa0a6e084f66600b867375e23",
+    "base_image": "docker.io/library/python:3.14.7-alpine3.24@sha256:9e9fde4d32eedce0b661d9ab91e826b62dddf28e928c230ec55f1866cac66b01",
+    "builder": "podman 5.8.9 local build; no ACR Tasks",
+    "earlier_failure": "operator metadata concurrent update lost image_tag before push; normal journey was successful and not repeated"
+  },
+  "stable_revision": "2f63d283ebba12aaed8705732f1206d71ddc33db",
+  "source_refinements": [
+    "bc0a4def4e6b43cf1a748b045869218214730df9 fix(experiments): unmatched TLS \uae30\ub85d\uc744 scoped HTTP \uc9d1\uacc4\uc640 \uad6c\ubd84",
+    "d4eae563489490941673de4b241f2305734efc86 fix(experiments): Azure check \uacbd\ub85c\uc758 idle connection \uc7ac\uc0ac\uc6a9 \uc81c\uac70",
+    "93b26e327999063b3eaed33f2ca2e0b41bf19d74 fix(experiments): idle timeout\uacfc \uacb9\uce58\uc9c0 \uc54a\ub3c4\ub85d Azure burst \uac04\uaca9 \ubcf4\uc815",
+    "91be0036dc738949295853c1335b980f79351f63 fix(experiments): \uc2e4\uc81c metric window\uc640 ingress Pod\ubcc4 log delta \ubc18\uc601",
+    "8272ec5d7dc078f8c7425d1e13121bce0973a8be fix(experiments): Envoy bootstrap stat matcher\uc758 mask \uc870\ud68c \uc0ac\uc6a9",
+    "5d80faee7893a2a14efc2c2a092d8b0e302dc50a fix(experiments): \uc2e4\uc81c ORIGINAL_DST listener\uc758 target \ub9e4\ud551 \uac80\uc99d",
+    "d22d7b4cee62ad56e63a7339dd79ca5cfbc1aef6 fix(experiments): AKS actual target \uc870\ud68c CLI \uc778\uc790 \ubcf4\uc815",
+    "208c70cd359317f400c469b7a053a01f757faf12 fix(experiments): Azure HAProxy \uac1c\ud589\uacfc Istio init \ud3ec\ud568 \ud55c\ub3c4 \ubcf4\uc815"
+  ],
+  "paired": {
+    "source_sha": "bc0a4def4e6b43cf1a748b045869218214730df9",
+    "validity": "valid",
+    "no_retry": {
+      "validity": "valid",
+      "hypothesis": "active-request saturation and developer impact supported; retry comparison pending",
+      "fingerprint": "0d023ac11b3f4b530a853995fe9af827fe475ee0a083db58aaffc8521c696019",
+      "window_utc": {
+        "start": "2026-10-28T19:36:58.899558+00:00",
+        "end": "2026-10-28T19:39:18.013680+00:00"
+      },
+      "logical_operations": 600,
+      "attempts": 600,
+      "issue_failures": 553,
+      "issue_attempt_slo_latency_violations": 59,
+      "issue_latency_boundary": "same single curl command timing as P7; logical operation total includes bounded retry and is recorded separately",
+      "https_git_reads": 25,
+      "https_git_failures": 22,
+      "git_boundary": "ls-remote main semantic read; not equivalent to P7 clone/fetch latency SLI",
+      "dispatched_checks": 628,
+      "admitted_checks": 53,
+      "active_rejections": 575,
+      "active_peak": 2,
+      "non_http_ingress_records_retained": 0,
+      "git_dispatched_checks_inferred_from_total_minus_single_request_issue_attempts": 28,
+      "hpa": {
+        "metric_update_span_seconds": 124.0,
+        "resource_metric_age_max_seconds": 78.89351,
+        "freshness_rule": "at most two reported CPU measurement windows; timestamps must also update across at least 60s",
+        "app_cpu_scaling": "no scale observed with healthy metric/controller and replica headroom"
+      },
+      "source_sha": "bc0a4def4e6b43cf1a748b045869218214730df9",
+      "configuration": "configuration.json",
+      "limitations": [
+        "Git attempts may dispatch multiple checks; no 1:1 inference",
+        "server linkage: window/workload; app admitted check IDs only",
+        "PostgreSQL CPU/storage, Forgejo/sidecar CPU/throttling/latency and node scheduling/headroom require same-window review before valid/hypothesis claims"
+      ],
+      "confounder_review_sha256": "bbb5225bcf0e886a98db795cefa26c4afff1f81452884fe001758ddda9ff9f6e"
+    },
+    "retry": {
+      "validity": "valid",
+      "hypothesis": "active-request saturation and developer impact supported; retry comparison pending",
+      "fingerprint": "0d023ac11b3f4b530a853995fe9af827fe475ee0a083db58aaffc8521c696019",
+      "window_utc": {
+        "start": "2026-10-28T19:39:58.066799+00:00",
+        "end": "2026-10-28T19:42:17.267069+00:00"
+      },
+      "logical_operations": 600,
+      "attempts": 1151,
+      "issue_failures": 551,
+      "issue_attempt_slo_latency_violations": 49,
+      "issue_latency_boundary": "same single curl command timing as P7; logical operation total includes bounded retry and is recorded separately",
+      "https_git_reads": 25,
+      "https_git_failures": 24,
+      "git_boundary": "ls-remote main semantic read; not equivalent to P7 clone/fetch latency SLI",
+      "dispatched_checks": 1177,
+      "admitted_checks": 51,
+      "active_rejections": 1126,
+      "active_peak": 2,
+      "non_http_ingress_records_retained": 0,
+      "git_dispatched_checks_inferred_from_total_minus_single_request_issue_attempts": 26,
+      "hpa": {
+        "metric_update_span_seconds": 116.0,
+        "resource_metric_age_max_seconds": 76.203829,
+        "freshness_rule": "at most two reported CPU measurement windows; timestamps must also update across at least 60s",
+        "app_cpu_scaling": "no scale observed with healthy metric/controller and replica headroom"
+      },
+      "source_sha": "bc0a4def4e6b43cf1a748b045869218214730df9",
+      "configuration": "configuration.json",
+      "limitations": [
+        "Git attempts may dispatch multiple checks; no 1:1 inference",
+        "server linkage: window/workload; app admitted check IDs only",
+        "PostgreSQL CPU/storage, Forgejo/sidecar CPU/throttling/latency and node scheduling/headroom require same-window review before valid/hypothesis claims"
+      ],
+      "confounder_review_sha256": "1946251ac47687bd5e252175271a6431d7bead037daba5337dede21f59c29c0a"
+    },
+    "retry_attempt_amplification": 1.9183333333333332,
+    "check_dispatch_ratio": 1.874203821656051,
+    "hypothesis_retry": "supported",
+    "cleanup": "pending; paired evidence alone does not establish restoration"
+  },
+  "cleanup": {
+    "restoration": "restoration.json",
+    "runtime": "final-runtime-delta.json",
+    "credentials": "credential-cleanup.json",
+    "image_iam": "image-iam-cleanup.json",
+    "local": "local-finalization.json",
+    "complete_for_p8_owned_changes": true,
+    "environment_teardown": false
+  },
+  "archive": {
+    "file": "raw-evidence.tar.gz",
+    "sha256": "8d5681eba3f7d31282ab7bd24a3e226577255ec966ca877b9d871d4fd1d6970f",
+    "index": "raw-index.json"
+  },
+  "actual_cost": {
+    "at_utc": "2026-10-28T19:43:17.629813+00:00",
+    "status": "observed",
+    "query": {
+      "type": "ActualCost",
+      "timeframe": "Custom",
+      "timePeriod": {
+        "from": "2026-10-28T00:00:00Z",
+        "to": "2026-10-30T00:00:00Z"
+      },
+      "dataset": {
+        "granularity": "Daily",
+        "aggregation": {
+          "totalCost": {
+            "name": "PreTaxCost",
+            "function": "Sum"
+          }
+        },
+        "filter": {
+          "dimensions": {
+            "name": "ResourceGroup",
+            "operator": "In",
+            "values": [
+              "rg-ccp-environment-krc-p6",
+              "MC_rg-ccp-environment-krc-p6_aks-ccp-krc-p6_koreacentral"
+            ]
+          }
+        }
+      }
+    },
+    "result": {
+      "eTag": null,
+      "id": "subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/providers/Microsoft.CostManagement/query/88a280f5-50c6-4f95-828b-245693794a81",
+      "location": null,
+      "name": "88a280f5-50c6-4f95-828b-245693794a81",
+      "properties": {
+        "columns": [
+          {
+            "name": "PreTaxCost",
+            "type": "Number"
+          },
+          {
+            "name": "UsageDate",
+            "type": "Number"
+          },
+          {
+            "name": "Currency",
+            "type": "String"
+          }
+        ],
+        "nextLink": null,
+        "rows": [
+          [
+            16015.5402320629,
+            20261028,
+            "KRW"
+          ]
+        ]
+      },
+      "sku": null,
+      "type": "Microsoft.CostManagement/query"
+    },
+    "additional_review_budget_usd": 10,
+    "planning_estimate_usd": 2,
+    "billing_hard_cap": false,
+    "p8_incremental_actual_cost": "not separately attributable from existing shared-resource billing; ingestion delayed",
+    "retention_extended": false
+  },
+  "negative_and_superseded_runs": {
+    "calibration-01": "invalid: actual metric-window/log-delta adapter mismatch",
+    "calibration-02": "invalid: ingress325 != dispatched323",
+    "calibration-03": "invalid: ingress627 != dispatched626",
+    "calibration-04": "valid calibration, superseded source/policy UID",
+    "no-retry": "not selected: scoped HTTP628 matched; parser rejected 7 unmatched TLS records; safety policy removal invalidated old freeze",
+    "calibration-05": "valid selected calibration and refreeze",
+    "no-retry-02": "valid selected paired run",
+    "retry": "valid selected paired run"
+  },
+  "limitations": [
+    "one paired repeated-burst observation; not sustained-window saturation or statistical generalization",
+    "Git ls-remote differs from P7 clone/fetch latency SLI; Git/check not one-to-one",
+    "direct sentinel Pod tunnel HTTP differs from public verified HTTPS; loopback timing not P7 latency SLO population",
+    "stable proxy cgroup throttle file unavailable; other proxy CPU/memory/capacity/readiness/sentinel evidence observed",
+    "target default reset-before-request num_retries2 retained and not independently counted; ingress and HAProxy retries0",
+    "detailed PostgreSQL IO initially no-data; delayed same-window series observed with some empty minute bins retained",
+    "P8 incremental ActualCost unknown; shared billed total is not P8 spend",
+    "fixture account/repo/Issue/PR records retained with PATs revoked and logins blocked"
+  ],
+  "retention": {
+    "environment_kst": "2026-10-30 10:30",
+    "foundation_bootstrap_kst": "2026-10-31 00:33",
+    "extended": false
+  },
+  "non_goals_executed": false
+}
