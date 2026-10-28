@@ -55,7 +55,11 @@ def plan(value):
 
 def identity(value):
     require(set(value) == {'campaign', 'source_sha', 'cluster_resource_id', 'cluster_uid', 'revision',
-                           'stable_revision', 'ext_authz_image', 'ingress_selector', 'pg_resource_id'}, 'identity fields')
+                           'stable_revision', 'ext_authz_image', 'ingress_selector', 'pg_resource_id', 'forgejo_hostname'}, 'identity fields')
+    hostname = value['forgejo_hostname']
+    require(isinstance(hostname, str) and len(hostname) <= 253 and '.' in hostname and
+            all(re.fullmatch(r'[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?', label) for label in hostname.split('.')), 'exact normalized Forgejo hostname required')
+    p7.operations.transport('https://' + hostname, 'azure-aks')
     require(re.fullmatch('[a-z][a-z0-9]{3,15}', value['campaign']), 'campaign identifier')
     require(all(re.fullmatch('[0-9a-f]{40}', value[k]) for k in ('source_sha', 'stable_revision')), 'exact source revisions')
     require(re.fullmatch('[0-9a-f-]{36}', value['cluster_uid']), 'cluster UID')
@@ -67,6 +71,13 @@ def identity(value):
                         ('pg_resource_id', 'Microsoft.DBforPostgreSQL/flexibleServers/')):
         require(re.fullmatch(r'/subscriptions/[0-9a-f-]{36}/resource[Gg]roups/[a-zA-Z0-9_-]+/providers/' + suffix + r'[a-zA-Z0-9_-]+', value[key]), 'resource identity')
     return value
+
+
+def measurement_transport(value):
+    identity(value)
+    transport = p7.operations.transport(os.environ['FORGEJO_URL'], 'azure-aks', os.environ.get('JOURNEY_DNS_OVERRIDE'))
+    require(urllib.parse.urlsplit(transport['endpoint']).hostname == value['forgejo_hostname'], 'measurement hostname differs from approved Forgejo hostname')
+    return transport
 
 
 def render(value):
@@ -113,7 +124,8 @@ def render(value):
     resources[-1]['metadata']['annotations'] = {'sidecar.istio.io/inject': 'false'}
     policy = obj('security.istio.io/v1', 'AuthorizationPolicy', 'p8-shared-gate', ns='aks-istio-ingress',
                  spec={'selector': {'matchLabels': value['ingress_selector']}, 'action': 'CUSTOM',
-                       'provider': {'name': 'p8-shared-gate'}, 'rules': [{}]})
+                       'provider': {'name': 'p8-shared-gate'}, 'rules': [{'to': [{'operation': {
+                           'hosts': [value['forgejo_hostname'], value['forgejo_hostname'] + ':443']}}]}]})
     return {'fixtures.json': {'apiVersion': 'v1', 'kind': 'List', 'items': resources}, 'policy.json': policy}
 
 
@@ -146,6 +158,58 @@ def walk(value):
     elif isinstance(value, list):
         for item in value:
             yield from walk(item)
+
+
+def gateway_scope(value, policy, listeners):
+    """Check the live policy and the RBAC metadata gate that enables CUSTOM calls.
+
+    Selected Istio 1.30 emits exact, case-insensitive :authority matchers and a
+    provider-specific RBAC shadow policy. Unknown/broader shapes fail closed.
+    """
+    expected = render(value)['policy.json']
+    require(policy['metadata']['name'] == expected['metadata']['name'] and
+            policy['metadata']['namespace'] == expected['metadata']['namespace'] and
+            policy['spec'] == expected['spec'], 'actual CUSTOM selector/provider/hostname policy drift')
+    hosts = set(expected['spec']['rules'][0]['to'][0]['operation']['hosts'])
+    def permission_hosts(permission):
+        if set(permission) == {'header'}:
+            header = permission['header']
+            require(set(header) == {'name', 'string_match'} and header['name'] == ':authority' and
+                    set(header['string_match']) == {'exact', 'ignore_case'} and header['string_match']['ignore_case'] is True,
+                    'effective CUSTOM host matcher is not exact authority')
+            return {header['string_match']['exact']}
+        for key in ('and_rules', 'or_rules'):
+            if set(permission) == {key}:
+                rules = permission[key].get('rules', [])
+                require(rules, 'empty effective CUSTOM host matcher')
+                groups = [permission_hosts(rule) for rule in rules]
+                return set.intersection(*groups) if key == 'and_rules' else set.union(*groups)
+        raise ValueError('unrestricted/unknown effective CUSTOM permission')
+    prefix = 'istio-ext-authz-p8-shared-gate'
+    policy_id = prefix + '-ns[aks-istio-ingress]-policy[p8-shared-gate]-rule[0]'
+    matches = 0
+    for hcm in walk(listeners):
+        filters = hcm.get('http_filters', [])
+        for index, filt in enumerate(filters):
+            if filt.get('name') != 'envoy.filters.http.ext_authz':
+                continue
+            enabled = filt['typed_config'].get('filter_enabled_metadata')
+            require(enabled == {'filter': 'envoy.filters.http.rbac',
+                'path': [{'key': 'istio_ext_authz_shadow_effective_policy_id'}],
+                'value': {'string_match': {'prefix': prefix}}}, 'effective CUSTOM provider metadata gate differs')
+            policies = []
+            for prior in filters[:index]:
+                config = prior.get('typed_config', {})
+                if prior.get('name') == 'envoy.filters.http.rbac' and config.get('shadow_rules_stat_prefix') == 'istio_ext_authz_':
+                    require(config['shadow_rules'].get('action') == 'DENY', 'effective CUSTOM shadow rule action differs')
+                    policies.extend((key, rule) for key, rule in config['shadow_rules'].get('policies', {}).items() if key.startswith(prefix))
+            require(len(policies) == 1 and policies[0][0] == policy_id, 'effective CUSTOM policy absent/extra rules')
+            permissions = policies[0][1].get('permissions', [])
+            require(permissions and all(permission_hosts(p) == hosts for p in permissions), 'effective CUSTOM hostname scope differs')
+            matches += 1
+    require(matches > 0, 'effective CUSTOM filter chain absent')
+    return {'hostname': value['forgejo_hostname'], 'hosts': sorted(hosts), 'policy_uid': policy['metadata']['uid'],
+            'policy_spec_sha256': digest(policy['spec']), 'effective_policy_id': policy_id, 'filter_chains': matches}
 
 
 def target_mapping(dump, stat_payload, capacity):
@@ -237,7 +301,9 @@ class Runtime:
         return self.pods(NS, 'app=ext-authz-sim')
 
     def configuration(self, config):
-        result = {'targets': [], 'scenario': config, 'ingress': []}
+        measurement_transport(self.value)
+        policy = self.j('-n', 'aks-istio-ingress', 'get', 'authorizationpolicy', 'p8-shared-gate', '-o', 'json')
+        result = {'targets': [], 'scenario': config, 'ingress': [], 'forgejo_hostname': self.value['forgejo_hostname']}
         for pod in self.targets():
             name = pod['metadata']['name']
             require(next(c['image'] for c in pod['spec']['containers'] if c['name'] == 'app') == self.value['ext_authz_image'], 'target source image drift')
@@ -260,6 +326,7 @@ class Runtime:
         for ingress in self.pods('aks-istio-ingress', selector):
             name = ingress['metadata']['name']
             listeners = self.admin('aks-istio-ingress', name, 'config_dump?resource=dynamic_listeners')
+            scope = gateway_scope(self.value, policy, listeners)
             filters = [v['typed_config'] for v in walk(listeners) if v.get('name') == 'envoy.filters.http.ext_authz']
             require(filters and all('haproxy.' + NS + '.svc.cluster.local' in f['http_service']['server_uri']['cluster'] and
                     f.get('failure_mode_allow', False) is False for f in filters), 'actual ingress check path/fail-closed mapping')
@@ -268,7 +335,8 @@ class Runtime:
             routes = self.admin('aks-istio-ingress', name, 'config_dump?resource=dynamic_route_configs')
             selected = [v for v in walk(routes) if isinstance(v.get('route'), dict) and 'forgejo-http.forgejo.svc' in v['route'].get('cluster', '')]
             require(selected and all(v['route'].get('retry_policy', {}).get('num_retries', 0) == 0 for v in selected), 'actual Forgejo route retries')
-            result['ingress'].append({'name': name, 'uid': ingress['metadata']['uid'], 'provider_sha256': digest(filters), 'routes_sha256': digest(selected)})
+            result['ingress'].append({'name': name, 'uid': ingress['metadata']['uid'], 'hostname_scope': scope,
+                                      'provider_sha256': digest(filters), 'routes_sha256': digest(selected)})
         require(result['ingress'], 'ingress absent')
         stable = self.pod('forgejo', 'app.kubernetes.io/name=forgejo')
         result['stable'] = {'uid': stable['metadata']['uid'], 'images': {s['name']: s['imageID'] for s in
@@ -426,6 +494,7 @@ def measure(value, config, output, phase, max_attempts, frozen=None):
     output = Path(output)
     output.mkdir(mode=0o700)
     try:
+        measurement_transport(value)
         runtime = Runtime(value)
         actual = runtime.configuration(config)
         fingerprint = {'source_sha': value['source_sha'], 'identity': value, 'configuration': actual,
@@ -558,6 +627,9 @@ def validate_run(directory):
     transport = events[0]['transport']
     require(transport == p7.operations.transport(transport['endpoint'], 'azure-aks', transport.get('dns_client_override')), 'verified HTTPS transport evidence')
     fingerprint = load(directory / 'configuration.json')
+    identity(fingerprint['identity'])
+    require(urllib.parse.urlsplit(transport['endpoint']).hostname == fingerprint['identity']['forgejo_hostname'] and
+            fingerprint['configuration']['forgejo_hostname'] == fingerprint['identity']['forgejo_hostname'], 'recorded/frozen hostname differs')
     actual = fingerprint['configuration']
     config = plan(actual['scenario'])
     require(events[0]['fingerprint'] == digest(fingerprint), 'configuration fingerprint')

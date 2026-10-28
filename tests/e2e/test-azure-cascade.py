@@ -19,7 +19,8 @@ def identity():
     return {'campaign': 'p8test', 'source_sha': 'a' * 40, 'cluster_resource_id': root + 'Microsoft.ContainerService/managedClusters/test',
             'cluster_uid': 'a' * 8 + '-aaaa-aaaa-aaaa-' + 'a' * 12, 'revision': 'asm-1-30', 'stable_revision': 'b' * 40,
             'ext_authz_image': 'test.azurecr.io/ext-authz-sim@sha256:' + 'c' * 64,
-            'ingress_selector': {'istio': 'aks-istio-ingressgateway-external'}, 'pg_resource_id': root + 'Microsoft.DBforPostgreSQL/flexibleServers/test'}
+            'ingress_selector': {'istio': 'aks-istio-ingressgateway-external'}, 'pg_resource_id': root + 'Microsoft.DBforPostgreSQL/flexibleServers/test',
+            'forgejo_hostname': 'forgejo.example.com'}
 
 
 def metric_guard():
@@ -128,6 +129,89 @@ class SourceTests(unittest.TestCase):
             self.assertEqual(a.load(path), {'status': 'failed'})
 
 
+def gateway_fixture():
+    policy = a.render(identity())['policy.json']
+    policy['metadata']['uid'] = 'live-policy-uid'
+    policy_id = 'istio-ext-authz-p8-shared-gate-ns[aks-istio-ingress]-policy[p8-shared-gate]-rule[0]'
+    # Istio 1.30 CUSTOM output: RBAC shadow matcher followed by metadata-gated ext_authz.
+    rule = {'permissions': [{'and_rules': {'rules': [{'or_rules': {'rules': [
+        {'header': {'name': ':authority', 'string_match': {'exact': host, 'ignore_case': True}}}
+        for host in ('forgejo.example.com', 'forgejo.example.com:443')]}}]}}], 'principals': [{'any': True}]}
+    filters = [{'name': 'envoy.filters.http.rbac', 'typed_config': {
+        'shadow_rules_stat_prefix': 'istio_ext_authz_', 'shadow_rules': {'action': 'DENY', 'policies': {policy_id: rule}}}},
+        {'name': 'envoy.filters.http.ext_authz', 'typed_config': {'filter_enabled_metadata': {
+            'filter': 'envoy.filters.http.rbac', 'path': [{'key': 'istio_ext_authz_shadow_effective_policy_id'}],
+            'value': {'string_match': {'prefix': 'istio-ext-authz-p8-shared-gate'}}}}}]
+    return policy, {'configs': [{'listener': {'filter_chains': [{'http_filters': filters}]}}]}, filters, rule
+
+
+class HostnameScopeTests(unittest.TestCase):
+    def test_render_exact_hostname_and_https_port_suffix_only(self):
+        policy = a.render(identity())['policy.json']['spec']
+        self.assertEqual(policy['rules'], [{'to': [{'operation': {'hosts': ['forgejo.example.com', 'forgejo.example.com:443']}}]}])
+        hosts = policy['rules'][0]['to'][0]['operation']['hosts']
+        for authority in ('forgejo.example.com', 'forgejo.example.com:443', 'FORGEJO.EXAMPLE.COM:443'):
+            self.assertIn(authority.lower(), hosts)
+        for authority in ('other.example.com', 'forgejo.example.com.evil.test', 'forgejo.example.com-extra',
+                          'sub.forgejo.example.com', 'forgejo.example.com:444'):
+            self.assertNotIn(authority.lower(), hosts)
+
+    def test_identity_rejects_wildcard_port_url_and_non_normalized_hostname(self):
+        for hostname in ('*', '*.example.com', 'forgejo.example.com*', 'forgejo.example.com:443',
+                         'https://forgejo.example.com', 'Forgejo.example.com', 'forgejo.example.com.', 'forgejo..example.com'):
+            with self.subTest(hostname=hostname), self.assertRaises(ValueError):
+                a.render(identity() | {'forgejo_hostname': hostname})
+
+    def test_normalized_url_hostname_with_optional_443_and_dns_override(self):
+        for endpoint in ('https://forgejo.example.com', 'https://FORGEJO.EXAMPLE.COM:443'):
+            with patch.dict(os.environ, {'FORGEJO_URL': endpoint, 'JOURNEY_DNS_OVERRIDE': '1.2.3.4'}, clear=True):
+                self.assertEqual(a.measurement_transport(identity())['endpoint'], endpoint)
+
+    def test_hostname_mismatch_stops_before_runtime_or_probe(self):
+        for endpoint in ('https://other.example.com', 'https://forgejo.example.com.evil.test'):
+            with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {'FORGEJO_URL': endpoint}, clear=True), \
+                 patch.object(a, 'Runtime') as runtime:
+                with self.assertRaisesRegex(ValueError, 'hostname differs'):
+                    a.measure(identity(), a.load(ROOT / 'experiments/fixtures/shared-gate/azure-saturation.json'),
+                              Path(directory) / 'run', 'calibration', 1)
+                runtime.assert_not_called()
+                self.assertTrue((Path(directory) / 'run/invocation-failure.json').is_file())
+
+    def test_live_policy_and_effective_scope(self):
+        policy, listeners, _, _ = gateway_fixture()
+        scope = a.gateway_scope(identity(), policy, listeners)
+        self.assertEqual(scope['hosts'], ['forgejo.example.com', 'forgejo.example.com:443'])
+        self.assertEqual(scope['policy_uid'], 'live-policy-uid')
+        self.assertEqual(scope['filter_chains'], 1)
+
+    def test_live_unrestricted_wrong_host_selector_provider_or_extra_rule_rejected(self):
+        for kind in ('empty', 'wildcard', 'prefix', 'other_host', 'selector', 'provider', 'extra_rule'):
+            policy, listeners, _, _ = gateway_fixture()
+            if kind == 'empty': policy['spec']['rules'] = [{}]
+            if kind in {'wildcard', 'prefix', 'other_host'}:
+                policy['spec']['rules'][0]['to'][0]['operation']['hosts'] = [{'wildcard': '*', 'prefix': 'forgejo.example.com*', 'other_host': 'other.example.com'}[kind]]
+            if kind == 'selector': policy['spec']['selector']['matchLabels'] = {'istio': 'other-gateway'}
+            if kind == 'provider': policy['spec']['provider']['name'] = 'other-provider'
+            if kind == 'extra_rule': policy['spec']['rules'].append({})
+            with self.subTest(kind=kind), self.assertRaises(ValueError): a.gateway_scope(identity(), policy, listeners)
+
+    def test_effective_unrestricted_wrong_host_match_or_provider_gate_rejected(self):
+        for kind in ('any', 'prefix', 'suffix', 'present', 'other_host', 'extra_permission', 'extra_policy', 'ungated', 'provider', 'missing_rbac'):
+            policy, listeners, filters, rule = gateway_fixture()
+            if kind == 'any': rule['permissions'] = [{'any': True}]
+            if kind in {'prefix', 'suffix', 'present', 'other_host'}:
+                matcher = {'prefix': {'string_match': {'prefix': 'forgejo.example.com', 'ignore_case': True}},
+                           'suffix': {'string_match': {'suffix': '.example.com', 'ignore_case': True}},
+                           'present': {'present_match': True}, 'other_host': {'string_match': {'exact': 'other.example.com', 'ignore_case': True}}}[kind]
+                rule['permissions'] = [{'header': {'name': ':authority', **matcher}}]
+            if kind == 'extra_permission': rule['permissions'].append({'any': True})
+            if kind == 'extra_policy': filters[0]['typed_config']['shadow_rules']['policies']['istio-ext-authz-p8-shared-gate-other'] = {'permissions': [{'any': True}]}
+            if kind == 'ungated': del filters[1]['typed_config']['filter_enabled_metadata']
+            if kind == 'provider': filters[1]['typed_config']['filter_enabled_metadata']['value']['string_match']['prefix'] = 'istio-ext-authz-other'
+            if kind == 'missing_rbac': filters.pop(0)
+            with self.subTest(kind=kind), self.assertRaises(ValueError): a.gateway_scope(identity(), policy, listeners)
+
+
 class GuardTests(unittest.TestCase):
     def test_lower_minimum_is_not_upper_replica_cap(self):
         result = a.guard_validation(guards(), hpa_spec())
@@ -161,7 +245,7 @@ class GuardTests(unittest.TestCase):
 
 def run_fixture(directory):
     config = {'max_requests': 1, 'hold_ms': 100, 'logical_operations': 2, 'concurrency': 2, 'waves': 4, 'wave_interval_seconds': 30}
-    actual = {'scenario': config, 'targets': [{'uid': 'target', 'mapping': {'stat_names': sorted('cluster.actual.' + k for k in a.p4.SUFFIXES)}}], 'hpa_spec': hpa_spec()}
+    actual = {'forgejo_hostname': identity()['forgejo_hostname'], 'scenario': config, 'targets': [{'uid': 'target', 'mapping': {'stat_names': sorted('cluster.actual.' + k for k in a.p4.SUFFIXES)}}], 'hpa_spec': hpa_spec()}
     fingerprint = {'source_sha': 'a' * 40, 'configuration': actual, 'identity': identity()}
     stats = {'target': {'cluster.actual.' + k: 0 for k in a.p4.SUFFIXES}}
     hp = {'status': 'no check'} | {k: 0 for k in a.p4.HAPROXY_FIELDS}
@@ -264,6 +348,19 @@ class EvidenceTests(unittest.TestCase):
             (Path(second) / 'configuration.json').write_text(json.dumps(changed))
             with patch.object(a, 'reviewed_run', side_effect=[{'logical_operations': 8}, {'logical_operations': 8}]), self.assertRaises(ValueError):
                 a.paired(first, second, frozen)
+
+    def test_frozen_hostname_must_match_recorded_transport(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run_fixture(directory)
+            path = Path(directory) / 'configuration.json'
+            fingerprint = a.load(path)
+            fingerprint['identity']['forgejo_hostname'] = 'other.example.com'
+            fingerprint['configuration']['forgejo_hostname'] = 'other.example.com'
+            path.write_text(json.dumps(fingerprint))
+            events = Path(directory) / 'events.jsonl'
+            rows = a.p4.rows(events); rows[0]['fingerprint'] = a.digest(fingerprint)
+            events.write_text(''.join(json.dumps(e) + '\n' for e in rows))
+            with self.assertRaisesRegex(ValueError, 'hostname differs'): a.validate_run(directory)
 
     def test_counter_mapping_and_orphan_attempt_failure(self):
         for kind in ('overflow', 'haproxy_retry', 'unknown_check', 'pending', 'failed_run'):

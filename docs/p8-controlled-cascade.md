@@ -14,7 +14,7 @@ P6/P7 전체 검증, recovery drill, KEDA, P9 recovery 비교, P10 isolation은 
    승인된 principal에 해당 AKS resource만의 임시 `Azure Kubernetes Service RBAC Cluster Admin`을 부여하고 assignment ID를 보존한다.
    `az aks get-credentials --file`의 새 파일과 Entra user authentication을 사용한다. 인증 우회나 admin certificate는 사용하지 않는다.
 3. Kubernetes API read로 cluster UID, managed revision, Argo sources/spec/revisions·Healthy/Synced,
-   Forgejo 이미지/PVC/PV/Disk, ingress selector, 기존 shared ConfigMap UID/resourceVersion/data와 P8 이름의 부재를 확인한다.
+   Forgejo 이미지/PVC/PV/Disk, 승인된 Forgejo hostname과 ingress selector, 기존 shared ConfigMap UID/resourceVersion/data와 P8 이름의 부재를 확인한다.
    Stable revision은 `2f63d283ebba12aaed8705732f1206d71ddc33db`로 유지한다.
    Operator-owned shared ConfigMap과 ingress namespace의 기존 policy 목록을 보호 directory에 저장한다.
    알려지지 않은 owner/동일 이름의 resource, stable drift, 새 managed revision이면 mutation 전에 중단한다.
@@ -29,7 +29,7 @@ P6/P7 전체 검증, recovery drill, KEDA, P9 recovery 비교, P10 isolation은 
    기존 native administrator는 승인된 fixture 준비에만 쓰고 측정은 새 non-admin developer/PAT로 한다.
 7. 승인한 shared MeshConfig overlay → fixture → 건강/metric/admission 확인 → CUSTOM policy 순으로 적용한다.
    hold=0 / maxRequests=1024에서 별도 healthy-gate journey를 한 번 `create`한다.
-   Controlled DENY와 credential/body exclusion, ingress filter/provider, no-retry route와 HAProxy 경로를 확인한다.
+   Controlled DENY와 credential/body exclusion, ingress filter/provider/hostname scope, no-retry route와 HAProxy 경로를 확인한다.
    Native auth의 무인증 private read 거부도 확인한다. 실패하면 fault를 시작하지 않는다.
 8. 정상 HPA `ContainerResource(app,cpu)` metric·app requests 50m·controller 판단·replica 1→2 여유를 확인한 뒤 calibration한다.
    아래 candidate는 Azure 검증값이 아니다. 실패한 directory는 보존하고 필요한 bounded refinement는 별도 calibration으로 기록한다.
@@ -70,6 +70,7 @@ Identity JSON은 다음 non-secret field만 받는다. Runtime 전 actual 값으
   "stable_revision": "2f63d283ebba12aaed8705732f1206d71ddc33db",
   "ext_authz_image": "<actual ACR repository@sha256:digest>",
   "ingress_selector": {"istio": "<actual external gateway label>"},
+  "forgejo_hostname": "forgejo.imcherry5778.xyz",
   "pg_resource_id": "<actual existing PostgreSQL resource ID>"
 }
 ```
@@ -83,6 +84,17 @@ python3 scripts/azure-cascade.py mesh "$P8_IDENTITY" "$P8_ORIGINAL_SHARED_CM" "$
 Renderer는 별도 `fixtures.json` / `policy.json`을 만든다. Namespace는 `p8-shared-gate`, revision label을 사용한다.
 P4의 HAProxy 설정을 재사용하지만 Local `Never`, `istio-injection=enabled`, `p4-ingress`와 Local gateway/VirtualService는 옮기지 않는다.
 P8 resource는 Argo 대상이 아니며 stable main-only renderer 계약을 변경하지 않는다.
+`forgejo_hostname`은 승인된 non-secret 소문자 DNS hostname이며 identity와 frozen configuration에 결합한다.
+측정 `FORGEJO_URL`의 normalized hostname이 다르면 runtime 접근 전에 거부한다.
+CUSTOM policy는 `to.operation.hosts`를 해당 hostname과 정확한 `hostname:443` 두 값으로 제한한다.
+다른 hostname까지 매칭하는 wildcard/prefix, 빈 rule은 허용하지 않는다.
+승인 뒤 매 run 전후 live policy의 selector/provider/hosts를 확인하고, 실제 gateway HTTP filter chain의
+RBAC shadow policy가 같은 두 `:authority` exact matcher로 ext_authz를 활성화하는지 검사한다.
+Policy UID/spec hash와 effective hostname scope도 frozen configuration에 기록한다.
+이는 [선택한 Istio 1.30의 CUSTOM builder](https://github.com/istio/istio/blob/1.30.5/pilot/pkg/security/authz/builder/builder.go)와
+[host matcher](https://github.com/istio/istio/blob/1.30.5/pilot/pkg/security/authz/matcher/header.go) 형식을 검증하는 경로다.
+Actual managed gateway가 다른 형식이면 scope를 확인했다고 추정하지 않고 중단한다.
+이 확인을 위해 stable Gateway/VirtualService/Argo source를 변경하거나 다른 host로 workload probe를 보내지 않는다.
 
 `p8-db-read` Secret은 승인한 기존 **Forgejo application DB role**의 PSQL 환경변수만 담는다.
 `PGHOST/PGPORT/PGDATABASE/PGUSER/PGPASSWORD`, `PGSSLMODE=verify-full`, 해당 image의 신뢰 CA bundle을 가리키는
