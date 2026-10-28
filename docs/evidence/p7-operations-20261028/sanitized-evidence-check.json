@@ -1,0 +1,10 @@
+{
+  "baseline6_run_validation": true,
+  "baseline_summary_matches_producer": true,
+  "checked_at_utc": "2026-10-28T12:58:21.581379+00:00",
+  "credential_inventory": "actual PAT/password/session/signing values compared in memory; values/count not exported",
+  "credential_values_absent": true,
+  "files": 182,
+  "private_operator_repository_paths_absent": true,
+  "three_distinct_targets": true
+}

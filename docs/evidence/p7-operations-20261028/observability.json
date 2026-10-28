@@ -1,0 +1,1003 @@
+{
+  "boundary": {
+    "baseline": "2026-10-28T11:43:22Z/2026-10-28T11:43:58Z; 45 logical operations",
+    "distributed_tracing": "not verified",
+    "overflow_interpretation": "observed zero proves visibility only; no P8 saturation/rejection/retry/scaling experiment",
+    "request_level_join": "not verified",
+    "server_join": "time-window-and-workload only",
+    "visibility": "2026-10-28T12:33:24.751319Z/2026-10-28T12:34:04.930431Z; one readiness GET, not baseline"
+  },
+  "native": {
+    "native-stat-mapping-inventory.json": {
+      "at_utc": "2026-10-28T11:44:55.582182+00:00",
+      "cluster_identity": {
+        "alt_stat_name": "outbound|3000||forgejo-http.forgejo.svc.cluster.local;",
+        "name": "outbound|3000||forgejo-http.forgejo.svc.cluster.local"
+      },
+      "native_counter_names": [
+        "cluster.xds-grpc;.internal.upstream_rq_200",
+        "cluster.xds-grpc;.internal.upstream_rq_2xx",
+        "cluster.xds-grpc;.internal.upstream_rq_completed",
+        "cluster.xds-grpc;.upstream_rq_0rtt",
+        "cluster.xds-grpc;.upstream_rq_200",
+        "cluster.xds-grpc;.upstream_rq_2xx",
+        "cluster.xds-grpc;.upstream_rq_active",
+        "cluster.xds-grpc;.upstream_rq_active_overflow",
+        "cluster.xds-grpc;.upstream_rq_cancelled",
+        "cluster.xds-grpc;.upstream_rq_completed",
+        "cluster.xds-grpc;.upstream_rq_maintenance_mode",
+        "cluster.xds-grpc;.upstream_rq_max_duration_reached",
+        "cluster.xds-grpc;.upstream_rq_pending_active",
+        "cluster.xds-grpc;.upstream_rq_pending_failure_eject",
+        "cluster.xds-grpc;.upstream_rq_pending_overflow",
+        "cluster.xds-grpc;.upstream_rq_pending_total",
+        "cluster.xds-grpc;.upstream_rq_per_try_idle_timeout",
+        "cluster.xds-grpc;.upstream_rq_per_try_timeout",
+        "cluster.xds-grpc;.upstream_rq_retry",
+        "cluster.xds-grpc;.upstream_rq_retry_backoff_exponential",
+        "cluster.xds-grpc;.upstream_rq_retry_backoff_ratelimited",
+        "cluster.xds-grpc;.upstream_rq_retry_limit_exceeded",
+        "cluster.xds-grpc;.upstream_rq_retry_overflow",
+        "cluster.xds-grpc;.upstream_rq_retry_success",
+        "cluster.xds-grpc;.upstream_rq_rx_reset",
+        "cluster.xds-grpc;.upstream_rq_timeout",
+        "cluster.xds-grpc;.upstream_rq_total",
+        "cluster.xds-grpc;.upstream_rq_tx_reset"
+      ]
+    },
+    "post-checkpoint-effective-matcher.json": {
+      "at_utc": "2026-10-28T12:14:41.354426+00:00",
+      "base_configmap_poll": "base istio config map is not the effective overlay authority; initial precheck did not converge",
+      "matcher": {
+        "inclusion_list": {
+          "patterns": [
+            {
+              "prefix": "reporter="
+            },
+            {
+              "prefix": "cluster_manager"
+            },
+            {
+              "prefix": "listener_manager"
+            },
+            {
+              "prefix": "server"
+            },
+            {
+              "prefix": "cluster.xds-grpc"
+            },
+            {
+              "prefix": "wasm"
+            },
+            {
+              "suffix": "upstream_rq_active"
+            },
+            {
+              "suffix": "upstream_rq_active_overflow"
+            },
+            {
+              "suffix": "upstream_rq_pending_active"
+            },
+            {
+              "suffix": "upstream_rq_pending_overflow"
+            },
+            {
+              "suffix": "upstream_rq_total"
+            },
+            {
+              "suffix": "rbac.allowed"
+            },
+            {
+              "suffix": "rbac.denied"
+            },
+            {
+              "suffix": "shadow_allowed"
+            },
+            {
+              "suffix": "shadow_denied"
+            },
+            {
+              "safe_regex": {
+                "regex": "vhost\\..*\\.route\\..*"
+              }
+            },
+            {
+              "prefix": "component"
+            },
+            {
+              "prefix": "istio"
+            }
+          ]
+        }
+      },
+      "pod": "forgejo-56785cf67-8548q",
+      "pod_uid": "40bc9550-4584-4d69-ae44-4639fce0b69e",
+      "stable_resumed": true
+    },
+    "proxy-after.json": {
+      "alt_stat_name": "outbound|3000||forgejo-http.forgejo.svc.cluster.local;",
+      "cluster_name": "outbound|3000||forgejo-http.forgejo.svc.cluster.local",
+      "container": "istio-proxy",
+      "image_id": "mcr.microsoft.com/oss/v2/istio/proxyv2@sha256:7f13bbd05cd6e363359106127a548c8cd5cd86101d3e9fe741d74db53b5b8b29",
+      "image_spec": "mcr.microsoft.com/oss/v2/istio/proxyv2:v1.30.5-3",
+      "mechanism": "visibility only; saturation/rejection not verified",
+      "missing_stats": [
+        "upstream_rq_active",
+        "upstream_rq_active_overflow",
+        "upstream_rq_pending_active",
+        "upstream_rq_pending_overflow",
+        "upstream_rq_total"
+      ],
+      "namespace": "aks-istio-ingress",
+      "native_stat_prefixes": [
+        "cluster.outbound|3000||forgejo-http.forgejo.svc.cluster.local.",
+        "cluster.outbound|3000||forgejo-http.forgejo.svc.cluster.local;."
+      ],
+      "node": "aks-system-28424879-vmss000001",
+      "observations": {},
+      "observed_at_utc": "2026-10-28T11:44:05.210087+00:00",
+      "pod": "aks-istio-ingressgateway-external-asm-1-30-5f84d44c88-79nt4",
+      "pod_uid": "dd0c5046-acde-4d21-b6eb-3e84216b1e5a",
+      "prometheus_cluster_label_to_verify": "outbound|3000||forgejo-http.forgejo.svc.cluster.local",
+      "proxy_version": "3bf722f59561ef9747835e543c0b648eb4ab1237/1.38.6/Modified/RELEASE/BoringSSL",
+      "restarts": 0
+    },
+    "proxy-before.json": {
+      "alt_stat_name": "outbound|3000||forgejo-http.forgejo.svc.cluster.local;",
+      "cluster_name": "outbound|3000||forgejo-http.forgejo.svc.cluster.local",
+      "container": "istio-proxy",
+      "image_id": "mcr.microsoft.com/oss/v2/istio/proxyv2@sha256:7f13bbd05cd6e363359106127a548c8cd5cd86101d3e9fe741d74db53b5b8b29",
+      "image_spec": "mcr.microsoft.com/oss/v2/istio/proxyv2:v1.30.5-3",
+      "mechanism": "visibility only; saturation/rejection not verified",
+      "missing_stats": [
+        "upstream_rq_active",
+        "upstream_rq_active_overflow",
+        "upstream_rq_pending_active",
+        "upstream_rq_pending_overflow",
+        "upstream_rq_total"
+      ],
+      "namespace": "aks-istio-ingress",
+      "native_stat_prefixes": [
+        "cluster.outbound|3000||forgejo-http.forgejo.svc.cluster.local.",
+        "cluster.outbound|3000||forgejo-http.forgejo.svc.cluster.local;."
+      ],
+      "node": "aks-system-28424879-vmss000001",
+      "observations": {},
+      "observed_at_utc": "2026-10-28T11:43:14.683315+00:00",
+      "pod": "aks-istio-ingressgateway-external-asm-1-30-5f84d44c88-79nt4",
+      "pod_uid": "dd0c5046-acde-4d21-b6eb-3e84216b1e5a",
+      "prometheus_cluster_label_to_verify": "outbound|3000||forgejo-http.forgejo.svc.cluster.local",
+      "proxy_version": "3bf722f59561ef9747835e543c0b648eb4ab1237/1.38.6/Modified/RELEASE/BoringSSL",
+      "restarts": 0
+    },
+    "temporary-stats-visibility-config.json": {
+      "allowed_not_microsoft_supported": true,
+      "at_utc": "2026-10-28T12:11:03.533720+00:00",
+      "configmap_uid": "e8c02cbc-3bbf-424e-a7e3-564d8c52e074",
+      "defaultConfig": {
+        "holdApplicationUntilProxyStarts": true,
+        "proxyStatsMatcher": {
+          "inclusionSuffixes": [
+            "upstream_rq_active",
+            "upstream_rq_active_overflow",
+            "upstream_rq_pending_active",
+            "upstream_rq_pending_overflow",
+            "upstream_rq_total"
+          ]
+        }
+      },
+      "stable_git_revision_unchanged": "2f63d283ebba12aaed8705732f1206d71ddc33db"
+    },
+    "visibility-native-after.json": {
+      "alt_stat_name": "inbound|3000||;",
+      "cluster_name": "inbound|3000||",
+      "container": "istio-proxy",
+      "container_lifecycle": "native-init-sidecar",
+      "image_id": "mcr.microsoft.com/oss/v2/istio/proxyv2@sha256:7f13bbd05cd6e363359106127a548c8cd5cd86101d3e9fe741d74db53b5b8b29",
+      "image_spec": "mcr.microsoft.com/oss/v2/istio/proxyv2:v1.30.5-3",
+      "mechanism": "visibility only; saturation/rejection not verified",
+      "missing_stats": [],
+      "namespace": "forgejo",
+      "native_stat_prefixes": [
+        "cluster.inbound|3000||.",
+        "cluster.inbound|3000||;."
+      ],
+      "node": "aks-system-28424879-vmss000000",
+      "observations": {
+        "cluster.inbound|3000||;.upstream_rq_active": 0,
+        "cluster.inbound|3000||;.upstream_rq_active_overflow": 0,
+        "cluster.inbound|3000||;.upstream_rq_pending_active": 0,
+        "cluster.inbound|3000||;.upstream_rq_pending_overflow": 0,
+        "cluster.inbound|3000||;.upstream_rq_total": 54
+      },
+      "observed_at_utc": "2026-10-28T12:34:04.930031+00:00",
+      "pod": "forgejo-56785cf67-8548q",
+      "pod_uid": "40bc9550-4584-4d69-ae44-4639fce0b69e",
+      "prometheus_cluster_label_name": "cluster_name",
+      "prometheus_cluster_label_to_verify": "inbound|3000||",
+      "proxy_version": "3bf722f59561ef9747835e543c0b648eb4ab1237/1.38.6/Modified/RELEASE/BoringSSL",
+      "restarts": 0
+    },
+    "visibility-native-before.json": {
+      "alt_stat_name": "inbound|3000||;",
+      "cluster_name": "inbound|3000||",
+      "container": "istio-proxy",
+      "container_lifecycle": "native-init-sidecar",
+      "image_id": "mcr.microsoft.com/oss/v2/istio/proxyv2@sha256:7f13bbd05cd6e363359106127a548c8cd5cd86101d3e9fe741d74db53b5b8b29",
+      "image_spec": "mcr.microsoft.com/oss/v2/istio/proxyv2:v1.30.5-3",
+      "mechanism": "visibility only; saturation/rejection not verified",
+      "missing_stats": [],
+      "namespace": "forgejo",
+      "native_stat_prefixes": [
+        "cluster.inbound|3000||.",
+        "cluster.inbound|3000||;."
+      ],
+      "node": "aks-system-28424879-vmss000000",
+      "observations": {
+        "cluster.inbound|3000||;.upstream_rq_active": 0,
+        "cluster.inbound|3000||;.upstream_rq_active_overflow": 0,
+        "cluster.inbound|3000||;.upstream_rq_pending_active": 0,
+        "cluster.inbound|3000||;.upstream_rq_pending_overflow": 0,
+        "cluster.inbound|3000||;.upstream_rq_total": 52
+      },
+      "observed_at_utc": "2026-10-28T12:33:27.306958+00:00",
+      "pod": "forgejo-56785cf67-8548q",
+      "pod_uid": "40bc9550-4584-4d69-ae44-4639fce0b69e",
+      "prometheus_cluster_label_name": "cluster_name",
+      "prometheus_cluster_label_to_verify": "inbound|3000||",
+      "proxy_version": "3bf722f59561ef9747835e543c0b648eb4ab1237/1.38.6/Modified/RELEASE/BoringSSL",
+      "restarts": 0
+    },
+    "visibility-readiness-response.json": {
+      "client_correlation": "visibility run -> readiness -> attempt1",
+      "measured_baseline": false,
+      "response": {
+        "version": "15.0.11+gitea-1.22.0"
+      }
+    }
+  },
+  "observability": {
+    "forgejo_scrape.json": {
+      "series": [
+        {
+          "metric": {
+            "__name__": "up",
+            "cluster": "aks-ccp-krc-p6",
+            "instance": "10.244.1.102:3000",
+            "job": "forgejo",
+            "namespace": "forgejo"
+          },
+          "values": [
+            [
+              1793187802,
+              "1"
+            ],
+            [
+              1793187832,
+              "1"
+            ]
+          ]
+        }
+      ],
+      "status": "observed"
+    },
+    "logs.json": {
+      "rows": [],
+      "status": "no-data"
+    },
+    "proxy_scrape.json": {
+      "series": [
+        {
+          "metric": {
+            "__name__": "up",
+            "cluster": "aks-ccp-krc-p6",
+            "instance": "10.244.1.75:15090",
+            "job": "azure-stable-envoy",
+            "namespace": "aks-istio-ingress",
+            "pod": "aks-istio-ingressgateway-external-asm-1-30-5f84d44c88-79nt4"
+          },
+          "values": [
+            [
+              1793187802,
+              "1"
+            ],
+            [
+              1793187832,
+              "1"
+            ]
+          ]
+        }
+      ],
+      "status": "observed"
+    },
+    "query-plan.json": {
+      "correlation": {
+        "client": "run_id -> operation_id -> attempt_id",
+        "distributed_tracing": "not verified",
+        "request_level_join": "not verified",
+        "server": "time-window-and-workload"
+      },
+      "identity": {
+        "admin_cluster_name": "outbound|3000||forgejo-http.forgejo.svc.cluster.local",
+        "cluster_resource_id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6/providers/Microsoft.ContainerService/managedClusters/aks-ccp-krc-p6",
+        "container": "istio-proxy",
+        "envoy_cluster_name": "outbound|3000||forgejo-http.forgejo.svc.cluster.local",
+        "log_workspace_id": "5f112350-7f99-47ec-b3ef-942ef7216537",
+        "namespace": "aks-istio-ingress",
+        "pod": "aks-istio-ingressgateway-external-asm-1-30-5f84d44c88-79nt4",
+        "prometheus_cluster": "aks-ccp-krc-p6",
+        "prometheus_endpoint": "https://amw-ccp-krc-p6-frh3gzbxdugmffa7.koreacentral.prometheus.monitor.azure.com"
+      },
+      "interpretation": "absent series/rows are no-data; observed overflow=0 is visibility only; no saturation/rejection proof",
+      "kql": "ContainerLogV2\n| where TimeGenerated between (datetime(2026-10-28T11:43:22Z) .. datetime(2026-10-28T11:43:58Z))\n| where _ResourceId =~ '/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6/providers/Microsoft.ContainerService/managedClusters/aks-ccp-krc-p6'\n| where PodNamespace == 'forgejo' or (PodNamespace == 'aks-istio-ingress' and PodName == 'aks-istio-ingressgateway-external-asm-1-30-5f84d44c88-79nt4')\n| summarize entries=count(), first_seen=min(TimeGenerated), last_seen=max(TimeGenerated) by PodNamespace, PodName, ContainerName, LogSource",
+      "measured_run_ids": [
+        "20261028114322-8d4f68",
+        "20261028114330-eb50c7",
+        "20261028114337-e37249",
+        "20261028114345-a602c5",
+        "20261028114352-9d9c05"
+      ],
+      "promql": {
+        "forgejo_scrape": "up{job=\"forgejo\",namespace=\"forgejo\",cluster=\"aks-ccp-krc-p6\"}",
+        "proxy_scrape": "up{job=\"azure-stable-envoy\",cluster=\"aks-ccp-krc-p6\",namespace=\"aks-istio-ingress\",pod=\"aks-istio-ingressgateway-external-asm-1-30-5f84d44c88-79nt4\"}",
+        "upstream_rq_active": "envoy_cluster_upstream_rq_active{job=\"azure-stable-envoy\",cluster=\"aks-ccp-krc-p6\",namespace=\"aks-istio-ingress\",pod=\"aks-istio-ingressgateway-external-asm-1-30-5f84d44c88-79nt4\",envoy_cluster_name=\"outbound|3000||forgejo-http.forgejo.svc.cluster.local\"}",
+        "upstream_rq_active_overflow": "envoy_cluster_upstream_rq_active_overflow{job=\"azure-stable-envoy\",cluster=\"aks-ccp-krc-p6\",namespace=\"aks-istio-ingress\",pod=\"aks-istio-ingressgateway-external-asm-1-30-5f84d44c88-79nt4\",envoy_cluster_name=\"outbound|3000||forgejo-http.forgejo.svc.cluster.local\"}",
+        "upstream_rq_pending_active": "envoy_cluster_upstream_rq_pending_active{job=\"azure-stable-envoy\",cluster=\"aks-ccp-krc-p6\",namespace=\"aks-istio-ingress\",pod=\"aks-istio-ingressgateway-external-asm-1-30-5f84d44c88-79nt4\",envoy_cluster_name=\"outbound|3000||forgejo-http.forgejo.svc.cluster.local\"}",
+        "upstream_rq_pending_overflow": "envoy_cluster_upstream_rq_pending_overflow{job=\"azure-stable-envoy\",cluster=\"aks-ccp-krc-p6\",namespace=\"aks-istio-ingress\",pod=\"aks-istio-ingressgateway-external-asm-1-30-5f84d44c88-79nt4\",envoy_cluster_name=\"outbound|3000||forgejo-http.forgejo.svc.cluster.local\"}",
+        "upstream_rq_total": "envoy_cluster_upstream_rq_total{job=\"azure-stable-envoy\",cluster=\"aks-ccp-krc-p6\",namespace=\"aks-istio-ingress\",pod=\"aks-istio-ingressgateway-external-asm-1-30-5f84d44c88-79nt4\",envoy_cluster_name=\"outbound|3000||forgejo-http.forgejo.svc.cluster.local\"}"
+      },
+      "schema_version": 1,
+      "service_active_window_utc": {
+        "end": "2026-10-28T11:43:58Z",
+        "start": "2026-10-28T11:43:22Z"
+      },
+      "source_sha": "7cd7a9c88e529d74c979d75fd4a3e130819134c5",
+      "stable_deployed_revision": "2f63d283ebba12aaed8705732f1206d71ddc33db",
+      "step_seconds": 30
+    },
+    "upstream_rq_active.json": {
+      "series": [],
+      "status": "no-data"
+    },
+    "upstream_rq_active_overflow.json": {
+      "series": [],
+      "status": "no-data"
+    },
+    "upstream_rq_pending_active.json": {
+      "series": [],
+      "status": "no-data"
+    },
+    "upstream_rq_pending_overflow.json": {
+      "series": [],
+      "status": "no-data"
+    },
+    "upstream_rq_total.json": {
+      "series": [],
+      "status": "no-data"
+    }
+  },
+  "observability-delayed": {
+    "forgejo_scrape.json": {
+      "series": [
+        {
+          "metric": {
+            "__name__": "up",
+            "cluster": "aks-ccp-krc-p6",
+            "instance": "10.244.1.102:3000",
+            "job": "forgejo",
+            "namespace": "forgejo"
+          },
+          "values": [
+            [
+              1793187802,
+              "1"
+            ],
+            [
+              1793187832,
+              "1"
+            ]
+          ]
+        }
+      ],
+      "status": "observed"
+    },
+    "logs.json": {
+      "rows": [
+        {
+          "ContainerName": "istio-proxy",
+          "LogSource": "stdout",
+          "PodName": "forgejo-56785cf67-rrwtz",
+          "PodNamespace": "forgejo",
+          "TableName": "PrimaryResult",
+          "entries": "148",
+          "first_seen": "2026-10-28T11:43:22.3515352Z",
+          "last_seen": "2026-10-28T11:43:57.3935455Z"
+        },
+        {
+          "ContainerName": "forgejo",
+          "LogSource": "stdout",
+          "PodName": "forgejo-56785cf67-rrwtz",
+          "PodNamespace": "forgejo",
+          "TableName": "PrimaryResult",
+          "entries": "198",
+          "first_seen": "2026-10-28T11:43:22.8112069Z",
+          "last_seen": "2026-10-28T11:43:57.9239359Z"
+        },
+        {
+          "ContainerName": "istio-proxy",
+          "LogSource": "stdout",
+          "PodName": "aks-istio-ingressgateway-external-asm-1-30-5f84d44c88-79nt4",
+          "PodNamespace": "aks-istio-ingress",
+          "TableName": "PrimaryResult",
+          "entries": "76",
+          "first_seen": "2026-10-28T11:43:22.4383177Z",
+          "last_seen": "2026-10-28T11:43:57.474736Z"
+        }
+      ],
+      "status": "observed"
+    },
+    "proxy_scrape.json": {
+      "series": [
+        {
+          "metric": {
+            "__name__": "up",
+            "cluster": "aks-ccp-krc-p6",
+            "instance": "10.244.1.75:15090",
+            "job": "azure-stable-envoy",
+            "namespace": "aks-istio-ingress",
+            "pod": "aks-istio-ingressgateway-external-asm-1-30-5f84d44c88-79nt4"
+          },
+          "values": [
+            [
+              1793187802,
+              "1"
+            ],
+            [
+              1793187832,
+              "1"
+            ]
+          ]
+        }
+      ],
+      "status": "observed"
+    },
+    "query-plan.json": {
+      "correlation": {
+        "client": "run_id -> operation_id -> attempt_id",
+        "distributed_tracing": "not verified",
+        "request_level_join": "not verified",
+        "server": "time-window-and-workload"
+      },
+      "identity": {
+        "admin_cluster_name": "outbound|3000||forgejo-http.forgejo.svc.cluster.local",
+        "cluster_resource_id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6/providers/Microsoft.ContainerService/managedClusters/aks-ccp-krc-p6",
+        "container": "istio-proxy",
+        "envoy_cluster_name": "outbound|3000||forgejo-http.forgejo.svc.cluster.local",
+        "log_workspace_id": "5f112350-7f99-47ec-b3ef-942ef7216537",
+        "namespace": "aks-istio-ingress",
+        "pod": "aks-istio-ingressgateway-external-asm-1-30-5f84d44c88-79nt4",
+        "prometheus_cluster": "aks-ccp-krc-p6",
+        "prometheus_endpoint": "https://amw-ccp-krc-p6-frh3gzbxdugmffa7.koreacentral.prometheus.monitor.azure.com"
+      },
+      "interpretation": "absent series/rows are no-data; observed overflow=0 is visibility only; no saturation/rejection proof",
+      "kql": "ContainerLogV2\n| where TimeGenerated between (datetime(2026-10-28T11:43:22Z) .. datetime(2026-10-28T11:43:58Z))\n| where _ResourceId =~ '/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6/providers/Microsoft.ContainerService/managedClusters/aks-ccp-krc-p6'\n| where PodNamespace == 'forgejo' or (PodNamespace == 'aks-istio-ingress' and PodName == 'aks-istio-ingressgateway-external-asm-1-30-5f84d44c88-79nt4')\n| summarize entries=count(), first_seen=min(TimeGenerated), last_seen=max(TimeGenerated) by PodNamespace, PodName, ContainerName, LogSource",
+      "measured_run_ids": [
+        "20261028114322-8d4f68",
+        "20261028114330-eb50c7",
+        "20261028114337-e37249",
+        "20261028114345-a602c5",
+        "20261028114352-9d9c05"
+      ],
+      "promql": {
+        "forgejo_scrape": "up{job=\"forgejo\",namespace=\"forgejo\",cluster=\"aks-ccp-krc-p6\"}",
+        "proxy_scrape": "up{job=\"azure-stable-envoy\",cluster=\"aks-ccp-krc-p6\",namespace=\"aks-istio-ingress\",pod=\"aks-istio-ingressgateway-external-asm-1-30-5f84d44c88-79nt4\"}",
+        "upstream_rq_active": "envoy_cluster_upstream_rq_active{job=\"azure-stable-envoy\",cluster=\"aks-ccp-krc-p6\",namespace=\"aks-istio-ingress\",pod=\"aks-istio-ingressgateway-external-asm-1-30-5f84d44c88-79nt4\",envoy_cluster_name=\"outbound|3000||forgejo-http.forgejo.svc.cluster.local\"}",
+        "upstream_rq_active_overflow": "envoy_cluster_upstream_rq_active_overflow{job=\"azure-stable-envoy\",cluster=\"aks-ccp-krc-p6\",namespace=\"aks-istio-ingress\",pod=\"aks-istio-ingressgateway-external-asm-1-30-5f84d44c88-79nt4\",envoy_cluster_name=\"outbound|3000||forgejo-http.forgejo.svc.cluster.local\"}",
+        "upstream_rq_pending_active": "envoy_cluster_upstream_rq_pending_active{job=\"azure-stable-envoy\",cluster=\"aks-ccp-krc-p6\",namespace=\"aks-istio-ingress\",pod=\"aks-istio-ingressgateway-external-asm-1-30-5f84d44c88-79nt4\",envoy_cluster_name=\"outbound|3000||forgejo-http.forgejo.svc.cluster.local\"}",
+        "upstream_rq_pending_overflow": "envoy_cluster_upstream_rq_pending_overflow{job=\"azure-stable-envoy\",cluster=\"aks-ccp-krc-p6\",namespace=\"aks-istio-ingress\",pod=\"aks-istio-ingressgateway-external-asm-1-30-5f84d44c88-79nt4\",envoy_cluster_name=\"outbound|3000||forgejo-http.forgejo.svc.cluster.local\"}",
+        "upstream_rq_total": "envoy_cluster_upstream_rq_total{job=\"azure-stable-envoy\",cluster=\"aks-ccp-krc-p6\",namespace=\"aks-istio-ingress\",pod=\"aks-istio-ingressgateway-external-asm-1-30-5f84d44c88-79nt4\",envoy_cluster_name=\"outbound|3000||forgejo-http.forgejo.svc.cluster.local\"}"
+      },
+      "schema_version": 1,
+      "service_active_window_utc": {
+        "end": "2026-10-28T11:43:58Z",
+        "start": "2026-10-28T11:43:22Z"
+      },
+      "source_sha": "7cd7a9c88e529d74c979d75fd4a3e130819134c5",
+      "stable_deployed_revision": "2f63d283ebba12aaed8705732f1206d71ddc33db",
+      "step_seconds": 30
+    },
+    "upstream_rq_active.json": {
+      "series": [],
+      "status": "no-data"
+    },
+    "upstream_rq_active_overflow.json": {
+      "series": [],
+      "status": "no-data"
+    },
+    "upstream_rq_pending_active.json": {
+      "series": [],
+      "status": "no-data"
+    },
+    "upstream_rq_pending_overflow.json": {
+      "series": [],
+      "status": "no-data"
+    },
+    "upstream_rq_total.json": {
+      "series": [],
+      "status": "no-data"
+    }
+  },
+  "visibility-observability-delayed": {
+    "forgejo_scrape.json": {
+      "series": [
+        {
+          "metric": {
+            "__name__": "up",
+            "cluster": "aks-ccp-krc-p6",
+            "instance": "10.244.0.49:3000",
+            "job": "forgejo",
+            "namespace": "forgejo"
+          },
+          "values": [
+            [
+              1793190804.751,
+              "1"
+            ],
+            [
+              1793190834.751,
+              "1"
+            ]
+          ]
+        }
+      ],
+      "status": "observed"
+    },
+    "logs.json": {
+      "rows": [
+        {
+          "ContainerName": "forgejo",
+          "LogSource": "stdout",
+          "PodName": "forgejo-56785cf67-8548q",
+          "PodNamespace": "forgejo",
+          "TableName": "PrimaryResult",
+          "entries": "10",
+          "first_seen": "2026-10-28T12:33:27.3453845Z",
+          "last_seen": "2026-10-28T12:34:04.5830358Z"
+        },
+        {
+          "ContainerName": "istio-proxy",
+          "LogSource": "stdout",
+          "PodName": "forgejo-56785cf67-8548q",
+          "PodNamespace": "forgejo",
+          "TableName": "PrimaryResult",
+          "entries": "2",
+          "first_seen": "2026-10-28T12:33:28.0122588Z",
+          "last_seen": "2026-10-28T12:33:42.0133687Z"
+        }
+      ],
+      "status": "observed"
+    },
+    "proxy_scrape.json": {
+      "series": [
+        {
+          "metric": {
+            "__name__": "up",
+            "cluster": "aks-ccp-krc-p6",
+            "instance": "10.244.0.49:15090",
+            "job": "azure-stable-envoy",
+            "namespace": "forgejo",
+            "pod": "forgejo-56785cf67-8548q"
+          },
+          "values": [
+            [
+              1793190804.751,
+              "1"
+            ],
+            [
+              1793190834.751,
+              "1"
+            ]
+          ]
+        }
+      ],
+      "status": "observed"
+    },
+    "query-plan.json": {
+      "correlation": {
+        "client": "run_id -> operation_id -> attempt_id",
+        "distributed_tracing": "not verified",
+        "request_level_join": "not verified",
+        "server": "time-window-and-workload"
+      },
+      "identity": {
+        "admin_cluster_name": "inbound|3000||",
+        "cluster_resource_id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6/providers/Microsoft.ContainerService/managedClusters/aks-ccp-krc-p6",
+        "container": "istio-proxy",
+        "envoy_cluster_label": "cluster_name",
+        "envoy_cluster_name": "inbound|3000||",
+        "log_workspace_id": "5f112350-7f99-47ec-b3ef-942ef7216537",
+        "namespace": "forgejo",
+        "pod": "forgejo-56785cf67-8548q",
+        "prometheus_cluster": "aks-ccp-krc-p6",
+        "prometheus_endpoint": "https://amw-ccp-krc-p6-frh3gzbxdugmffa7.koreacentral.prometheus.monitor.azure.com"
+      },
+      "interpretation": "absent series/rows are no-data; observed overflow=0 is visibility only; no saturation/rejection proof",
+      "kql": "ContainerLogV2\n| where TimeGenerated between (datetime(2026-10-28T12:33:24.751319+00:00) .. datetime(2026-10-28T12:34:04.930431+00:00))\n| where _ResourceId =~ '/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6/providers/Microsoft.ContainerService/managedClusters/aks-ccp-krc-p6'\n| where PodNamespace == 'forgejo' or (PodNamespace == 'forgejo' and PodName == 'forgejo-56785cf67-8548q')\n| summarize entries=count(), first_seen=min(TimeGenerated), last_seen=max(TimeGenerated) by PodNamespace, PodName, ContainerName, LogSource",
+      "measured_run_ids": [],
+      "promql": {
+        "forgejo_scrape": "up{job=\"forgejo\",namespace=\"forgejo\",cluster=\"aks-ccp-krc-p6\"}",
+        "proxy_scrape": "up{job=\"azure-stable-envoy\",cluster=\"aks-ccp-krc-p6\",namespace=\"forgejo\",pod=\"forgejo-56785cf67-8548q\"}",
+        "upstream_rq_active": "envoy_cluster_upstream_rq_active{job=\"azure-stable-envoy\",cluster=\"aks-ccp-krc-p6\",namespace=\"forgejo\",pod=\"forgejo-56785cf67-8548q\",cluster_name=\"inbound|3000||\"}",
+        "upstream_rq_active_overflow": "envoy_cluster_upstream_rq_active_overflow{job=\"azure-stable-envoy\",cluster=\"aks-ccp-krc-p6\",namespace=\"forgejo\",pod=\"forgejo-56785cf67-8548q\",cluster_name=\"inbound|3000||\"}",
+        "upstream_rq_pending_active": "envoy_cluster_upstream_rq_pending_active{job=\"azure-stable-envoy\",cluster=\"aks-ccp-krc-p6\",namespace=\"forgejo\",pod=\"forgejo-56785cf67-8548q\",cluster_name=\"inbound|3000||\"}",
+        "upstream_rq_pending_overflow": "envoy_cluster_upstream_rq_pending_overflow{job=\"azure-stable-envoy\",cluster=\"aks-ccp-krc-p6\",namespace=\"forgejo\",pod=\"forgejo-56785cf67-8548q\",cluster_name=\"inbound|3000||\"}",
+        "upstream_rq_total": "envoy_cluster_upstream_rq_total{job=\"azure-stable-envoy\",cluster=\"aks-ccp-krc-p6\",namespace=\"forgejo\",pod=\"forgejo-56785cf67-8548q\",cluster_name=\"inbound|3000||\"}"
+      },
+      "purpose": "mechanism visibility readiness only; distinct from earlier 45-operation baseline",
+      "schema_version": 1,
+      "service_active_window_utc": {
+        "end": "2026-10-28T12:34:04.930431+00:00",
+        "start": "2026-10-28T12:33:24.751319+00:00"
+      },
+      "source_sha": "8f085430b354c4d83186eafde6b1fa8146ece66e",
+      "stable_deployed_revision": "2f63d283ebba12aaed8705732f1206d71ddc33db",
+      "step_seconds": 30
+    },
+    "upstream_rq_active.json": {
+      "series": [
+        {
+          "metric": {
+            "__name__": "envoy_cluster_upstream_rq_active",
+            "cluster": "aks-ccp-krc-p6",
+            "cluster_name": "inbound|3000||",
+            "instance": "10.244.0.49:15090",
+            "job": "azure-stable-envoy",
+            "namespace": "forgejo",
+            "pod": "forgejo-56785cf67-8548q"
+          },
+          "values": [
+            [
+              1793190804.751,
+              "0"
+            ],
+            [
+              1793190834.751,
+              "0"
+            ]
+          ]
+        }
+      ],
+      "status": "observed"
+    },
+    "upstream_rq_active_overflow.json": {
+      "series": [
+        {
+          "metric": {
+            "__name__": "envoy_cluster_upstream_rq_active_overflow",
+            "cluster": "aks-ccp-krc-p6",
+            "cluster_name": "inbound|3000||",
+            "instance": "10.244.0.49:15090",
+            "job": "azure-stable-envoy",
+            "namespace": "forgejo",
+            "pod": "forgejo-56785cf67-8548q"
+          },
+          "values": [
+            [
+              1793190804.751,
+              "0"
+            ],
+            [
+              1793190834.751,
+              "0"
+            ]
+          ]
+        }
+      ],
+      "status": "observed"
+    },
+    "upstream_rq_pending_active.json": {
+      "series": [
+        {
+          "metric": {
+            "__name__": "envoy_cluster_upstream_rq_pending_active",
+            "cluster": "aks-ccp-krc-p6",
+            "cluster_name": "inbound|3000||",
+            "instance": "10.244.0.49:15090",
+            "job": "azure-stable-envoy",
+            "namespace": "forgejo",
+            "pod": "forgejo-56785cf67-8548q"
+          },
+          "values": [
+            [
+              1793190804.751,
+              "0"
+            ],
+            [
+              1793190834.751,
+              "0"
+            ]
+          ]
+        }
+      ],
+      "status": "observed"
+    },
+    "upstream_rq_pending_overflow.json": {
+      "series": [
+        {
+          "metric": {
+            "__name__": "envoy_cluster_upstream_rq_pending_overflow",
+            "cluster": "aks-ccp-krc-p6",
+            "cluster_name": "inbound|3000||",
+            "instance": "10.244.0.49:15090",
+            "job": "azure-stable-envoy",
+            "namespace": "forgejo",
+            "pod": "forgejo-56785cf67-8548q"
+          },
+          "values": [
+            [
+              1793190804.751,
+              "0"
+            ],
+            [
+              1793190834.751,
+              "0"
+            ]
+          ]
+        }
+      ],
+      "status": "observed"
+    },
+    "upstream_rq_total.json": {
+      "series": [
+        {
+          "metric": {
+            "__name__": "envoy_cluster_upstream_rq_total",
+            "cluster": "aks-ccp-krc-p6",
+            "cluster_name": "inbound|3000||",
+            "instance": "10.244.0.49:15090",
+            "job": "azure-stable-envoy",
+            "namespace": "forgejo",
+            "pod": "forgejo-56785cf67-8548q"
+          },
+          "values": [
+            [
+              1793190804.751,
+              "52"
+            ],
+            [
+              1793190834.751,
+              "54"
+            ]
+          ]
+        }
+      ],
+      "status": "observed"
+    }
+  },
+  "visibility-observability-first": {
+    "forgejo_scrape.json": {
+      "series": [
+        {
+          "metric": {
+            "__name__": "up",
+            "cluster": "aks-ccp-krc-p6",
+            "instance": "10.244.0.49:3000",
+            "job": "forgejo",
+            "namespace": "forgejo"
+          },
+          "values": [
+            [
+              1793190804.751,
+              "1"
+            ],
+            [
+              1793190834.751,
+              "1"
+            ]
+          ]
+        }
+      ],
+      "status": "observed"
+    },
+    "logs.json": {
+      "rows": [],
+      "status": "no-data"
+    },
+    "proxy_scrape.json": {
+      "series": [
+        {
+          "metric": {
+            "__name__": "up",
+            "cluster": "aks-ccp-krc-p6",
+            "instance": "10.244.0.49:15090",
+            "job": "azure-stable-envoy",
+            "namespace": "forgejo",
+            "pod": "forgejo-56785cf67-8548q"
+          },
+          "values": [
+            [
+              1793190804.751,
+              "1"
+            ],
+            [
+              1793190834.751,
+              "1"
+            ]
+          ]
+        }
+      ],
+      "status": "observed"
+    },
+    "query-plan.json": {
+      "correlation": {
+        "client": "run_id -> operation_id -> attempt_id",
+        "distributed_tracing": "not verified",
+        "request_level_join": "not verified",
+        "server": "time-window-and-workload"
+      },
+      "identity": {
+        "admin_cluster_name": "inbound|3000||",
+        "cluster_resource_id": "/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6/providers/Microsoft.ContainerService/managedClusters/aks-ccp-krc-p6",
+        "container": "istio-proxy",
+        "envoy_cluster_label": "cluster_name",
+        "envoy_cluster_name": "inbound|3000||",
+        "log_workspace_id": "5f112350-7f99-47ec-b3ef-942ef7216537",
+        "namespace": "forgejo",
+        "pod": "forgejo-56785cf67-8548q",
+        "prometheus_cluster": "aks-ccp-krc-p6",
+        "prometheus_endpoint": "https://amw-ccp-krc-p6-frh3gzbxdugmffa7.koreacentral.prometheus.monitor.azure.com"
+      },
+      "interpretation": "absent series/rows are no-data; observed overflow=0 is visibility only; no saturation/rejection proof",
+      "kql": "ContainerLogV2\n| where TimeGenerated between (datetime(2026-10-28T12:33:24.751319+00:00) .. datetime(2026-10-28T12:34:04.930431+00:00))\n| where _ResourceId =~ '/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6/providers/Microsoft.ContainerService/managedClusters/aks-ccp-krc-p6'\n| where PodNamespace == 'forgejo' or (PodNamespace == 'forgejo' and PodName == 'forgejo-56785cf67-8548q')\n| summarize entries=count(), first_seen=min(TimeGenerated), last_seen=max(TimeGenerated) by PodNamespace, PodName, ContainerName, LogSource",
+      "measured_run_ids": [],
+      "promql": {
+        "forgejo_scrape": "up{job=\"forgejo\",namespace=\"forgejo\",cluster=\"aks-ccp-krc-p6\"}",
+        "proxy_scrape": "up{job=\"azure-stable-envoy\",cluster=\"aks-ccp-krc-p6\",namespace=\"forgejo\",pod=\"forgejo-56785cf67-8548q\"}",
+        "upstream_rq_active": "envoy_cluster_upstream_rq_active{job=\"azure-stable-envoy\",cluster=\"aks-ccp-krc-p6\",namespace=\"forgejo\",pod=\"forgejo-56785cf67-8548q\",cluster_name=\"inbound|3000||\"}",
+        "upstream_rq_active_overflow": "envoy_cluster_upstream_rq_active_overflow{job=\"azure-stable-envoy\",cluster=\"aks-ccp-krc-p6\",namespace=\"forgejo\",pod=\"forgejo-56785cf67-8548q\",cluster_name=\"inbound|3000||\"}",
+        "upstream_rq_pending_active": "envoy_cluster_upstream_rq_pending_active{job=\"azure-stable-envoy\",cluster=\"aks-ccp-krc-p6\",namespace=\"forgejo\",pod=\"forgejo-56785cf67-8548q\",cluster_name=\"inbound|3000||\"}",
+        "upstream_rq_pending_overflow": "envoy_cluster_upstream_rq_pending_overflow{job=\"azure-stable-envoy\",cluster=\"aks-ccp-krc-p6\",namespace=\"forgejo\",pod=\"forgejo-56785cf67-8548q\",cluster_name=\"inbound|3000||\"}",
+        "upstream_rq_total": "envoy_cluster_upstream_rq_total{job=\"azure-stable-envoy\",cluster=\"aks-ccp-krc-p6\",namespace=\"forgejo\",pod=\"forgejo-56785cf67-8548q\",cluster_name=\"inbound|3000||\"}"
+      },
+      "purpose": "mechanism visibility readiness only; distinct from earlier 45-operation baseline",
+      "schema_version": 1,
+      "service_active_window_utc": {
+        "end": "2026-10-28T12:34:04.930431+00:00",
+        "start": "2026-10-28T12:33:24.751319+00:00"
+      },
+      "source_sha": "8f085430b354c4d83186eafde6b1fa8146ece66e",
+      "stable_deployed_revision": "2f63d283ebba12aaed8705732f1206d71ddc33db",
+      "step_seconds": 30
+    },
+    "upstream_rq_active.json": {
+      "series": [
+        {
+          "metric": {
+            "__name__": "envoy_cluster_upstream_rq_active",
+            "cluster": "aks-ccp-krc-p6",
+            "cluster_name": "inbound|3000||",
+            "instance": "10.244.0.49:15090",
+            "job": "azure-stable-envoy",
+            "namespace": "forgejo",
+            "pod": "forgejo-56785cf67-8548q"
+          },
+          "values": [
+            [
+              1793190804.751,
+              "0"
+            ],
+            [
+              1793190834.751,
+              "0"
+            ]
+          ]
+        }
+      ],
+      "status": "observed"
+    },
+    "upstream_rq_active_overflow.json": {
+      "series": [
+        {
+          "metric": {
+            "__name__": "envoy_cluster_upstream_rq_active_overflow",
+            "cluster": "aks-ccp-krc-p6",
+            "cluster_name": "inbound|3000||",
+            "instance": "10.244.0.49:15090",
+            "job": "azure-stable-envoy",
+            "namespace": "forgejo",
+            "pod": "forgejo-56785cf67-8548q"
+          },
+          "values": [
+            [
+              1793190804.751,
+              "0"
+            ],
+            [
+              1793190834.751,
+              "0"
+            ]
+          ]
+        }
+      ],
+      "status": "observed"
+    },
+    "upstream_rq_pending_active.json": {
+      "series": [
+        {
+          "metric": {
+            "__name__": "envoy_cluster_upstream_rq_pending_active",
+            "cluster": "aks-ccp-krc-p6",
+            "cluster_name": "inbound|3000||",
+            "instance": "10.244.0.49:15090",
+            "job": "azure-stable-envoy",
+            "namespace": "forgejo",
+            "pod": "forgejo-56785cf67-8548q"
+          },
+          "values": [
+            [
+              1793190804.751,
+              "0"
+            ],
+            [
+              1793190834.751,
+              "0"
+            ]
+          ]
+        }
+      ],
+      "status": "observed"
+    },
+    "upstream_rq_pending_overflow.json": {
+      "series": [
+        {
+          "metric": {
+            "__name__": "envoy_cluster_upstream_rq_pending_overflow",
+            "cluster": "aks-ccp-krc-p6",
+            "cluster_name": "inbound|3000||",
+            "instance": "10.244.0.49:15090",
+            "job": "azure-stable-envoy",
+            "namespace": "forgejo",
+            "pod": "forgejo-56785cf67-8548q"
+          },
+          "values": [
+            [
+              1793190804.751,
+              "0"
+            ],
+            [
+              1793190834.751,
+              "0"
+            ]
+          ]
+        }
+      ],
+      "status": "observed"
+    },
+    "upstream_rq_total.json": {
+      "series": [
+        {
+          "metric": {
+            "__name__": "envoy_cluster_upstream_rq_total",
+            "cluster": "aks-ccp-krc-p6",
+            "cluster_name": "inbound|3000||",
+            "instance": "10.244.0.49:15090",
+            "job": "azure-stable-envoy",
+            "namespace": "forgejo",
+            "pod": "forgejo-56785cf67-8548q"
+          },
+          "values": [
+            [
+              1793190804.751,
+              "52"
+            ],
+            [
+              1793190834.751,
+              "54"
+            ]
+          ]
+        }
+      ],
+      "status": "observed"
+    }
+  }
+}

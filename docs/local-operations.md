@@ -180,9 +180,12 @@ W3는 같은 source의 P1/P2 runtime regression, P3-W1 baseline, W2 recovery를 
 
 ## P7 Azure operations
 
-이 절의 source는 P7-W1 Task 1이다. **Task 2 runtime은 not verified / approval pending**이다.
-유료 실행·temporary IAM·maintenance·DB administrator 재사용·rotation 생략은 이 문서나
-script invocation 예시만으로 승인되지 않는다. P7 전체는 같은 branch/draft PR에서 이어간다.
+P7-W1 Task 2는 사용자의 명시적 통합 승인 후 기존 환경에서 실행했다.
+[실행·정리 evidence](evidence/p7-operations-20261028/execution.json)에 실제 결과와 실패·제한을 구분했다.
+HTTPS baseline 45/45, metrics/logs와 별도 mechanism visibility, fresh restore/upgrade/state-aware rollback을 검증했다.
+공개 maintenance 합계는 약 275초이며 stable revision·Argo policy·shared MeshConfig/bootstrap은 복귀했다.
+이 기록이나 script invocation 예시는 다음 유료 실행·IAM·maintenance·rotation 생략의 승인이 아니다.
+P7 전체는 같은 branch/draft PR에서 이어간다.
 별도 campaign timeout이나 삭제 예약은 없다. 보존 기한·다음 실행 승인은
 [Paid Azure boundary](implementation-plan.md#paid-azure-boundary--p6p11)를 따른다.
 
@@ -216,7 +219,7 @@ Argo status와 비교한다. URL/credential은 context에 넣지 않는다. 환�
 `FORGEJO_URL`, admin credential, 필요 시 `JOURNEY_DNS_OVERRIDE`를 전달하며 shell tracing은 끈다.
 
 ```bash
-# P7_PRIVATE는 repository 밖 mode 0700 보호 directory. 경로/내용은 evidence에 복사하지 않는다.
+# P7_PRIVATE는 repository 밖 mode 0700 보호 directory. 경로와 credential/cookie/checkpoint 내용은 evidence에 복사하지 않는다.
 python3 scripts/azure-operations.py baseline "$P7_CONTEXT" "$P7_BASELINE_RESULTS" "$P7_PRIVATE"
 ```
 
@@ -227,8 +230,10 @@ measured 45 operations/45 attempts, concurrency=1/max_attempts=1을 바꾸지 �
 fixture credential은 최종 PAT 회수까지 보호하며 삭제/회수 여부를 실제 확인한다.
 
 `query identity` JSON은 실제 `cluster_resource_id`, selected proxy `namespace/pod/container=istio-proxy`,
-admin `admin_cluster_name`과 Prometheus에서 관측한 `envoy_cluster_name`, existing
+admin `admin_cluster_name`과 Prometheus cluster label 값인 `envoy_cluster_name`, existing
 `prometheus_endpoint`와 `log_workspace_id`, actual `prometheus_cluster` label 값이다. 예시 이름으로 runtime identity를 채우지 않는다.
+실제 exported label key가 `cluster_name`이면 `envoy_cluster_label=cluster_name`을 명시한다.
+기존 `envoy_cluster_name` key도 지원하며 이 두 key 이외의 임의 label은 거부한다.
 
 ```bash
 python3 scripts/azure-operations.py proxy-snapshot "$P7_QUERY_IDENTITY" "$P7_PROXY_BEFORE"
@@ -241,13 +246,17 @@ python3 scripts/azure-operations.py proxy-snapshot "$P7_QUERY_IDENTITY" "$P7_PRO
 selected active cluster의 name/alt_stat_name과 native stat prefix·관측 counter를 남긴다.
 Raw config dump/certificate/Secret은 보존하지 않는다. Managed runtime의 실제 cluster/stat
 mapping과 Prometheus label을 대조하며 Local Envoy build/recipe를 Azure identity로 쓰지 않는다.
-현재 default stat visibility에 없는 counter는 missing으로 남긴다. 이를 열기 위한 workload annotation
-변경은 P7 source에 선제 포함하지 않으며 실제 부재가 P8 visibility acceptance를 막으면 같은 PR에서 보고한다.
+Default stat visibility에 없는 counter는 missing으로 남긴다. P7 실제 실행에서는 부재를 확인한 뒤
+기존 operator-owned shared MeshConfig의 `defaultConfig.proxyStatsMatcher`에 다섯 suffix만 임시 추가했다.
+이는 [AKS Allowed but outside support](https://learn.microsoft.com/en-us/azure/aks/istio-meshconfig) 경계다.
+Stable 재기동 후 실제 native sidecar bootstrap·admin stat·Prometheus label을 확인했으며,
+원래 shared ConfigMap과 bootstrap은 종료 시 복귀한다. P8에서 다시 사용하려면 그 실행의 승인 범위에 포함한다.
+Managed controller Deployment나 Argo-owned Pod template을 수정하지 않는다.
 
 Query는 기존 `forgejo`/`azure-stable-envoy` scrape의 `up`과 selected cluster의 active/active-overflow,
 pending-active/pending-overflow/total을 같은 measured window로 조회한다. Series가 없으면 `no-data`,
 관측 sample이 0이면 실제 0이며 `or vector(0)`으로 메우지 않는다. `up=0`은 scrape failure다.
-Prometheus 관측 series의 actual `cluster/job/instance/namespace/pod/envoy_cluster_name`을 보존하고,
+Prometheus 관측 series의 actual `cluster/job/instance/namespace/pod`와 선택한 cluster label을 보존하고,
 모든 query는 확인한 actual `cluster` label로 scope를 제한하며 반환 series의 cluster도 검사한다. Label mapping을 확인하기 전 exit evidence로 승격하지 않는다.
 Overflow 0은 visibility evidence이며 saturation/rejection proof가 아니다. P8 fault/retry/scaling은 실행하지 않는다.
 
@@ -266,7 +275,10 @@ API/Git measured command에 client correlation header를 보내지만 현재 saf
 Service Active Window(첫 measured 시작→마지막 종료, 실패 구간을 빼지 않음)를 근거로 결정한다.
 선택한 성공률/command latency threshold와 관측값·여유분 근거·적용 window·execution source를
 sanitized reviewed evidence에 기록하고 P8 fault **전에 고정**한다. 작은 표본의 production percentile,
-월간/24×7 목표나 Local sample로 Azure threshold를 만들지 않는다. 현재 값은 DEFERRED다.
+월간/24×7 목표나 Local sample로 Azure threshold를 만들지 않는다.
+2026-10-28 HTTPS baseline 뒤 [초기 SLO](evidence/p7-operations-20261028/initial-slo.json)를 P8 fault 전에 고정했다.
+Controlled Service Active Window 성공률 목표는 1.0이며, operation별 command latency 상한은
+관측 maximum의 두 배를 0.1초 단위로 올림한 초기 운영 여유다. Production percentile 추정값이 아니다.
 
 2026-10-28 upstream 확인: [Managed Prometheus REST/PromQL](https://learn.microsoft.com/en-us/azure/azure-monitor/metrics/prometheus-api-promql),
 [Log Analytics query/time range](https://learn.microsoft.com/en-us/azure/azure-monitor/logs/api/request-format),
@@ -355,12 +367,15 @@ Fresh DB/target PVC 준비 뒤 original DB/PVC가 아님을 검사한다. Target
 SELECT json_build_object(
  'current_database',current_database(),'current_user',current_user,
  'owner',(SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname=current_database()),
- 'server_address',inet_server_addr()::text,'ssl',(SELECT ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid()),
+ 'server_address',host(inet_server_addr()),'ssl',(SELECT ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid()),
  'public_tables',(SELECT count(*) FROM information_schema.tables WHERE table_schema='public'),
  'other_sessions',(SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND pid<>pg_backend_pid()));
 ```
 
 다른 sessions가 보이지 않는 권한이면 exclusivity를 추정하지 않고 승인된 administrator가 확인한다.
+DB owner만으로 `public` schema CREATE 권한을 추정하지 않는다. Fresh target DB에서
+`has_schema_privilege(current_user,'public','CREATE')`를 확인하고, 없으면 승인된 administrator가
+**그 fresh DB에만** 임시 role의 `USAGE, CREATE ON SCHEMA public`을 부여한다. 원본 schema/role은 변경하지 않는다.
 Source DB에 접속한 상태에서 target SQL을 실행하지 않는다. Namespace/PVC/PV의 live JSON,
 위 DB JSON을 각각 `namespace/pvc/pv/database`에 넣고 `pods=[]`를 live 조회로 확인한 snapshot을 만든다.
 DB query 후 client Pod도 제거한다. Tar에서 app.ini만 private copy로 추출해 rebind한 뒤 guard한다.

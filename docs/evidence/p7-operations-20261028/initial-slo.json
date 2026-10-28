@@ -1,0 +1,103 @@
+{
+  "command_latency": {
+    "boundary": "client single-command monotonic seconds; fixture/settle/semantic assertion serialization excluded",
+    "per_operation": {
+      "git_clone": {
+        "baseline_max_seconds": 0.18,
+        "baseline_mean_seconds": 0.144,
+        "baseline_min_seconds": 0.12,
+        "sample_count": 5,
+        "threshold_max_seconds": 0.4
+      },
+      "git_fetch": {
+        "baseline_max_seconds": 0.15,
+        "baseline_mean_seconds": 0.136,
+        "baseline_min_seconds": 0.12,
+        "sample_count": 5,
+        "threshold_max_seconds": 0.3
+      },
+      "git_push_feature": {
+        "baseline_max_seconds": 0.52,
+        "baseline_mean_seconds": 0.466,
+        "baseline_min_seconds": 0.42,
+        "sample_count": 5,
+        "threshold_max_seconds": 1.1
+      },
+      "git_push_initial": {
+        "baseline_max_seconds": 0.54,
+        "baseline_mean_seconds": 0.472,
+        "baseline_min_seconds": 0.41,
+        "sample_count": 5,
+        "threshold_max_seconds": 1.1
+      },
+      "issue_create": {
+        "baseline_max_seconds": 0.18,
+        "baseline_mean_seconds": 0.12,
+        "baseline_min_seconds": 0.09,
+        "sample_count": 5,
+        "threshold_max_seconds": 0.4
+      },
+      "issue_read": {
+        "baseline_max_seconds": 0.1,
+        "baseline_mean_seconds": 0.084,
+        "baseline_min_seconds": 0.07,
+        "sample_count": 5,
+        "threshold_max_seconds": 0.2
+      },
+      "private_repository_create": {
+        "baseline_max_seconds": 0.13,
+        "baseline_mean_seconds": 0.112,
+        "baseline_min_seconds": 0.1,
+        "sample_count": 5,
+        "threshold_max_seconds": 0.3
+      },
+      "pull_request_create": {
+        "baseline_max_seconds": 0.36,
+        "baseline_mean_seconds": 0.276,
+        "baseline_min_seconds": 0.23,
+        "sample_count": 5,
+        "threshold_max_seconds": 0.8
+      },
+      "pull_request_read": {
+        "baseline_max_seconds": 0.13,
+        "baseline_mean_seconds": 0.104,
+        "baseline_min_seconds": 0.08,
+        "sample_count": 5,
+        "threshold_max_seconds": 0.3
+      }
+    },
+    "rule": "operation별 measured maximum × 2를 0.1초 단위로 올림; 최소 0.1초. 2배는 명시적으로 선택한 초기 운영 여유이며 추정 percentile이 아니다."
+  },
+  "execution_source_sha": "7cd7a9c88e529d74c979d75fd4a3e130819134c5",
+  "frozen_at_utc": "2026-10-28T11:46:04.531351+00:00",
+  "future_window_policy": "의도적으로 active/healthy로 선언한 각 측정 구간에서 같은 operation/transport 경계와 전체 분모를 사용하며 실패 구간을 빼지 않는다. P8 fault 전 이 값을 고정한다.",
+  "measurement_population": {
+    "attempts": 45,
+    "concurrency": 1,
+    "logical_operations": 45,
+    "max_attempts": 1,
+    "measured_journeys": 5,
+    "warmup_excluded": 1
+  },
+  "monthly_or_24x7_slo_claim": false,
+  "p8_fault_executed": false,
+  "production_percentile_claim": false,
+  "schema_version": 1,
+  "service_active_window_utc": {
+    "end": "2026-10-28T11:43:58Z",
+    "start": "2026-10-28T11:43:22Z"
+  },
+  "stable_deployed_revision": "2f63d283ebba12aaed8705732f1206d71ddc33db",
+  "success_ratio": {
+    "basis": "정상 developer intent는 모두 성공해야 한다는 controlled Active Window의 초기 guard. 작은 표본에서 production availability를 추정한 값이 아니다.",
+    "observed_success": 45,
+    "observed_total": 45,
+    "target_minimum": 1.0
+  },
+  "transport": {
+    "dns_client_override": "20.200.252.239",
+    "endpoint": "https://forgejo.imcherry5778.xyz",
+    "scheme": "https",
+    "tls_verification": "certificate-and-hostname"
+  }
+}
