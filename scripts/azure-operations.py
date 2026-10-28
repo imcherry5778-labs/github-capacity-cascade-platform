@@ -93,8 +93,11 @@ def baseline(context_path, output, private):
 
 
 def query_plan(summary, identity):
-    require(set(identity) == {'cluster_resource_id', 'prometheus_cluster', 'namespace', 'pod', 'container',
-                              'envoy_cluster_name', 'admin_cluster_name', 'prometheus_endpoint', 'log_workspace_id'}, 'query identity fields')
+    fields = {'cluster_resource_id', 'prometheus_cluster', 'namespace', 'pod', 'container',
+              'envoy_cluster_name', 'admin_cluster_name', 'prometheus_endpoint', 'log_workspace_id'}
+    require(set(identity) in (fields, fields | {'envoy_cluster_label'}), 'query identity fields')
+    cluster_label = identity.get('envoy_cluster_label', 'envoy_cluster_name')
+    require(cluster_label in {'cluster_name', 'envoy_cluster_name'}, 'unsupported Envoy cluster label')
     require(summary['environment']['kind'] == 'azure-aks' and summary['measurement_boundary'] == operations.AZURE_BOUNDARY
             and summary['operation_samples'] == summary['attempt_samples'] == 45 and summary['source_dirty'] is False,
             'healthy clean Azure baseline required')
@@ -110,7 +113,7 @@ def query_plan(summary, identity):
     require(re.fullmatch(r'[0-9a-f-]{36}', identity['log_workspace_id']), 'Log Analytics workspace ID')
     labels = dict(cluster=identity['prometheus_cluster'], **{k: identity[k] for k in ('namespace', 'pod')})
     proxy = ','.join(k + '=' + json.dumps(v) for k, v in labels.items())
-    cluster = proxy + ',envoy_cluster_name=' + json.dumps(identity['envoy_cluster_name'])
+    cluster = proxy + ',' + cluster_label + '=' + json.dumps(identity['envoy_cluster_name'])
     expressions = {'forgejo_scrape': 'up{job="forgejo",namespace="forgejo",cluster=' + json.dumps(identity['prometheus_cluster']) + '}',
                    'proxy_scrape': 'up{job="azure-stable-envoy",' + proxy + '}'}
     for stat in ('upstream_rq_active', 'upstream_rq_active_overflow', 'upstream_rq_pending_active', 'upstream_rq_pending_overflow', 'upstream_rq_total'):
@@ -132,7 +135,7 @@ def query_plan(summary, identity):
 def prom_result(payload):
     require(payload.get('status') == 'success' and payload['data']['resultType'] == 'matrix', 'Prometheus query failed')
     series = payload['data']['result']
-    allowed = {'__name__', 'cluster', 'namespace', 'pod', 'job', 'instance', 'envoy_cluster_name'}
+    allowed = {'__name__', 'cluster', 'namespace', 'pod', 'job', 'instance', 'envoy_cluster_name', 'cluster_name'}
     result = []
     for item in series:
         values = item['values']
@@ -222,6 +225,7 @@ def proxy_snapshot(identity):
             'native_stat_prefixes': prefixes, 'observations': observations,
             'missing_stats': sorted(s for s in suffixes if not any(prefix + s in observations for prefix in prefixes)),
             'prometheus_cluster_label_to_verify': identity['envoy_cluster_name'],
+            'prometheus_cluster_label_name': identity.get('envoy_cluster_label', 'envoy_cluster_name'),
             'mechanism': 'visibility only; saturation/rejection not verified'}
 
 

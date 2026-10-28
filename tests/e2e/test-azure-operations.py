@@ -112,6 +112,9 @@ with tempfile.TemporaryDirectory() as tmp:
                     prometheus_endpoint='https://workspace.region.prometheus.monitor.azure.com', log_workspace_id='0' * 8 + '-0000-0000-0000-' + '0' * 12)
     plan = azure.query_plan(summary, identity)
     rejects(azure.query_plan, summary, dict(identity, password='secret'))
+    mapped = azure.query_plan(summary, dict(identity, envoy_cluster_label='cluster_name'))
+    assert ',cluster_name=' in mapped['promql']['upstream_rq_active_overflow']
+    rejects(azure.query_plan, summary, dict(identity, envoy_cluster_label='arbitrary_label'))
     pod_snapshot = {'metadata': {'namespace': identity['namespace'], 'uid': 'pod-uid'}, 'spec': {'nodeName': 'node', 'containers': [{'name': 'istio-proxy', 'image': 'proxy@sha256:actual'}]}, 'status': {'containerStatuses': [{'name': 'istio-proxy', 'ready': True, 'imageID': 'runtime-id', 'restartCount': 0}]}}
     native_pod = copy.deepcopy(pod_snapshot)
     native_pod['spec']['initContainers'] = [dict(native_pod['spec']['containers'][0], restartPolicy='Always')]
@@ -126,7 +129,8 @@ with tempfile.TemporaryDirectory() as tmp:
     assert plan['service_active_window_utc'] == summary['measured_window_utc']
     assert 'LogMessage' not in plan['kql'] and 'or vector(0)' not in str(plan['promql'])
     assert azure.prom_result({'status': 'success', 'data': {'resultType': 'matrix', 'result': []}})['status'] == 'no-data'
-    observed = azure.prom_result({'status': 'success', 'data': {'resultType': 'matrix', 'result': [{'metric': {'namespace': 'forgejo'}, 'values': [[1, '0']]}]}})
+    observed = azure.prom_result({'status': 'success', 'data': {'resultType': 'matrix', 'result': [{'metric': {'namespace': 'forgejo', 'cluster_name': 'inbound|3000||'}, 'values': [[1, '0']]}]}})
+    assert observed['series'][0]['metric']['cluster_name'] == 'inbound|3000||'
     assert observed['status'] == 'observed' and observed['series'][0]['values'][0][1] == '0'
     rejects(azure.prom_result, {'status': 'success', 'data': {'resultType': 'matrix', 'result': [{'metric': {}, 'values': [[1, 'NaN']]}]}})
     rejects(azure.query_plan, summary, dict(identity, cluster_resource_id='/different/cluster'))
