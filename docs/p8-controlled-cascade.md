@@ -147,6 +147,8 @@ Git attempt의 내부 HTTP/check 수를 1로 가정하지 않는다. App에 admi
 전체 request-level tracing은 미검증이다.
 
 HPA 관측은 actual metric timestamp 세 개 이상, 최소 60초 갱신 span과 전체 90초 이상 window를 요구한다.
+Resource metric의 age는 보고된 CPU 측정 window 두 개 이내여야 하며, window 자체는 120초 이하로 제한한다.
+AKS의 실제 약 60초 갱신과 수집 지연을 기록하고 일률적인 60초 age와 혼동하지 않는다. Timestamp 갱신 조건은 별도로 유지한다.
 [Kubernetes 문서](https://kubernetes.io/docs/concepts/workloads/autoscaling/horizontal-pod-autoscale/)의 기본 HPA sync period는 15초다.
 AKS의 실제 control-plane flag를 확인했다고 주장하지 않으며, 반복 HPA status/currentMetrics와 실제 metrics API 갱신을 함께 기록한다.
 하한 1 때문에 `TooFewReplicas`가 되는 정상 상태와 상한 2의 cap을 구분한다.

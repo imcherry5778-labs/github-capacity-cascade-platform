@@ -32,7 +32,7 @@ def metric_guard():
            'containers': [{'name': 'app', 'ready': True, 'restarts': 0, 'last_termination': None}]}
     return {'timestamp_utc': '2026-10-28T15:00:00Z', 'pods': [pod], 'nodes': [{'conditions': {'Ready': 'True', 'MemoryPressure': 'False', 'DiskPressure': 'False', 'PIDPressure': 'False'}}],
             'node_metrics': [{'usage': {'cpu': '1m'}}], 'node_headroom': [{'schedulable': True, 'cpu_free': 1, 'memory_free': 1024**3}],
-            'pod_metrics': [{'metadata': {'namespace': a.NS, 'name': pod['name']}, 'timestamp': '2026-10-28T15:00:00Z',
+            'pod_metrics': [{'metadata': {'namespace': a.NS, 'name': pod['name']}, 'timestamp': '2026-10-28T15:00:00Z', 'window': '15s',
                              'containers': [{'name': 'app', 'usage': {'cpu': '1m', 'memory': '10Mi'}}]}],
             'postgres': {'query_ok': True, 'connections': 4, 'max_connections': 100, 'reserved': 5}, 'hpa': hpa, 'events': []}
 
@@ -144,6 +144,19 @@ class SourceTests(unittest.TestCase):
         for binding in (None, {'filter_chain_match': {'destination_port': 3000}, 'route': {'cluster': cluster['name']}},
                         {'filter_chain_match': {'destination_port': 8080}, 'route': {'cluster': 'other'}}):
             with self.assertRaises(ValueError): a.target_mapping(dump, stats, 2, binding)
+
+    def test_proxy_log_deltas_use_independent_pod_streams(self):
+        before = {'checks': [], 'proxies': {'target': {'target1': [200]}, 'ingress': {'gateway1': [200], 'gateway2': [201]}}}
+        after = {'checks': [], 'proxies': {'target': {'target1': [200, 503, 503]}, 'ingress': {'gateway1': [200, 403], 'gateway2': [201, 403]}}}
+        delta = a.path_delta(before, after)
+        self.assertEqual(delta['proxies']['ingress'], [403, 403])
+        self.assertEqual(delta['proxies']['target'], [503, 503])
+        self.assertEqual(delta['proxy_streams']['ingress']['gateway2'], {'before': 1, 'after': 2})
+
+    def test_log_rotation_or_pod_change_is_not_silently_sliced(self):
+        before = {'checks': [], 'proxies': {'ingress': {'gateway1': [201]}}}
+        for streams in ({'gateway1': [200, 403]}, {'gateway2': [201, 403]}):
+            with self.assertRaises(ValueError): a.path_delta(before, {'checks': [], 'proxies': {'ingress': streams}})
 
     def test_window_and_bounded_demand(self):
         value = a.load(ROOT / 'experiments/fixtures/shared-gate/azure-saturation.json')
@@ -264,6 +277,19 @@ class GuardTests(unittest.TestCase):
     def test_lower_minimum_is_not_upper_replica_cap(self):
         result = a.guard_validation(guards(), hpa_spec())
         self.assertEqual(result['metric_update_span_seconds'], 120)
+
+    def test_freshness_uses_reported_metric_window_and_still_requires_updates(self):
+        values = guards()
+        for v in values:
+            v['pod_metrics'][0]['window'] = '1m3.442s'
+            stamp = a.p7.utc(v['timestamp_utc'])
+            v['timestamp_utc'] = (stamp + a.p7.dt.timedelta(seconds=70)).isoformat()
+        result = a.guard_validation(values, hpa_spec())
+        self.assertEqual(result['resource_metric_age_max_seconds'], 70)
+        for window in ('15s', '0s', '5m', 'unknown'):
+            bad = copy.deepcopy(values)
+            bad[1]['pod_metrics'][0]['window'] = window
+            with self.assertRaises(ValueError): a.guard_validation(bad, hpa_spec())
 
     def test_metric_errors_upper_cap_and_low_window_rejected(self):
         for kind in ('missing_metric', 'upper_cap', 'stale', 'scale', 'wrong_container'):

@@ -238,6 +238,28 @@ def quantity(value):
     return float(match[1]) * scales[match[2]]
 
 
+def metric_window(value):
+    match = re.fullmatch(r'(?:(\d+)h)?(?:(\d+)m)?(?:(\d+(?:\.\d+)?)s)?', value)
+    require(match and any(match.groups()), 'resource metric window missing/invalid')
+    seconds = sum(float(v or 0) * scale for v, scale in zip(match.groups(), (3600, 60, 1)))
+    require(0 < seconds <= 120, 'resource metric window outside bounded observation contract')
+    return seconds
+
+
+def path_delta(before, after):
+    require(after['checks'][:len(before['checks'])] == before['checks'], 'app log prefix changed/rotated')
+    result = {'checks': after['checks'][len(before['checks']):], 'proxies': {}, 'proxy_streams': {}}
+    for label, streams in before['proxies'].items():
+        require(set(streams) == set(after['proxies'][label]), 'proxy log Pod inventory changed')
+        result['proxies'][label], result['proxy_streams'][label] = [], {}
+        for uid, records in streams.items():
+            current = after['proxies'][label][uid]
+            require(current[:len(records)] == records, 'proxy log prefix changed/rotated')
+            result['proxies'][label].extend(current[len(records):])
+            result['proxy_streams'][label][uid] = {'before': len(records), 'after': len(current)}
+    return result
+
+
 def admission(value, pods):
     """Conservative sum includes every init/native sidecar plus Pod overhead."""
     require(1 <= len(pods) <= 4, 'admitted Pod cap')
@@ -370,7 +392,7 @@ class Runtime:
         return {'status': rows[0]['status']} | {k: int(rows[0][k]) for k in p4.HAPROXY_FIELDS}
 
     def logs(self, actual):
-        checks, proxies = [], {'target': [], 'ingress': []}
+        checks, proxies = [], {'target': {}, 'ingress': {}}
         for t in actual['targets']:
             records = [json.loads(line) for line in self.k('-n', NS, 'logs', t['name'], '-c', 'app').splitlines()]
             if records:
@@ -378,13 +400,14 @@ class Runtime:
             checks += records
         for label, ns, pods in (('target', NS, actual['targets']), ('ingress', 'aks-istio-ingress', actual['ingress'])):
             for pod in pods:
+                proxies[label][pod['uid']] = []
                 for line in self.k('-n', ns, 'logs', pod['name'], '-c', 'istio-proxy').splitlines():
                     if not line.startswith('{'):
                         continue
                     row = json.loads(line)
                     if not {'status', 'detail', 'duration_ms', 'cluster'} <= set(row):
                         continue
-                    proxies[label].append({k: row[k] for k in ('status', 'detail', 'duration_ms', 'cluster')})
+                    proxies[label][pod['uid']].append({k: row[k] for k in ('status', 'detail', 'duration_ms', 'cluster')})
         return {'checks': checks, 'proxies': proxies}
 
     def guard(self):
@@ -574,8 +597,7 @@ def measure(value, config, output, phase, max_attempts, frozen=None):
         require(runtime.configuration(config) == actual, 'runtime/replicas changed during measured run')
         save(output / 'after.json', {'stats': runtime.stats(actual), 'haproxy': runtime.haproxy(), 'guard': runtime.guard(), 'timestamp_utc': utc()})
         after_logs = runtime.logs(actual)
-        save(output / 'path.json', {'checks': after_logs['checks'][len(before_logs['checks']):], 'proxies': {
-            k: v[len(before_logs['proxies'][k]):] for k, v in after_logs['proxies'].items()}})
+        save(output / 'path.json', path_delta(before_logs, after_logs))
         emit({'record': 'run_end', 'run_id': run, 'timestamp_utc': utc(), 'completed': True})
     except BaseException:
         emit({'record': 'run_failure', 'run_id': run, 'timestamp_utc': utc(), 'completed': False})
@@ -589,6 +611,7 @@ def guard_validation(snapshots, hpa_spec):
     require(len(snapshots) >= 3, 'during-run guards absent')
     first = snapshots[0]
     times = []
+    metric_ages = []
     for snap in snapshots:
         require(snap['pods'] == first['pods'] and all(p['ready'] and p['phase'] == 'Running' and not p['reason'] and
                 all(c['ready'] and c['last_termination'] not in {'OOMKilled', 'Error'} for c in p['containers']) for p in snap['pods']), 'workload readiness/restart/replacement')
@@ -610,14 +633,18 @@ def guard_validation(snapshots, hpa_spec):
             observation = [m for m in snap['pod_metrics'] if m['metadata']['name'] == pod['name']]
             require(len(observation) == 1 and {c['name'] for c in pod['containers']} <= {c['name'] for c in observation[0]['containers']}, 'workload/container resource metric absent')
             stamp = p7.utc(observation[0]['timestamp'])
-            require(0 <= (p7.utc(snap['timestamp_utc']) - stamp).total_seconds() <= 60, 'stale resource metrics')
+            age = (p7.utc(snap['timestamp_utc']) - stamp).total_seconds()
+            require(0 <= age <= 2 * metric_window(observation[0]['window']), 'stale resource metrics')
+            metric_ages.append(age)
             require(all(quantity(c['usage']['cpu']) >= 0 and quantity(c['usage']['memory']) >= 0 for c in observation[0]['containers']), 'invalid resource metric value')
         require(not any(e['reason'] in {'FailedScheduling', 'FailedGetResourceMetric', 'FailedComputeMetricsReplicas'} for e in snap['events']), 'scheduling/metric error')
         targets = [p for p in snap['pod_metrics'] if p['metadata']['namespace'] == NS and p['metadata']['name'].startswith('ext-authz-sim-')]
         require(len(targets) == 1 and any(c['name'] == 'app' and c['usage'].get('cpu') for c in targets[0]['containers']), 'app metric absent')
         times.append(p7.utc(targets[0]['timestamp']))
     require(len(set(times)) >= 3 and (max(times) - min(times)).total_seconds() >= 60, 'actual metric update window too short')
-    return {'metric_update_span_seconds': (max(times) - min(times)).total_seconds(), 'app_cpu_scaling': 'no scale observed with healthy metric/controller and replica headroom'}
+    return {'metric_update_span_seconds': (max(times) - min(times)).total_seconds(),
+            'resource_metric_age_max_seconds': max(metric_ages), 'freshness_rule': 'at most two reported CPU measurement windows; timestamps must also update across at least 60s',
+            'app_cpu_scaling': 'no scale observed with healthy metric/controller and replica headroom'}
 
 
 def validate_run(directory):
@@ -772,7 +799,7 @@ def postgres_metrics(directory, output):
     directory = Path(directory)
     value = load(directory / 'configuration.json')['identity']
     window = [load(directory / name)['timestamp_utc'] for name in ('before.json', 'after.json')]
-    names = ['cpu_percent', 'active_connections', 'storage_percent', 'storage_used', 'read_iops', 'write_iops',
+    names = ['cpu_percent', 'active_connections', 'storage_percent', 'storage_used', 'storage_free', 'iops', 'read_iops', 'write_iops',
              'disk_iops_consumed_percentage', 'disk_queue_depth']
     payload = json.loads(p7.command(['az', 'monitor', 'metrics', 'list', '--resource', value['pg_resource_id'],
         '--metric', *names, '--start-time', window[0], '--end-time', window[1], '--interval', 'PT1M',
