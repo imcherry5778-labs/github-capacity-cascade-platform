@@ -33,7 +33,8 @@ P6/P7 전체 검증, recovery drill, KEDA, P9 recovery 비교, P10 isolation은 
    Native auth의 무인증 private read 거부도 확인한다. 실패하면 fault를 시작하지 않는다.
 8. 정상 HPA `ContainerResource(app,cpu)` metric·app requests 50m·controller 판단·replica 1→2 여유를 확인한 뒤 calibration한다.
    아래 candidate는 Azure 검증값이 아니다. 실패한 directory는 보존하고 필요한 bounded refinement는 별도 calibration으로 기록한다.
-   Run은 13개 wave × 24 Issue operations, concurrency 12, wave 간격 10초 후보로 시작한다.
+   Run은 25개 wave × 24 Issue operations, concurrency 12, wave 간격 5초 후보를 사용한다.
+   10초 idle timeout과 겹친 초기 13×10초 후보의 pre-dispatch 불일치는 negative로 보존한다.
    이는 약 120초의 **반복 burst** 관측이며 지속적인 전체 window saturation을 주장하지 않는다.
    각 wave의 Git `ls-remote main` 1회도 같은 source/config/demand로 고정한다.
 9. Calibration의 mechanism/impact와 전체 confounder review 뒤 freeze한다.
