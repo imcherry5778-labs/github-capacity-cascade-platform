@@ -9,14 +9,14 @@ MODE="${1:?doctor|session-login|session-verify}"
 [[ -d "$P7_PRIVATE" && "$(stat -c %a "$P7_PRIVATE")" == 700 ]] || exit 1
 k() { kubectl --request-timeout=15s -n "$P7_NAMESPACE" "$@"; }
 cookie_header() {
-  python3 - "$cookie" "$config" <<'PY'
+  python3 - "$cookie" "$config" "${1:-required}" <<'PY'
 import http.cookiejar, sys
 from pathlib import Path
 jar = http.cookiejar.MozillaCookieJar(sys.argv[1])
 jar.load(ignore_discard=True, ignore_expires=True)
 value = '; '.join(c.name + '=' + c.value for c in jar)
-assert value and not any(c in value for c in '\r\n"\\')
-Path(sys.argv[2]).write_text('header = "Cookie: ' + value + '"\n')
+assert (value or sys.argv[3] == 'allow-empty') and not any(c in value for c in '\r\n"\\')
+Path(sys.argv[2]).write_text('header = "Cookie: ' + value + '"\n' if value else '')
 PY
 }
 if [[ "$MODE" == doctor ]]; then
@@ -68,14 +68,31 @@ elif [[ "$MODE" == session-login || "$MODE" == session-verify ]]; then
       args+=(--resolve "$host:443:$JOURNEY_DNS_OVERRIDE")
     fi
     curl "${args[@]}" -c "$cookie" -b "$cookie" "$login_url/user/login" >"$response"
-    csrf="$(sed -n 's/.*name="_csrf" value="\([^"]*\)".*/\1/p' "$response" | head -n 1)"
-    [[ -n "$csrf" ]] || exit 1
+    # Same optional form-token handling as the existing P3 session_login flow.
+    csrf="$(python3 - "$response" <<'PY'
+from html.parser import HTMLParser
+from pathlib import Path
+import sys
+class CSRF(HTMLParser):
+    value = ''
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        if tag == 'input' and attrs.get('name') == '_csrf':
+            self.value = attrs.get('value', '')
+p = CSRF()
+p.feed(Path(sys.argv[1]).read_text())
+print(p.value)
+PY
+)"
     python3 - "$csrf" "$P7_PRIVATE/session-body" <<'PY'
 import os, sys, urllib.parse
 from pathlib import Path
-Path(sys.argv[2]).write_text(urllib.parse.urlencode({'_csrf': sys.argv[1], 'user_name': os.environ['DEV_USER'], 'password': os.environ['DEV_PASSWORD']}))
+fields = {'user_name': os.environ['DEV_USER'], 'password': os.environ['DEV_PASSWORD']}
+if sys.argv[1]:
+    fields['_csrf'] = sys.argv[1]
+Path(sys.argv[2]).write_text(urllib.parse.urlencode(fields))
 PY
-    cookie_header
+    cookie_header allow-empty
     status="$(curl "${args[@]}" -c "$cookie" -K "$config" -X POST -H 'Content-Type: application/x-www-form-urlencoded' \
       --data-binary "@$P7_PRIVATE/session-body" -o "$response" -w '%{http_code}' "$login_url/user/login")"
     [[ "$status" == 302 || "$status" == 303 ]] || exit 1

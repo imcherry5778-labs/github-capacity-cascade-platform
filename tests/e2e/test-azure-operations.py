@@ -242,23 +242,36 @@ print('PASS P7 Local compatibility/HTTPS transport, mixed baseline refusal, quer
 # Native-session adapter: same secure-cookie values, private A never authenticates to public B.
 SESSION_CURL = r'''#!/usr/bin/env bash
 set -euo pipefail
-url="${!#}" out= jar= method=GET config=
+url="${!#}" out= jar= method=GET config= body=
 while (($#)); do
   case "$1" in
     -c) shift; jar="$1" ;;
     -o) shift; out="$1" ;;
     -X) shift; method="$1" ;;
     -K) shift; config="$1" ;;
+    --data-binary) shift; body="${1#@}" ;;
   esac
   shift
 done
 if [[ "$url" == */user/login ]]; then
   [[ "$url" == "$EXPECTED_LOGIN/user/login" ]] || exit 94
   if [[ "$method" == GET ]]; then
-    printf '# Netscape HTTP Cookie File\nforgejo.example.com\tFALSE\t/\tTRUE\t0\tsession\tcookie-secret\n' >"$jar"
-    printf '<input name="_csrf" value="csrf-value">'
+    if [[ "${TEST_CSRF_ABSENT:-0}" == 1 ]]; then
+      printf '# Netscape HTTP Cookie File\n' >"$jar"
+      printf '<input name="user_name" type="text">'
+    else
+      printf '# Netscape HTTP Cookie File\nforgejo.example.com\tFALSE\t/\tTRUE\t0\tsession\tcookie-secret\n' >"$jar"
+      printf '<input value="csrf-value" type="hidden" name="_csrf">'
+    fi
   else
-    [[ -f "$config" ]] && grep -q 'cookie-secret' "$config"
+    if [[ "${TEST_CSRF_ABSENT:-0}" == 1 ]]; then
+      [[ ! -s "$config" ]]
+      ! grep -q '_csrf=' "$body"
+    else
+      grep -q 'cookie-secret' "$config"
+      grep -q '_csrf=csrf-value' "$body"
+    fi
+    printf '# Netscape HTTP Cookie File\nforgejo.example.com\tFALSE\t/\tTRUE\t0\tsession\tcookie-secret\n' >"$jar"
     printf 302
   fi
 else
@@ -274,13 +287,14 @@ with tempfile.TemporaryDirectory() as temp:
     bindir.mkdir()
     (bindir / 'curl').write_text(SESSION_CURL)
     (bindir / 'curl').chmod(0o755)
-    for namespace in ('forgejo', 'p7-ops-test'):
-        private = temp / namespace
+    for namespace, absent in (('forgejo', False), ('p7-ops-test', False), ('forgejo', True), ('p7-ops-test', True)):
+        private = temp / (namespace + ('-no-csrf' if absent else ''))
         private.mkdir(mode=0o700)
         env = dict(os.environ, PATH=str(bindir) + ':' + os.environ['PATH'], P7_NAMESPACE=namespace,
                    P7_PRIVATE=str(private), P7_POD='fixture', FORGEJO_URL='https://forgejo.example.com',
                    DEV_USER='dev-fixture', DEV_PASSWORD='never-in-output', P7_PRIVATE_URL='http://127.0.0.1:13001',
-                   EXPECTED_LOGIN='https://forgejo.example.com' if namespace == 'forgejo' else 'http://127.0.0.1:13001')
+                   EXPECTED_LOGIN='https://forgejo.example.com' if namespace == 'forgejo' else 'http://127.0.0.1:13001',
+                   TEST_CSRF_ABSENT='1' if absent else '0')
         script = ['bash', str(ROOT / 'scripts/azure-recovery-check.sh')]
         proc = subprocess.run(script + ['session-login'], env=env, capture_output=True, text=True, timeout=10)
         assert proc.returncode == 0, proc.stderr
