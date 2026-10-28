@@ -147,6 +147,9 @@ with tempfile.TemporaryDirectory() as tmp:
                              db_name='p7_p7test_restore', db_role='p7_p7test_role', db_ipv4='10.0.1.4'))
     manifests = recovery.render(value)
     assert manifests['app.json']['spec']['containers'][0]['image'] == recovery.image('restore')
+    app_env = {e['name']: e['value'] for e in manifests['app.json']['spec']['containers'][0]['env']}
+    assert app_env['GITEA_CUSTOM'] == recovery.recovery.PATHS['Custom File Root Path']
+    assert app_env['GITEA_WORK_DIR'] == recovery.recovery.PATHS['Work directory']
     assert not any(v['kind'] in {'Service', 'Ingress', 'Gateway', 'VirtualService'} for v in manifests.values())
     assert manifests['app.json']['spec']['containers'][0]['readinessProbe']['exec']['command'][-1].endswith('127.0.0.1:3000/api/healthz')
     for stage in ('a', 'rollback'):

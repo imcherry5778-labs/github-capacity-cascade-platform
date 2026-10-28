@@ -75,7 +75,8 @@ def render(value):
                                   'resources': {'requests': {'cpu': '100m', 'memory': '128Mi'}, 'limits': {'cpu': '100m', 'memory': '128Mi'}}})
     app = pod('p7-forgejo', {'name': 'forgejo', 'image': image(value['stage']), 'workingDir': '/data',
                            'command': ['forgejo', 'web', '--config', '/data/gitea/conf/app.ini'],
-                           'env': [{'name': 'USER', 'value': 'git'}, {'name': 'HOME', 'value': '/data/git'}, {'name': 'GITEA_WORK_DIR', 'value': '/data'}],
+                           'env': [{'name': 'USER', 'value': 'git'}, {'name': 'HOME', 'value': '/data/gitea/git'},
+                                   {'name': 'GITEA_WORK_DIR', 'value': '/data'}, {'name': 'GITEA_CUSTOM', 'value': '/data/gitea'}],
                            'ports': [{'name': 'http', 'containerPort': 3000}],
                            'readinessProbe': {'exec': {'command': ['sh', '-c', 'wget -q -O /dev/null http://127.0.0.1:3000/api/healthz']}, 'periodSeconds': 5, 'timeoutSeconds': 3},
                            'resources': {'requests': {'cpu': '500m', 'memory': '1024Mi'}, 'limits': {'cpu': '500m', 'memory': '1024Mi'}}})
