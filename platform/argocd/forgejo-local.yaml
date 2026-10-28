@@ -41,7 +41,7 @@ spec:
           - $values/platform/forgejo/values-common.yaml
           - $values/platform/forgejo/values-local.yaml
     - repoURL: https://github.com/imcherry5778-labs/github-capacity-cascade-platform.git
-      targetRevision: 9b4fdb44cc07ea11870730e728b038514e415e29
+      targetRevision: 83d7f8c52d99c0581f7f87e5c0fd520856a5312f
       ref: values
   syncPolicy:
     automated:

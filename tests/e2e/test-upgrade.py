@@ -74,7 +74,7 @@ def proof():
                               'effective_config': {'lfs_start_server': False}, 'not_applicable': {'gc-lfs': 'LFS_START_SERVER=false'}}
                         for name, stage in [('source', 'a'), ('upgraded', 'b'), ('target', 'rollback'), ('post-write', 'rollback')]},
                 upstream=[{'version': v, 'reviewed': True, 'sha256': 'a' * 64,
-                           'url': f'https://codeberg.org/forgejo/forgejo/raw/branch/forgejo/release-notes-published/{v}.md'} for v in ('15.0.9', '15.0.10')])
+                           'url': f'https://codeberg.org/forgejo/forgejo/raw/branch/forgejo/release-notes-published/{v}.md'} for v in ('15.0.9', '15.0.11')])
 
 
 class UpgradeProofTest(unittest.TestCase):
@@ -86,7 +86,7 @@ class UpgradeProofTest(unittest.TestCase):
         u.validate_result(proof())
 
     def test_equal_versions_unresolved_image_and_b_first(self):
-        for field, value in [('version', '15.0.10+gitea-1.22.0'), ('image_id', ''), ('init_image_ids', [runtime('b')['image_id']] * 3)]:
+        for field, value in [('version', '15.0.11+gitea-1.22.0'), ('image_id', ''), ('init_image_ids', [runtime('b')['image_id']] * 3)]:
             with self.subTest(field=field):
                 p = proof()
                 p['runtime']['a'][field] = value
@@ -173,7 +173,7 @@ class UpgradeProofTest(unittest.TestCase):
         p = proof()
         p['runtime']['rollback']['autosync']['enabled'] = True
         self.reject(p)
-        self.assertEqual(u.PINS['FORGEJO_IMAGE_TAG'], '15.0.10-rootless')
+        self.assertEqual(u.PINS['FORGEJO_IMAGE_TAG'], '15.0.11-rootless')
 
     def test_ci_artifact_allowlist_and_no_metadata_sql_rewrite(self):
         workflow = (ROOT / '.github/workflows/local-platform.yml').read_text()

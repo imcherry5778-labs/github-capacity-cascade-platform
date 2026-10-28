@@ -186,6 +186,34 @@ commit/check 및 최종 보고에서 확인한다. Azure runtime/provider migrat
 기존 P6 approval의 `source_sha`를 재사용하지 않는다. 기존 Bootstrap/Foundation 14개 resource의 승인 보존
 만료 `2026-10-28 00:33:00 KST`와 execution approval 범위는 이 작업으로 변경되지 않는다.
 
+## P6 Forgejo security pin — 2026-10-28
+
+Azure 공개 배포 전 stable rootless image만 `15.0.10 → 15.0.11`로 갱신한다.
+[공식 releases](https://forgejo.org/releases/)는 2026-10-26 발표한 v15.0.11을
+2027-07-15까지 지원하는 LTS로 표시한다. [15.0.11 notes](https://codeberg.org/forgejo/forgejo/src/branch/forgejo/release-notes-published/15.0.11.md)는
+`pull_request_review` Actions의 임의 commit 신뢰, watched/starred repository 조회의 사용자 가시성,
+NuGet access-token scope 검증 보안 수정을 포함한다. Core의 Actions/Packages disabled는 유지하며
+사용자 가시성 수정도 있으므로 해당 기능 비활성화를 patch 생략 근거로 사용하지 않는다.
+별도 Core migration/config 또는 PAT/session 재발급 요구는 notes에 명시되지 않았다.
+[v15 upgrade guide](https://forgejo.org/docs/v15.0/admin/upgrade/)의 full backup/queue 및
+old binary/newer state 금지 경계는 그대로 적용한다. Runtime continuity는 별도 exact-head CI로 판정한다.
+
+[공식 rootless tag](https://code.forgejo.org/v2/forgejo/forgejo/manifests/15.0.11-rootless)를
+anonymous pull 인증으로 조회하고 index/amd64 manifest의 response bytes SHA256과
+`Docker-Content-Digest`를 각각 대조했다.
+
+- OCI index: `sha256:3cd6bc2b74c87cbde0a0fd527c9665cb416f5a0540dee54fe5afb3fa2df9f40c`
+- linux/amd64 manifest: `sha256:ab0b8fd8bfc55b6e0721347c0173c128c6431b3543ff2ab7a863929f1c5d2629`
+- Manifest config blob도 digest를 대조했으며 `linux/amd64`, image version `15.0.11`, rootless user `1000:1000`이다.
+- Raw release-note SHA256: `90166d668e2bbe04b0075814f2df257496829041056b9ab8b5c500ffd01c0b6e`
+
+Chart `17.1.7`과 P3 upgrade A baseline `15.0.9`의 tag/index/amd64 digest는 유지한다.
+B만 `15.0.11`로 바꾸고 기존 doctor/config/inventory/state/credential continuity guard를 유지한다.
+Local Git values revision은 `83d7f8c52d99c0581f7f87e5c0fd520856a5312f`로 고정하여
+새 tag가 실제 Argo source에 반영되도록 한다. Azure renderer는 같은 stable tag와 TO index digest를
+Forgejo/CSI producer에 적용한다. 위 날짜별 preflight와 기존 P3 evidence는 역사적 기록으로 보존한다.
+Azure 배포/운영 Terraform 실행, Secret/config 변경 및 P7은 이 source 변경 범위 밖이다.
+
 ## DNS apex delegation gate
 
 P6-DNS-APEX(2026-10-23)의 DECIDED 방식은 **Gabia registrar NS → foundation Azure DNS apex zone의
