@@ -424,6 +424,25 @@ class EvidenceTests(unittest.TestCase):
             with patch.object(a, 'reviewed_run', side_effect=[{'logical_operations': 8}, {'logical_operations': 8}]), self.assertRaises(ValueError):
                 a.paired(first, second, frozen)
 
+    def test_unmatched_tls_is_retained_outside_scoped_http_check_counts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run_fixture(directory)
+            path = Path(directory) / 'path.json'; value = a.load(path)
+            value['proxies']['ingress'].append({'status': 0, 'detail': 'filter_chain_not_found', 'cluster': '-', 'duration_ms': '0'})
+            path.write_text(json.dumps(value)); result = a.validate_run(directory)
+            self.assertEqual(result['non_http_ingress_records_retained'], 1)
+            self.assertEqual(result['dispatched_checks'], 12)
+            self.assertEqual(len(a.load(path)['proxies']['ingress']), 13)
+
+    def test_other_zero_status_or_client_transport_failure_is_not_excluded(self):
+        for detail in ('upstream_reset', 'connection_termination'):
+            with tempfile.TemporaryDirectory() as directory:
+                run_fixture(directory)
+                path = Path(directory) / 'path.json'; value = a.load(path)
+                value['proxies']['ingress'].append({'status': 0, 'detail': detail, 'cluster': '-', 'duration_ms': '0'})
+                path.write_text(json.dumps(value))
+                with self.assertRaises(ValueError): a.validate_run(directory)
+
     def test_frozen_hostname_must_match_recorded_transport(self):
         with tempfile.TemporaryDirectory() as directory:
             run_fixture(directory)

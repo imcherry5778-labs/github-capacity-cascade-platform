@@ -708,9 +708,14 @@ def validate_run(directory):
     rejected = [r for r in path['proxies']['target'] if int(r['status']) == 503 and 'overflow' in r['detail']]
     admitted = sum(d['upstream_rq_total'] for d in deltas)
     overflow = sum(d['upstream_rq_active_overflow'] for d in deltas)
-    require(dispatched == len(path['proxies']['target']) == len(path['proxies']['ingress']) == admitted + overflow and
+    # A shared gateway also logs TLS connections that never select an HTTP/SNI
+    # filter chain. Retain these records, but do not count them as scoped checks.
+    non_http_ingress = [r for r in path['proxies']['ingress'] if int(r['status']) == 0 and
+                       r['detail'] == 'filter_chain_not_found' and r['cluster'] in {None, '-'}]
+    ingress_http = [r for r in path['proxies']['ingress'] if r not in non_http_ingress]
+    require(dispatched == len(path['proxies']['target']) == len(ingress_http) == admitted + overflow and
             len(rejected) == overflow and admitted == len(path['checks']), 'dispatch/admission/rejection mapping mismatch')
-    require(all(int(r['status']) == 200 or r['detail'] == 'ext_authz_error' for r in path['proxies']['ingress']), 'unmapped ingress rejection')
+    require(all(int(r['status']) == 200 or r['detail'] == 'ext_authz_error' for r in ingress_http), 'unmapped ingress rejection')
     if path['checks']:
         p4.gate.validate_checks(path['checks'])
     git = [e for e in events if e['record'] == 'git_read']
@@ -726,6 +731,7 @@ def validate_run(directory):
         'https_git_reads': len(git), 'https_git_failures': sum(not g['semantic_result'] for g in git),
         'git_boundary': 'ls-remote main semantic read; not equivalent to P7 clone/fetch latency SLI',
         'dispatched_checks': dispatched, 'admitted_checks': admitted, 'active_rejections': overflow, 'active_peak': peak,
+        'non_http_ingress_records_retained': len(non_http_ingress),
         'git_dispatched_checks_inferred_from_total_minus_single_request_issue_attempts': dispatched - len(attempts), 'hpa': hpa,
         'source_sha': fingerprint['source_sha'], 'configuration': 'configuration.json',
         'limitations': ['Git attempts may dispatch multiple checks; no 1:1 inference', 'server linkage: window/workload; app admitted check IDs only',
