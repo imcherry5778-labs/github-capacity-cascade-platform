@@ -113,7 +113,7 @@ with tempfile.TemporaryDirectory() as tmp:
     plan = azure.query_plan(summary, identity)
     rejects(azure.query_plan, summary, dict(identity, password='secret'))
     pod_snapshot = {'metadata': {'namespace': identity['namespace'], 'uid': 'pod-uid'}, 'spec': {'nodeName': 'node', 'containers': [{'name': 'istio-proxy', 'image': 'proxy@sha256:actual'}]}, 'status': {'containerStatuses': [{'name': 'istio-proxy', 'ready': True, 'imageID': 'runtime-id', 'restartCount': 0}]}}
-    with patch.object(azure, 'command', side_effect=[json.dumps(pod_snapshot), json.dumps({'version': 'actual-managed-proxy'}), json.dumps({'configs': [{'cluster': {'name': 'selected-admin-cluster', 'alt_stat_name': 'actual-stat-name', 'secret': 'do-not-export'}}]}), json.dumps({'stats': [{'name': 'cluster.actual-stat-name.upstream_rq_active_overflow', 'value': 0}, {'name': 'cluster.other.upstream_rq_total', 'value': 1}]})]):
+    with patch.object(azure, 'command', side_effect=[json.dumps(pod_snapshot), json.dumps({'version': 'actual-managed-proxy'}), json.dumps({'configs': [{'cluster': {'name': 'selected-admin-cluster', 'alt_stat_name': 'actual-stat-name', 'secret': 'do-not-export'}}]}), json.dumps({'stats': [{'name': 'cluster.actual-stat-name.upstream_rq_active_overflow', 'value': 0}, {'name': 'cluster.other.upstream_rq_total', 'value': 1}, {'histograms': {'supported_quantiles': [0, 0.5, 1], 'computed_quantiles': []}}]})]):
         proxy = azure.proxy_snapshot(identity)
         assert proxy['observations'] == {'cluster.actual-stat-name.upstream_rq_active_overflow': 0}
         assert 'upstream_rq_active' in proxy['missing_stats'] and 'do-not-export' not in json.dumps(proxy)

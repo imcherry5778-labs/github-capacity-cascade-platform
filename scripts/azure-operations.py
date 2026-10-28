@@ -211,7 +211,7 @@ def proxy_snapshot(identity):
     stats = admin('stats?format=json&filter=upstream_rq_')
     suffixes = {'upstream_rq_active', 'upstream_rq_active_overflow', 'upstream_rq_pending_active', 'upstream_rq_pending_overflow', 'upstream_rq_total'}
     observations = {s['name']: s['value'] for s in stats.get('stats', [])
-                    if any(s['name'].startswith(prefix) and s['name'][len(prefix):] in suffixes for prefix in prefixes)}
+                    if any(s.get('name', '').startswith(prefix) and s['name'][len(prefix):] in suffixes for prefix in prefixes)}
     return {'observed_at_utc': dt.datetime.now(dt.timezone.utc).isoformat(), 'namespace': ns, 'pod': pod,
             'pod_uid': obj['metadata']['uid'], 'node': obj['spec']['nodeName'], 'container': 'istio-proxy',
             'image_spec': proxy['image'], 'image_id': status['imageID'], 'restarts': status['restartCount'],
