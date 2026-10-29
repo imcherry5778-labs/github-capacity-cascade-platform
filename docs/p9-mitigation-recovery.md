@@ -1,5 +1,16 @@
 # P9-W1 Mitigation & Recovery
 
+상태: **제3차 승인 source의 readiness/resource warning gate 중단 / P9-owned 원복 완료 / P9 acceptance 미충족**.
+승인·실제 execution source는 `ffea5cb865728af54554c91460e3b96364d955fb`다.
+[제3차 사용자 승인](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6488955743),
+[source gate](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6487437745),
+[실제 실행·stage-aware negative·원복 evidence](evidence/p9-mitigation-third-20261029/README.md)를 연결한다.
+Initialize1회는 `readiness_resource_guard / InitializationGuardError / warning_event`로 journey intent 전에 중단했다.
+Healthy journey·fault·calibration·각 measured arm0, freeze·mitigation/recovery 결과 없음이다.
+이번 직접 failure는 확인됐지만 더 깊은 metric 부재 원인은 미확정이며 이전 unknown 원인을 소급 추론하지 않는다.
+아래 이전 이력과 C0–C3 contract/상한을 보존한다. 후속 docs/evidence HEAD는 실행 승인 source가 아니다.
+
+이전 제2차 이력:
 상태: **새 승인 source의 healthy initialization 준비 gate 중단 / P9-owned controls 원복 완료 / P9 acceptance 미충족**.
 새 승인·실제 execution source는 `9c7b4be942e534dff2e36fe069e144bfa96d045a`다.
 [사용자 통합 재개 승인](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6486166268),
@@ -298,7 +309,7 @@ IAM/FIC/UAMI, PAT/fixture login/보호 local 사본/port-forward 순으로 exact
 KEDA annotation/rollout 원복은 FIC 삭제 전에 수행한다. 정상 HTTPS/native auth, Argo revision/spec,
 원래 PVC/PV/Disk/Secret 보존을 확인한다. P9-owned cleanup과 전체 environment finalization은 다르다.
 
-## 통합 재개 승인 delta와 실제 사용
+## 제2차 통합 재개 승인 delta와 실제 사용 이력
 
 새 exact source `9c7b4be942e534dff2e36fe069e144bfa96d045a`의 CI/source gate 뒤 위 통합 재개 승인을 받았다.
 아래 재준비 범위가 승인됐으며 실제 사용/미사용은 새 실행 evidence를 따른다. Normal proof만 실제 통과했고
@@ -327,7 +338,7 @@ Environment/Foundation 기한 연장, 새 compute/Disk/PVC, node autoscaling/DNS
 ## 실행 entrypoint와 남은 gate
 
 Source gate는 직접 회귀, P8 historical replay, `make static`, exact-head PR CI와 독립 review다.
-새 승인 source의 CI/source gate는 통과했으나 healthy initialization 준비 gate에서 중단했다. 실제 positive/telemetry gate는 미통과다.
+제3차 승인 source의 CI/source gate는 통과했으나 readiness/resource warning gate에서 중단했다. 실제 positive/telemetry gate는 미통과다.
 아래는 entrypoint 사용 형식이며 성공한 campaign 기록이 아니다. 재개 전 새 source gate와 필요한 승인을 확인한다.
 
 ```bash
