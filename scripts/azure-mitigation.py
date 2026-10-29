@@ -740,11 +740,12 @@ def healthy_initialize(runtime, v, journey, emit, *, clock=time.monotonic, wait=
     require(len(before['targets']) == 1, 'healthy initialization starts with one Ready target')
     initial = {t['uid'] for t in before['targets']}
     initialization_safety(runtime.guard())
+    stats_before = copy.deepcopy(runtime.stats(before))
     logs_before = runtime.logs(before)
     emit({'record': 'healthy_journey_intent', 'source_sha': runtime.value['source_sha'], 'at': clock(),
-          'target_uids': sorted(initial), 'measured_denominator': False, 'invocations': 1})
+          'target_uids': sorted(initial), 'stats_before': stats_before, 'measured_denominator': False, 'invocations': 1})
     try:
-        journey(90)  # Existing journey only; never retry for telemetry.
+        journey_path = journey(90)  # Existing journey only; never retry for telemetry.
     finally:
         # Keep actual request/check evidence on journey failure as well. The
         # protected client audit separately retains every API intent/response.
@@ -752,8 +753,22 @@ def healthy_initialize(runtime, v, journey, emit, *, clock=time.monotonic, wait=
         runtime.collection_deadline.at = min(clock() + 30, deadline)
         delta = p8.path_delta(logs_before, runtime.logs(before))
         emit({'record': 'healthy_journey_accounting', 'at': clock(), 'measured_denominator': False,
-              'ingress_http_records': sum(not (int(r['status']) == 0 and r['detail'] == 'filter_chain_not_found') for r in delta['proxies']['ingress']),
+              'ingress_http_records': sum(not (int(r['status']) == 0 and r['detail'] == 'filter_chain_not_found' and r['cluster'] in {None, '-'}) for r in delta['proxies']['ingress']),
               'authorization_checks': len(delta['checks']), 'log_delta': delta})
+    client = p8.p7.operations.validate(journey_path)
+    journey_rows = p8.p4.rows(journey_path)
+    require(client['validity'] == 'valid' and client['completion'] == 'success' and client['phase'] == 'warmup' and
+            client['source_sha'] == runtime.value['source_sha'] and journey_rows[0]['dirty'] is False and
+            client['transport'] == p8.measurement_transport(runtime.value), 'healthy journey provenance/completion differs')
+    attempts = {r['attempt_id']: r['operation_id'] for r in journey_rows if r['record'] == 'attempt'}
+    require(len(attempts) == 9 and sum(r['record'] == 'auxiliary_event' and r['kind'] == 'fixture' and
+            r['name'] == 'shared_gate_auxiliary_scope' and r['outcome'] == 'success' for r in journey_rows) == 1,
+            'healthy journey attempt/auxiliary scope absent')
+    auxiliary = journey_rows[0]['run_id'] + '-auxiliary'
+    known = attempts | {auxiliary + '-attempt-1': auxiliary}
+    window_start = p8.p7.utc(journey_rows[0]['started_at_utc'])
+    # Existing journey timestamps have second precision; include that final second.
+    window_end = p8.p7.utc(journey_rows[-1]['ended_at_utc']) + timedelta(seconds=1)
     while True:
         require(clock() < deadline, 'healthy initialization polling timeout; do not repeat journey')
         runtime.collection_deadline.at = min(clock() + 30, deadline)
@@ -767,14 +782,46 @@ def healthy_initialize(runtime, v, journey, emit, *, clock=time.monotonic, wait=
               'admin_stats': runtime.admin_observations, 'signal': signal, 'deadline': deadline})
         if signal['status'] == 'observed':
             require(clock() <= deadline, 'healthy initialization polling timeout')
-            delta = p8.path_delta(logs_before, runtime.logs(actual))
+            logs_after = runtime.logs(actual)
+            delta = p8.path_delta(logs_before, logs_after)
             ingress = delta['proxies']['ingress']
-            http = [r for r in ingress if not (int(r['status']) == 0 and r['detail'] == 'filter_chain_not_found')]
+            http = [r for r in ingress if not (int(r['status']) == 0 and r['detail'] == 'filter_chain_not_found' and r['cluster'] in {None, '-'})]
+            checks, target = delta['checks'], delta['proxies']['target']
+            require(checks and len(checks) == len(target) == len(http), 'healthy shared path missing/zero/mismatched')
+            p8.p4.gate.validate_checks(checks)
+            require(all(c['decision'] == 'ALLOW' and c['controlled_deny'] is False and
+                        c['credential_values_absent'] is True and c['body_absent'] is True and c['haproxy_hop'] is True and
+                        c['attempt_id'] in known and known[c['attempt_id']] == c['operation_id'] and
+                        window_start <= p8.p7.utc(c['timestamp_utc']) < window_end for c in checks),
+                    'healthy shared check denied/unattributed/outside journey window')
+            require(set(attempts) <= {c['attempt_id'] for c in checks}, 'healthy developer attempt bypassed shared path')
+            mapping = actual['targets'][0]['mapping']
+            require(all(int(r['status']) == 200 and r['detail'] == 'via_upstream' and
+                        r['cluster'] in {mapping['cluster_name'], mapping['alt_stat_name']} for r in target),
+                    'healthy target path denied/mismapped')
+            # Existing journey asserts private anonymous 401/404; those are native
+            # auth outcomes after an ALLOW check, never ext_authz denial/failure.
+            require(all(int(r['status']) in {200, 201, 401, 404} and r['detail'] == 'via_upstream' and
+                        re.fullmatch(r'outbound\|[0-9]+\|\|forgejo-http\.forgejo\.svc(?:\.cluster\.local)?', r['cluster'] or '') for r in http),
+                    'healthy ingress path denied/mismapped')
+            uid = actual['targets'][0]['uid']
+            total = p8.p4.by_suffix(runtime.stats(actual)[uid])['upstream_rq_total']
+            if uid in stats_before:
+                total -= p8.p4.by_suffix(stats_before[uid])['upstream_rq_total']
+                require(total == len(target), 'healthy target counter/log delta mismatch')
+            else:
+                require(total == len(logs_after['proxies']['target'][uid]), 'healthy target lifetime counter/log mismatch')
+            require(clock() <= deadline, 'healthy initialization polling timeout')
             result = {'record': 'healthy_initialization_complete', 'source_sha': runtime.value['source_sha'],
                       'at': clock(), 'metric_contract': metric_contract(), 'journey_invocations': 1,
                       'ingress_http_records': len(http), 'authorization_checks': len(delta['checks']),
                       'request_accounting': 'actual same-window server log deltas, not 1:1 operation/HTTP inference',
-                      'log_delta': delta, 'ready_for_keda_authentication': True, 'runtime_preflight_passed': False}
+                      'log_delta': delta, 'journey_sha256': hashlib.sha256(Path(journey_path).read_bytes()).hexdigest(),
+                      'correlated_attempt_checks': {aid: sum(c['attempt_id'] == aid for c in checks) for aid in attempts},
+                      'auxiliary_checks': sum(c['operation_id'] == auxiliary for c in checks),
+                      'target_requests': total, 'counter_accounting': 'observed-start-delta' if uid in stats_before else 'whole-UID-counter-and-log',
+                      'proxy_linkage': 'same-window count/cluster/status; proxy format has no per-request correlation IDs',
+                      'ready_for_keda_authentication': True, 'runtime_preflight_passed': False}
             emit(result)
             return result
         require(clock() < deadline, 'healthy initialization polling timeout; do not repeat journey')
@@ -801,11 +848,14 @@ def initialize(identity, v, approval, context, private, output, ledger):
         def journey(timeout):
             env = dict(os.environ, JOURNEY_ENVIRONMENT='azure-aks', RESULT_CONTEXT_FILE=str(Path(context).resolve()),
                        RESULTS_ROOT=str((output / 'journey').resolve()), RESULT_PHASE='warmup',
-                       JOURNEY_DIR=str((private / 'healthy-journey').resolve()), JOURNEY_GATE_CORRELATION='1', RECOVERY_FIXTURE='1')
+                       JOURNEY_DIR=str((private / 'healthy-journey').resolve()), JOURNEY_GATE_CORRELATION='1', JOURNEY_GATE_AUX_CORRELATION='1', RECOVERY_FIXTURE='1')
             # Existing script retains TLS/native auth/private-repo checks and PAT ID.
             p8.subprocess.run(['timeout', '--signal=TERM', '--kill-after=5s', str(timeout) + 's',
                                'bash', str(ROOT / 'tests/e2e/forgejo-developer-journey.sh'), 'create'],
                               env=env, check=True, timeout=timeout + 10)
+            paths = list((output / 'journey').glob('*/events.jsonl'))
+            require(len(paths) == 1, 'healthy journey raw inventory differs')
+            return paths[0]
         try:
             healthy_initialize(runtime, v, journey, emit)
         except BaseException:

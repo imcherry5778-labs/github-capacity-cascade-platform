@@ -713,6 +713,55 @@ class MetricInitializationTests(unittest.TestCase):
         f.no_admin = {'target'}
         return f
 
+    def positive_journey(self, f):
+        """Synthetic client/server positives, never runtime evidence or new load."""
+        temporary = tempfile.TemporaryDirectory(prefix='p9-healthy-unit-')
+        self.addCleanup(temporary.cleanup)
+        path = Path(temporary.name, 'events.jsonl')
+        run, stamp = 'healthy-unit', '2026-10-29T00:00:01Z'
+        client = [{'record': 'run_start', 'schema_version': 1, 'run_id': run, 'phase': 'warmup',
+                   'started_at_utc': '2026-10-29T00:00:00Z', 'scenario': 'local_healthy_developer_journey',
+                   'parameters': {'concurrency': 1, 'max_attempts': 1, 'client_retry': False, 'api_timeout_seconds': 60,
+                                  'git_timeout_seconds': 60, 'git_kill_after_seconds': 5},
+                   'measurement_boundary': m.p8.p7.operations.AZURE_BOUNDARY,
+                   'source_sha': f.runtime.value['source_sha'], 'dirty': False, 'environment': {'kind': 'azure-aks'},
+                   'tool_versions': {}, 'argo_values_revision': 'a' * 40, 'forgejo_chart_version': 'synthetic',
+                   'forgejo_chart_digest': 'sha256:synthetic', 'runtime_images': {},
+                   'transport': m.p8.measurement_transport(f.runtime.value)},
+                  {'record': 'auxiliary_event', 'run_id': run, 'event_id': run + '-event-1', 'kind': 'fixture',
+                   'name': 'shared_gate_auxiliary_scope', 'outcome': 'success', 'operation_id': None,
+                   'attempt_id': None, 'timestamp_utc': stamp}]
+        pairs = []
+        for index, typ in enumerate(sorted(m.p8.p7.operations.OP_TYPES), 1):
+            op = run + '-operation-' + str(index)
+            aid = op + '-attempt-1'
+            client += [{'record': 'operation_start', 'run_id': run, 'operation_id': op, 'operation_type': typ, 'timestamp_utc': stamp},
+                       {'record': 'attempt', 'run_id': run, 'attempt_id': aid, 'operation_id': op, 'attempt_index': 1,
+                        'timestamp_utc': stamp, 'duration_seconds': .01, 'exit_code': 0, 'http_status': None if typ.startswith('git_') else 200, 'error_class': 'none'},
+                       {'record': 'operation', 'run_id': run, 'operation_id': op, 'operation_type': typ,
+                        'outcome': 'success', 'attempt_count': 1, 'duration_seconds': .01, 'semantic_result': True}]
+            pairs.extend([(op, aid)] * (3 if typ == 'git_clone' else 1))
+        client += [{'record': 'run_end', 'run_id': run, 'completion': 'success', 'validity': 'valid', 'ended_at_utc': '2026-10-29T00:00:02Z'}]
+        path.write_text(''.join(json.dumps(r) + '\n' for r in client))
+        auxiliary = run + '-auxiliary'
+        pairs += [(auxiliary, auxiliary + '-attempt-1')] * 3
+        checks = [{'record': 'authorization_check', 'check_id': 'check-' + str(i), 'timestamp_utc': stamp,
+                   'operation_id': op, 'attempt_id': aid, 'decision': 'ALLOW', 'header_names': ['authorization'],
+                   'credential_values_absent': True, 'body_absent': True, 'haproxy_hop': True, 'controlled_deny': False}
+                  for i, (op, aid) in enumerate(pairs)]
+        logs = {'checks': [], 'proxies': {'target': {'target': []}, 'ingress': {'ingress': []}}}
+        f.runtime.logs = lambda _: copy.deepcopy(logs)
+        def journey(_):
+            logs['checks'] += copy.deepcopy(checks)
+            logs['proxies']['target']['target'] += [{'status': 200, 'detail': 'via_upstream', 'cluster': 'inbound|8080||', 'duration_ms': 1}] * len(checks)
+            # Existing private-repo native-deny checks still receive gate ALLOW.
+            logs['proxies']['ingress']['ingress'] += [{'status': status, 'detail': 'via_upstream',
+                'cluster': 'outbound|3000||forgejo-http.forgejo.svc.cluster.local', 'duration_ms': 1}
+                for status in [200] * (len(checks) - 2) + [401, 404]]
+            f.traffic += len(checks)
+            return path
+        return journey, path, logs
+
     def test_preparation_authority_does_not_claim_full_preflight_or_keda_auth(self):
         v = plan() | {'identity_client_id': '00000000-0000-0000-0000-000000000000'}
         a = approval() | {'healthy_gate_passed': False, 'runtime_preflight_passed': False, 'plan_sha256': m.digest(v)}
@@ -725,10 +774,12 @@ class MetricInitializationTests(unittest.TestCase):
     def test_healthy_journey_once_then_readonly_admin_native_ingestion_rate_polling(self):
         f, now, rows, journeys = self.preparation(), [0], [], []
         f.missing = {'target'}
+        positive, _, _ = self.positive_journey(f)
         def journey(timeout):
             self.assertEqual(rows[-1]['record'], 'healthy_journey_intent')
             self.assertEqual(f.runtime.admin_observations['target']['status'], 'uninitialized')
             journeys.append(timeout)
+            return positive(timeout)
         def wait(seconds):
             now[0] += seconds
             f.no_admin.clear(); f.missing.clear()
@@ -739,14 +790,153 @@ class MetricInitializationTests(unittest.TestCase):
         self.assertEqual([r['signal']['status'] for r in rows if r['record'] == 'healthy_telemetry_poll'], ['uninitialized', 'uninitialized', 'observed'])
         self.assertFalse(result['runtime_preflight_passed'])
         self.assertTrue(result['ready_for_keda_authentication'])
-        self.assertEqual(result['ingress_http_records'], 0)  # Empty synthetic logs, no fabricated HTTP count.
+        self.assertGreater(result['ingress_http_records'], 0)
+        self.assertEqual(result['authorization_checks'], result['ingress_http_records'])
+        self.assertEqual(len(result['correlated_attempt_checks']), 9)
+        self.assertIn(3, result['correlated_attempt_checks'].values())  # Git is not HTTP1/check1.
+        self.assertEqual(result['auxiliary_checks'], 3)
+
+    def test_observed_telemetry_without_new_shared_checks_is_rejected(self):
+        f, rows, calls = self.preparation(), [], []
+        f.no_admin.clear(); f.traffic = 7  # Pre-existing observed series/counters.
+        _, path, _ = self.positive_journey(f)
+        def no_traffic(_):
+            calls.append(1)
+            return path
+        with self.assertRaisesRegex(ValueError, 'shared path missing/zero'):
+            m.healthy_initialize(f.runtime, plan(), no_traffic, rows.append)
+        self.assertEqual(calls, [1])
+        self.assertTrue(any(r['record'] == 'healthy_telemetry_poll' and r['signal']['status'] == 'observed' for r in rows))
+        self.assertFalse(any(r['record'] == 'healthy_initialization_complete' for r in rows))
+
+    def test_existing_observed_series_requires_and_accepts_new_correlated_path(self):
+        f, rows = self.preparation(), []
+        f.no_admin.clear(); f.traffic = 7
+        positive, _, logs = self.positive_journey(f)
+        def journey(timeout):
+            path = positive(timeout)
+            logs['proxies']['ingress']['ingress'].append({'status': 0, 'detail': 'filter_chain_not_found', 'cluster': None, 'duration_ms': 0})
+            return path
+        result = m.healthy_initialize(f.runtime, plan(), journey, rows.append)
+        self.assertEqual(result['authorization_checks'], result['ingress_http_records'])
+        self.assertGreater(result['authorization_checks'], 9)
+        self.assertTrue(result['ready_for_keda_authentication'])
+        self.assertFalse(result['runtime_preflight_passed'])
+        self.assertEqual(len(result['log_delta']['proxies']['ingress']), result['ingress_http_records'] + 1)
+
+    def test_healthy_positive_evidence_rejects_missing_denied_rotated_unattributed(self):
+        cases = ('no-checks', 'no-target', 'no-ingress', 'check-mismatch', 'target-mismatch', 'missing-attempt',
+                 'denied-check', 'controlled-deny', 'credential-leak', 'body-leak', 'bypassed-haproxy', 'duplicate-check',
+                 'unknown-attempt', 'unknown-operation', 'null-correlation', 'old-check', 'target-deny', 'target-cluster',
+                 'ingress-deny', 'ingress-cluster', 'counter-mismatch', 'lost-aligned-records', 'app-rotation', 'target-rotation', 'ingress-rotation',
+                 'client-failure', 'client-missing-attempt', 'client-source', 'client-no-auxiliary-scope')
+        for case in cases:
+            with self.subTest(case=case):
+                f, rows, calls = self.preparation(), [], []
+                if case != 'lost-aligned-records': f.no_admin.clear()
+                positive, path, logs = self.positive_journey(f)
+                if case.endswith('-rotation'):
+                    if case == 'app-rotation': logs['checks'] = [{'check_id': 'before'}]
+                    else: logs['proxies'][case.split('-')[0]][case.split('-')[0]] = [{'status': 999}]
+                def journey(timeout):
+                    calls.append(1)
+                    if case.endswith('-rotation'):
+                        if case == 'app-rotation': logs['checks'] = []
+                        else: logs['proxies'][case.split('-')[0]][case.split('-')[0]] = []
+                    positive(timeout)
+                    checks = logs['checks']; target = logs['proxies']['target']['target']; ingress = logs['proxies']['ingress']['ingress']
+                    if case == 'no-checks': checks.clear()
+                    elif case == 'no-target': target.clear()
+                    elif case == 'no-ingress': ingress.clear()
+                    elif case == 'check-mismatch': checks.pop()
+                    elif case == 'target-mismatch': target.pop()
+                    elif case == 'missing-attempt':
+                        missing = checks[0]['attempt_id']
+                        for c in checks:
+                            if c['attempt_id'] == missing: c.update(operation_id=checks[-1]['operation_id'], attempt_id=checks[-1]['attempt_id'])
+                    elif case == 'denied-check': checks[0]['decision'] = 'DENY'
+                    elif case == 'controlled-deny': checks[0]['controlled_deny'] = True
+                    elif case == 'credential-leak': checks[0]['credential_values_absent'] = False
+                    elif case == 'body-leak': checks[0]['body_absent'] = False
+                    elif case == 'bypassed-haproxy': checks[0]['haproxy_hop'] = False
+                    elif case == 'duplicate-check': checks[1]['check_id'] = checks[0]['check_id']
+                    elif case == 'unknown-attempt': checks[-1]['attempt_id'] = 'foreign-attempt-1'
+                    elif case == 'unknown-operation': checks[-1]['operation_id'] = 'foreign'
+                    elif case == 'null-correlation': checks[-1].update(operation_id=None, attempt_id=None)
+                    elif case == 'old-check': checks[0]['timestamp_utc'] = '2026-10-28T00:00:00Z'
+                    elif case == 'target-deny': target[0]['status'] = 403
+                    elif case == 'target-cluster': target[0]['cluster'] = 'inbound|9090||'
+                    elif case == 'ingress-deny': ingress[0].update(status=403, detail='ext_authz_denied')
+                    elif case == 'ingress-cluster': ingress[0]['cluster'] = 'outbound|3000||other.example.com'
+                    elif case == 'counter-mismatch': f.traffic = 0
+                    elif case == 'lost-aligned-records':
+                        f.no_admin.clear()
+                        checks.pop(0); target.pop(0); ingress.pop(0)
+                    elif case.startswith('client-'):
+                        client = m.p8.p4.rows(path)
+                        if case == 'client-failure': client[-1]['completion'] = 'failed'
+                        elif case == 'client-missing-attempt': client = [r for r in client if r.get('record') != 'attempt']
+                        elif case == 'client-source': client[0]['source_sha'] = 'f' * 40
+                        else: client = [r for r in client if r.get('record') != 'auxiliary_event']
+                        path.write_text(''.join(json.dumps(r) + '\n' for r in client))
+                    return path
+                with self.assertRaises(ValueError): m.healthy_initialize(f.runtime, plan(), journey, rows.append)
+                self.assertEqual(calls, [1])
+                self.assertFalse(any(r['record'] == 'healthy_initialization_complete' for r in rows))
+
+    def test_auxiliary_correlation_is_opt_in_for_existing_curl_and_git(self):
+        import subprocess
+        script = (ROOT / 'tests/e2e/forgejo-developer-journey.sh').read_text()
+        curl = script[script.index('gate_curl() {'):script.index('# request CURL_CONFIG_LINE')]
+        git = script[script.index('dev_git() {'):script.index('\nexpect_remote_ref()')]
+        with tempfile.TemporaryDirectory() as directory:
+            bindir = Path(directory, 'bin'); bindir.mkdir()
+            git_stub = bindir / 'git'
+            git_stub.write_text('#!/usr/bin/env bash\nprintf "%s|%s\\n" "${GIT_CONFIG_VALUE_2:-none}" "${GIT_CONFIG_VALUE_3:-none}"\n')
+            git_stub.chmod(0o755)
+            body = '''
+set -euo pipefail
+curl() { printf '%s\\n' "$*"; }
+mono() { echo 1; }
+fail() { exit 1; }
+RUN_ID=synthetic-run
+DEV_USER=test DEV_TOKEN=private-test
+ENDPOINT=https://example.invalid FORGEJO_URL=https://example.invalid
+GIT_TRANSPORT_ARGS=()
+GIT_TIMEOUT_SECONDS=1 GIT_KILL_AFTER_SECONDS=1
+'''
+            calls = '''
+gate_curl -q https://example.invalid
+dev_git ls-remote https://example.invalid
+JOURNEY_GATE_CORRELATION=1 JOURNEY_GATE_AUX_CORRELATION=1
+gate_curl -q https://example.invalid
+dev_git ls-remote https://example.invalid
+OP_ACTIVE=1 ATTEMPT_ACTIVE=1 OP_ID=synthetic-run-operation-1
+gate_curl -q https://example.invalid
+dev_git ls-remote https://example.invalid
+ATTEMPT_ACTIVE=0
+gate_curl -q https://example.invalid
+dev_git ls-remote https://example.invalid
+'''
+            result = subprocess.run(['bash'], input=body + curl + git + calls, text=True, capture_output=True, check=True,
+                                    env=dict(os.environ, JOURNEY_DIR=directory, PATH=str(bindir) + ':' + os.environ.get('PATH', os.defpath)))
+            lines = result.stdout.splitlines()
+            self.assertNotIn('x-operation-id', lines[0]); self.assertEqual(lines[1], 'none|none')
+            for i in (2, 3, 6, 7): self.assertIn('synthetic-run-auxiliary-attempt-1', lines[i])
+            for i in (4, 5): self.assertIn('synthetic-run-operation-1-attempt-1', lines[i])
+            self.assertNotIn('private-test', result.stdout)
 
     def test_initialize_entrypoint_binds_once_ledger_and_existing_warmup_journey(self):
         f, a, invoked = self.preparation(), approval(), []
         a.update(healthy_gate_passed=False, runtime_preflight_passed=False)
+        positive, path, _ = self.positive_journey(f)
         def subprocess_run(command, **kwargs):
             invoked.append((command, kwargs))
             f.no_admin.clear()
+            positive(90)
+            destination = Path(kwargs['env']['RESULTS_ROOT'], 'healthy-unit', 'events.jsonl')
+            destination.parent.mkdir(parents=True)
+            destination.write_bytes(path.read_bytes())
         with tempfile.TemporaryDirectory() as d:
             private = Path(d, 'private'); private.mkdir(mode=0o700)
             output, ledger = Path(d, 'output'), Path(d, 'initialization.jsonl')
@@ -758,6 +948,7 @@ class MetricInitializationTests(unittest.TestCase):
             self.assertEqual(len(invoked), 1)
             self.assertEqual(invoked[0][0], ['timeout', '--signal=TERM', '--kill-after=5s', '90s', 'bash', str(ROOT / 'tests/e2e/forgejo-developer-journey.sh'), 'create'])
             self.assertEqual(invoked[0][1]['env']['RESULT_PHASE'], 'warmup')
+            self.assertEqual(invoked[0][1]['env']['JOURNEY_GATE_AUX_CORRELATION'], '1')
             self.assertEqual(invoked[0][1]['timeout'], 100)
             self.assertFalse(a['runtime_preflight_passed']); self.assertFalse(a['healthy_gate_passed'])
             rows = [json.loads(r) for r in ledger.read_text().splitlines()]
@@ -768,7 +959,10 @@ class MetricInitializationTests(unittest.TestCase):
         for case in ('timeout', 'hostname', 'image', 'controller', 'headroom'):
             with self.subTest(case=case):
                 f, now, journeys, rows = self.preparation(), [0], [], []
-                def journey(_): journeys.append(1)
+                positive, _, _ = self.positive_journey(f)
+                def journey(timeout):
+                    journeys.append(1)
+                    return positive(timeout)
                 def wait(seconds):
                     now[0] += seconds
                     if case == 'hostname': f.policy['spec']['rules'][0]['to'][0]['operation']['hosts'] = ['other.example.com']
@@ -837,7 +1031,7 @@ class MetricInitializationTests(unittest.TestCase):
     def test_existing_request_helper_records_delete_id_before_empty204(self):
         import subprocess
         script = (ROOT / 'tests/e2e/forgejo-developer-journey.sh').read_text()
-        request = script[script.index('request() {'):script.index('\nexpect_json()')]
+        request = script[script.index('gate_curl() {'):script.index('\nexpect_json()')]
         with tempfile.TemporaryDirectory() as directory:
             # Fake curl asserts intent already durable before touching response.
             fake = '''

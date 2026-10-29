@@ -145,7 +145,17 @@ normal/native-auth/TLS evidence, 같은 actual identity/plan hash/limits/retenti
    Git operation을 HTTP1회로 추정하지 않는다. Journey 실패·timeout도 사용된 행동이며 telemetry 때문에 재시도하지 않는다.
 3. Journey 이후 최대 `ingestion+3×scrape` 동안 scrape 간격의 **read-only** polling으로 동일 UID/config,
    admin/native stat, ingested target series, freshness와 rate2 samples, guarded query를 확인한다.
-   성공하면 `ready_for_keda_authentication=true`이며 **`runtime_preflight_passed=false`는 유지**한다.
+   성공 전에 같은 journey window의 신규 ALLOW check·target inbound200·ingress native response log가 양수이며
+   수가 일치해야 한다. 기존 validator로 warmup journey의 exact source/transport·9개 성공 attempt를 검증하고,
+   각 attempt마다 해당 operation/attempt ID의 check가 있어야 한다. 기존 fixture/settle/anonymous/Git 보조 요청도
+   opt-in auxiliary correlation으로 같은 run에 귀속한다. Git1회=HTTP1회/check1회를 가정하지 않는다.
+   Check ID/ALLOW·credential/body exclusion·HAProxy hop·시간 범위, proxy cluster/status와 실제 target counter를
+   대조하며 zero/missing/mismatch/rotation/denied/unattributed는 실패한다. 기존 private anonymous401/404는
+   shared gate ALLOW 이후의 native auth 결과이며 ext_authz deny/error와 구분한다. Proxy format에는 correlation ID가
+   없어 proxy 대응은 같은 window의 count/cluster/status 수준이며 이를 per-request trace라고 부르지 않는다.
+   초기 stat가 없던 UID는 마지막 누적 counter와 전체 UID target log를 대조하고 누락 snapshot을0으로 합성하지 않는다.
+   이미 존재하던 observed series는 이 positive-path proof를 대신하지 않는다.
+   두 gate를 통과하면 `ready_for_keda_authentication=true`이며 **`runtime_preflight_passed=false`는 유지**한다.
    필수 query/stat 부재가 지속되면 timeout으로 중단한다. Invariant/unknown/query 오류는 즉시 전파한다.
 4. 위 target mapping/telemetry gate 뒤에만 KEDA UAMI/FIC/workspace role 및 필요한 SA annotation/rollout을 준비한다.
    다른 ScaledObject 영향·원본 상태와 승인된 restart 횟수를 먼저 확인하고 실제 scaler 인증을 검증한다.
