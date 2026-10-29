@@ -305,7 +305,7 @@ class Runtime:
         self.value = identity(value)
         self.since = utc()
         require(os.environ.get(approval_key) == value['source_sha'], 'explicit campaign execution acknowledgement required')
-        require(datetime.now(timezone.utc) < datetime(2026, 10, 30, 1, 30, tzinfo=timezone.utc), 'environment retention deadline reached')
+        require(datetime.now(timezone.utc) < datetime(2026, 11, 2, 1, 30, tzinfo=timezone.utc), 'environment retention deadline reached')
         require(os.environ.get('KUBECONFIG') and Path(os.environ['KUBECONFIG']).is_file(), 'dedicated protected kubeconfig required')
         require(Path(os.environ['KUBECONFIG']).stat().st_mode & 0o077 == 0, 'kubeconfig must be protected')
         require(p7.command(['git', '-C', str(ROOT), 'rev-parse', 'HEAD']) == value['source_sha'] and

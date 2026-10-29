@@ -10,7 +10,8 @@ Initialize1회는300.004초에 반복 내부 ingress Envoy config 수집 command
 healthy journey·KEDA 변경·fault·calibration·각 measured arm0, freeze 없음이다. Synthetic/자동 retry/source 수정은 없다.
 CUSTOM/shared/namespace·PAT19/image/AKS role·보호 사본 cleanup과 stable/KEDA/storage 보존을 확인했다.
 준비/원복 누적8회·two-RG ActualCost KRW44,295.3701043718·P9 incremental unknown·과거 raw/checksum을 보존한다.
-Source CI 성공과 actual positive preparation/mitigation/recovery 미완료를 구분한다. 제9차 자동 실행·merge/P10·retention 변경은 없다.
+Source CI 성공과 actual positive preparation/mitigation/recovery 미완료를 구분한다. 제9차 자동 실행·merge/P10은 없다.
+제8차 실행 당시 보존 기한은 당시 evidence를 따르며, 현재 보존 계약은 아래 승인된 +72h 기한을 따른다.
 
 ## CPU preparation source 계약
 
@@ -288,7 +289,7 @@ Poll6–9 stale는 모두 pending/false임을 확인한다. **이는 수정 clas
 전체 healthy_initialize 회귀는 실제 준비5 polls와 stale poll6 뒤 명시적 synthetic journey/server/Prometheus·fresh CPU 후속 sample을 사용한다.
 Target signal observed+stale CPU만으로 완료하지 않으며 fresh CPU와 positive target path가 함께 있을 때만 완료한다.
 Stale-only는 settling300초 또는 기존 telemetry deadline에서 실패하고 HPA/Warning/owner·UID·sample history·DB/node/resource negative도 유지한다.
-Cost-free 검증: P9 regression65개(제4·7·8차 archive와 synthetic 구분, quiet 완료 전 recovery latch 포함), P8 regression38개와 `make static`을 통과했다.
+Cost-free 검증: P9 regression66개(제4·7·8차 archive와 synthetic 구분, quiet 완료 전 recovery latch 및 보존 기한 reserve 포함), P8 regression38개와 `make static`을 통과했다.
 동일 제7차 입력을 이전 source class에 넣으면 Pod+91초에서 거부하고 수정 class에서는 pending인 것을 대조했다.
 여덟 차례 raw archive의 기존 byte/SHA256를 보존했으며 final exact-head CI·독립 review는 GitHub에서 별도 확인한다.
 
@@ -451,7 +452,13 @@ query/변동 여유USD1.739를 합친 **증가분 검토 예상USD5**, 추가 �
 rollout 비용/영향을 포함한 정확한 P9 실비는 분리 unknown이다. 재시작 때문에 새 node는 만들지 않는다.
 Actual volume/cost·새 비용 근거가 budget을 넘으면 추가 run을 시작하지 않는다.
 
-Environment **2026-10-30 10:30 KST**, Foundation/Bootstrap **2026-10-31 00:33 KST**를 유지한다.
+[사용자 +72h 보존 승인](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6509128514)에 따라
+현재 Environment 기한은 **2026-11-02 10:30 KST** (`2026-11-02T01:30:00Z`),
+Foundation/Bootstrap은 **2026-11-03 00:33 KST** (`2026-11-02T15:33:00Z`)다.
+P8 Runtime과 P9 DEADLINE은 같은 Environment 기한을 사용한다. 이전 기한 이후의 승인된 실행 진입을 허용하되
+새 기한 직전/정각/직후와 initialization840초+kill5초/run/drain60초/rollback30분 reserve 경계를 직접 회귀로 검증한다.
+이 source-only 변경은 Azure provider TTL 변경이나 제9차 실행 승인이 아니다. 과거8회 evidence의 당시 날짜·raw/checksum·비용은 그대로다.
+3일 보존에 따른 추가 운영 비용은 기존 USD5/누적USD10 검토 기준에 포함된 것으로 가정하지 않으며 P9 incremental actual은 unknown이다.
 Run+60s drain+**30분 원복 여유**가 남지 않으면 실행 gate가 새 run을 거부한다.
 자동 연장/삭제나 P11 이전 전체 teardown은 없다. Cleanup은 CUSTOM policy 우선 제거 → shared
 CM data fingerprint 원복 → experiment controllers/fixtures/monitor/Secret/namespace → 소유 image,

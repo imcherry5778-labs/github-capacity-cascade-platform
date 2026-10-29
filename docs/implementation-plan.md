@@ -198,6 +198,8 @@ P11까지 기존 environment 재사용을 우선한다. Milestone 종료를 same
 
 P7-W1 시작 시 Environment 기한은 **2026-10-30 10:30 KST**, Foundation/Bootstrap은 **2026-10-31 00:33 KST**다. 이번 source 구현은 보존 기한을 변경하지 않는다. 실행 시 current state/승인과 기한을 다시 확인한다. 과거 6시간 비용 추정은 시간 무제한 비용 보장이 아니며 ActualCost는 조회 전 unknown이다.
 
+현재 P9-W1은 [사용자의 +72h 보존 승인](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6509128514)에 따라 Environment **2026-11-02 10:30 KST**, Foundation/Bootstrap **2026-11-03 00:33 KST**까지 보존한다. 위 P7 당시 기한과 과거 evidence는 소급 변경하지 않는다. 기존 inventory를 P11까지 재사용하며 추가 연장·전체 teardown은 승인되지 않았다. 보존 연장은 새 exact-source 유료 실행 승인이나 Azure provider TTL 변경을 뜻하지 않는다.
+
 P8–P10은 실제 Azure controlled experiment 단계다. 각 milestone 시작 시 existing environment를 이어 쓸지 P5 source에서 재생성할지 위 공통 gate에서 결정한다.
 
 P11의 cost-free regression은 Azure 없이 실행 가능해야 한다. Final Azure evidence 또는 teardown/finalization action이 필요할 때만 위 공통 paid gate를 적용한다.
