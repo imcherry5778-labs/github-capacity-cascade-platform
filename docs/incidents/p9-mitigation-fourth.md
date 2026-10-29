@@ -33,3 +33,27 @@ Terminal PodMetrics의 실제 window `1m5.166s`는 승인 source의 초 전용 p
 다음 corrective action은 생성 lifetime·initialize settling clock·실제 metric cadence가 완료 proof를 만들 수 있는지
 보존된 timing과 post-stop status로 검토하는 것이다. Source/contract 보정은 독립 gate와 새 승인 대상으로 남기며
 한도를 사후 늘리거나 post-stop sample을 성공으로 사용하지 않는다. P9 mitigation/scaling/recovery 효과는 미측정이다.
+
+## 후속 source-only 시간 계약 보정
+
+같은 PR에서 Warning의 first/last 발생 시각을 Pod/HPA 생성 후90초 안으로 검증하고,
+현재 poll의 객체 age90초와 분리했다. UID/owner/reason·first timestamp·count/time history를 보존하며
+늦은 활성 Warning, history drift/유실, 첫 positive 이후 재발은 중단한다.
+CPU settling은 별도 monotonic300초 hard cap이며 positive 확보 즉시 완료한다.
+Window90초/freshness30초·snapshot30초/command15초·quiet15초·두 advancing valid samples는 유지한다.
+`initialize`의 외부 process group timeout도 전체 단계 예산으로 정합화했다.
+현재 cadence840초(+kill5초)는 setup330/settling300/baseline30/journey100/telemetry75/dispatch5의 합이며
+measured run600초와 별개다. Preparation retention 검사에 이 예산과 기존 rollback reserve를 포함한다.
+
+4차 archive의 실제 Pod/HPA/Warning/CPU 구조를 기존 P8 guard→P9 경계로 replay한 cost-free 회귀에서
+생성 age90/110초의 pending, post-stop 자료를 조합한 첫 positive만으로는 미완료,
+약65초 cadence 뒤 **synthetic** advancing sample에서만 완료됨을 검사한다.
+Collection 비용을 포함한 initialize 통합 회귀도300초 timeout과 조기 완료를 구분한다.
+이는 Azure recovery proof가 아니며 healthy journey·calibration·C0–C3 measured는 여전히0이다.
+과거 실행 source/승인·raw/checksum·네 차례 준비/원복 비용·횟수는 변경하지 않았다.
+새 exact-head CI/독립 review와 별도 통합 승인 뒤에만 실제 CPU/HPA/healthy telemetry·KEDA auth 및
+calibration/freeze/C0–C3 continuing-demand/recovery·안전 원복을 연속 진행할 수 있다.
+
+직접 P9 56개/P8 38개 및 `make static` PASS. 기존 positive shared-path·C3·release/recovery·P8 strict 회귀를 포함한다.
+GNU timeout의 cost-free process-group smoke에서 exit124와 descendant TERM 수신을 확인했다.
+이 source 검증은 위 실제 Azure 실행 source `b484160...`의 runtime evidence와 별개다.

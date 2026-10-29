@@ -255,6 +255,10 @@ def execution_gate(identity, v, approval, ledger, now=None):
 def preparation_gate(identity, v, approval, ledger, now=None):
     approval_gate(identity, v, approval, ledger, now)
     require(approval['normal_test_passed'] is True, 'normal/native-auth/TLS evidence required before healthy initialization')
+    now = now or datetime.now(timezone.utc)
+    require(now + timedelta(seconds=initialization_process_seconds(v) + 5 + v['mitigation_seconds'] +
+                            v['recovery_seconds'] + 60 + 1800) < DEADLINE,
+            'insufficient retention time for initialization/run/drain/rollback')
 
 
 def telemetry(rows, pods, now, freshness):
@@ -746,7 +750,9 @@ def collect_snapshot(runtime, config, before, emit, release_started):
 
 class CPUStartup:
     """P9 C0 preparation only: retained startup warnings need positive recovery."""
-    seconds = 90
+    warning_startup_seconds = 90
+    sample_window_seconds = 90
+    settling_seconds = 300
     quiet_seconds = 15
     reasons = {'FailedGetContainerResourceMetric', 'FailedComputeMetricsReplicas'}
 
@@ -756,7 +762,9 @@ class CPUStartup:
         self.target_name = actual['targets'][0]['name']
         self.spec = copy.deepcopy(actual['hpa_spec'])
         self.hpa_uid = self.ready_at = None
+        self.created = None
         self.history, self.candidate, self.completed = {}, None, False
+        self.recovery_seen = False
 
     def observe(self, guard, emit, at):
         epoch = p8.p7.utc(guard['timestamp_utc']).timestamp()
@@ -782,7 +790,11 @@ class CPUStartup:
             self.hpa_uid, self.ready_at = meta['uid'], ready_at
         require((self.hpa_uid, self.ready_at) == (meta['uid'], ready_at), 'CPU preparation UID/Ready transition drift')
         created = p8.p7.utc(meta['creationTimestamp']).timestamp()
+        pod_created = p8.p7.utc(pod['creationTimestamp']).timestamp()
         require(created <= epoch and ready_at <= epoch, 'CPU preparation future lifecycle timestamp')
+        if self.created is None:
+            self.created = (pod_created, created)
+        require(self.created == (pod_created, created), 'CPU preparation creation timestamp drift')
         events = {}
         for e in guard['events']:
             # Owner includes the exact UID; reason alone never grants an exception.
@@ -800,16 +812,18 @@ class CPUStartup:
             require(isinstance(e.get('uid'), str) and re.fullmatch(r'[A-Za-z0-9-]{1,64}', e['uid']) and
                     e['uid'] not in events and type(e.get('count')) is int and e['count'] > 0 and
                     created <= first <= last <= epoch, 'CPU preparation warning identity/time invalid')
-            signature = (e['timestamp_utc'], e['count'])
+            # Bound when the event happened, not the age of its retained history
+            # at this poll. A later metric recovery must not erase that history.
+            require(all(0 <= first - origin <= last - origin <= self.warning_startup_seconds
+                        for origin in (pod_created, created)), 'CPU warning outside startup lifetime')
+            signature = (e['timestamp_utc'], e['count'], e['first_timestamp_utc'], e['reason'])
+            if self.recovery_seen:
+                require(self.history.get(e['uid']) == signature, 'CPU preparation warning recurred')
             if e['uid'] in self.history:
                 previous = self.history[e['uid']]
-                require(p8.p7.utc(signature[0]) >= p8.p7.utc(previous[0]) and signature[1] >= previous[1], 'CPU warning history regressed')
-            if self.completed:
-                require(self.history.get(e['uid']) == signature, 'CPU preparation warning recurred')
-            else:
-                require(0 <= epoch - p8.p7.utc(pod['creationTimestamp']).timestamp() <= self.seconds and
-                        0 <= epoch - p8.p7.utc(meta['creationTimestamp']).timestamp() <= self.seconds,
-                        'CPU warning outside startup lifetime')
+                require(signature[2:] == previous[2:] and
+                        p8.p7.utc(signature[0]) >= p8.p7.utc(previous[0]) and signature[1] >= previous[1] and
+                        ((signature[0] == previous[0]) == (signature[1] == previous[1])), 'CPU warning history drift')
             events[e['uid']] = signature
         require(set(self.history) <= set(events), 'CPU preparation warning history lost')
         if events != self.history:
@@ -830,7 +844,7 @@ class CPUStartup:
                 # 1m5.166s are observed. Keep the same <=90s semantic bound.
                 duration = re.fullmatch(r'(?:([0-9]+)m)?([0-9]+(?:\.[0-9]+)?)s', sample['window'])
                 seconds = float(duration[1] or 0) * 60 + float(duration[2]) if duration else None
-                require(seconds is not None and 0 < seconds <= self.seconds, 'invalid CPU sample window')
+                require(seconds is not None and 0 < seconds <= self.sample_window_seconds, 'invalid CPU sample window')
                 stamp = p8.p7.utc(sample['timestamp']).timestamp()
                 metric = 0 <= epoch - stamp <= 30 and ready_at <= stamp - seconds
                 sample_evidence = {'timestamp_epoch': stamp, 'window_seconds': seconds, 'app_cpu': cpu}
@@ -862,6 +876,7 @@ class CPUStartup:
         generation = hpa['status'].get('observedGeneration')
         require(generation is None or type(generation) is int and generation == meta.get('generation'), 'CPU HPA observed generation drift')
         positive = bool(able) and metric and status and recovered and epoch - last >= self.quiet_seconds
+        self.recovery_seen = self.recovery_seen or positive
         if self.completed:
             require(positive, 'CPU preparation regressed after recovery')
         elif positive:
@@ -880,6 +895,13 @@ class CPUStartup:
               'hpa_metric_recovered': bool(status and recovered), 'status': 'ready' if self.completed else 'pending',
               'warning_history': copy.deepcopy(self.history), 'measured_denominator': False})
         return self.completed
+
+
+def initialization_process_seconds(v):
+    # Runtime setup: four existing 60s local/Azure commands + six 15s kubectl
+    # commands. Then settling (includes configuration), baseline collection,
+    # journey including kill/wait, telemetry collection/polling, and 5s dispatch.
+    return 330 + CPUStartup.settling_seconds + 30 + 100 + v['ingestion_seconds'] + 3 * v['scrape_seconds'] + 5
 
 
 def initialization_safety(guard, *, cpu_startup=None, emit=None, at=None):
@@ -920,19 +942,22 @@ def healthy_initialize(runtime, v, journey, emit, *, clock=time.monotonic, wait=
         require(len(before['targets']) == 1, 'healthy initialization starts with one Ready target')
         initial = {t['uid'] for t in before['targets']}
         cpu_startup = CPUStartup(before)
-        settle_deadline = started + CPUStartup.seconds
+        settle_deadline = started + CPUStartup.settling_seconds
         stage, stage_started = 'readiness_resource_guard', clock()
         while True:
             complete = initialization_safety(runtime.guard(), cpu_startup=cpu_startup, emit=emit, at=clock())
             require(clock() <= settle_deadline, 'CPU preparation settling timeout')
             if complete:
                 break
-            wait(min(15, settle_deadline - clock()))
+            wait(max(0, min(15, settle_deadline - clock())))
             require(clock() < settle_deadline, 'CPU preparation settling timeout')
             runtime.collection_deadline.at = min(clock() + 30, settle_deadline)
             actual = runtime.configuration(config, initializing=True)
             require(actual == before, 'CPU settling configuration drift')
         stage, stage_started = 'baseline_stats', clock()
+        # Settling may finish near its deadline. Baseline stats/logs retain their
+        # own shared 30s collection budget before the separately bounded journey.
+        runtime.collection_deadline.at = clock() + 30
         stats_before = copy.deepcopy(runtime.stats(before))
         stage, stage_started = 'baseline_logs', clock()
         logs_before = runtime.logs(before)
@@ -1482,6 +1507,12 @@ def compare(directories, freeze):
 
 def main(args):
     if len(args) == 8 and args[0] == 'initialize':
+        v = plan(load(args[2]))
+        # GNU timeout owns a process group, including kubectl/journey children.
+        # No retry. The internal monotonic deadlines remain the tighter gates.
+        p8.subprocess.run(['timeout', '--signal=TERM', '--kill-after=5s', str(initialization_process_seconds(v)) + 's',
+                           sys.executable, str(Path(__file__).resolve()), '_initialize', *args[1:]], check=True)
+    elif len(args) == 8 and args[0] == '_initialize':
         initialize(load(args[1]), load(args[2]), load(args[3]), args[4], args[5], args[6], args[7])
     elif len(args) == 5 and args[0] == 'render':
         identity, v, arm = load(args[1]), load(args[2]), args[3]

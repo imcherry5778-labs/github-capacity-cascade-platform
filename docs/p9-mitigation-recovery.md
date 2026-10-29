@@ -9,7 +9,8 @@ Initialize1회는 `readiness_resource_guard / ValueError / validation_failed`, p
 `CPU warning outside startup lifetime`로 중단했다. CPU poll2개는 pending, healthy journey·fault·calibration·각 measured arm0,
 freeze·mitigation/recovery 결과 없음이다. Later-read HPA 회복 status를 완료된 준비 proof로 승격하지 않는다.
 Cleanup 뒤 실제 CPU window `1m5.166s` 표현만 cost-free source correction했다. 새로운 Azure 실행은 없으며
-후속 HEAD는 실행 승인 source가 아니다. 기존 상한·acceptance와 이전 세 차례 이력을 보존한다.
+후속 HEAD는 실행 승인 source가 아니다. 아래 시간 계약은 추가 source-only correction이며 Azure 재실행은 없다.
+과거 네 차례 준비/원복·비용·raw/checksum과 measured 상한·acceptance를 보존한다.
 이전 제3차 `ffea5cb`의 [실행/원복](evidence/p9-mitigation-third-20261029/README.md)은 별도 historical evidence다.
 
 이전 제2차 이력:
@@ -155,12 +156,16 @@ unknown series/UID, startup timeout은 중단 사유이며 inventory query guard
 normal/native-auth/TLS evidence, 같은 actual identity/plan hash/limits/retention을 요구한다.
 `healthy_gate_passed`/`runtime_preflight_passed`를 초기화 시작을 위해 true로 만들지 않는다.
 
-CPU HPA 준비는 별도 **read-only settling** 경계를 사용한다. `healthy_initialize` 시작부터 최대90초,
+CPU HPA 준비는 별도 **read-only settling** 경계를 사용한다. `healthy_initialize` 시작부터 configuration을 포함한
+monotonic hard cap **300초**, positive proof 확보 즉시 완료하며 성공 보장이나 고정 대기 시간이 아니다.
 poll 간격 최대15초이며 매 collection의 기존30초/명령별15초 budget은 유지한다. 추가 traffic/journey 반복은 없다.
 Configuration/image/hostname/owner 및 Pod/DB/node/admission/headroom은 매 poll에서 즉시 검사한다.
-준비 중 허용하는 pending 후보는 생성 후90초 안의 target Pod와 정확히 같은 namespace·UID의
-`HorizontalPodAutoscaler/hpa-app-cpu`에 속한 `FailedGetContainerResourceMetric`/`FailedComputeMetricsReplicas`뿐이다.
-다른 warning/owner/미귀속 event는 즉시 실패한다. Runtime.since를 재설정하거나 warning 이력을 삭제하지 않는다.
+준비 중 허용하는 Warning은 target Pod와 HPA 각각의 생성 후90초 안에 **first/last 발생 시각 모두**가 들어가고,
+정확히 같은 namespace·UID의 `HorizontalPodAutoscaler/hpa-app-cpu`에 속한 `FailedGetContainerResourceMetric`/`FailedComputeMetricsReplicas`뿐이다.
+현재 poll의 객체 age가90초를 넘었다는 이유로 이 historical Warning을 거부하지 않는다.
+다른 warning/owner/미귀속 event·90초 이후 새로운 활성 Warning은 즉시 실패한다. First timestamp/reason 변경,
+count/time 역행 또는 한쪽만 변경, history 유실과 첫 positive 이후 재발(중간 metric 누락 뒤에도)은 실패한다.
+Runtime.since를 재설정하거나 warning 이력을 삭제하지 않는다.
 
 `Runtime.guard(cpu_preparation=True)`는 이미 수집한 owned Pod 중 CPU target의 namespace/name/UID,
 creationTimestamp/deletionTimestamp와 Ready status/lastTransitionTime만 별도 `cpu_preparation_pods`로 제공한다.
@@ -183,6 +188,23 @@ Startup warning이 있으면 HPA ScalingActive 회복 transition이 마지막 wa
 이미 양수 metric/HPA가 정상이고 warning이 없는 baseline은 별도 대기 없이 통과할 수 있다.
 회복 뒤 healthy journey/telemetry polling에서 새 warning·count/time 증가·history 유실·HPA/metric 상태 악화는 실패한다.
 Measured/C3의 기존 strict warning/controller/telemetry guard와 P8 기본 호출은 이 예외를 사용하지 않는다.
+
+300초 선택 근거는 4차 생성07:39:10·Ready07:39:26·later-read HPA transition07:40:40과
+post-stop sample07:41:31/window65.166초다. 추가 sample 한 cadence(약65초), poll≤15초와 수집≤30초를
+포함하는 bounded 후보이며 실측 성공 시간은 아니다. [Kubernetes HPA 문서](https://kubernetes.io/docs/concepts/workloads/autoscaling/horizontal-pod-autoscale/#pod-readiness-and-autoscaling-metrics)의
+Ready 전체 sample window/default CPU initialization period5분도 재확인했다. 해당 AKS flag 값은 미확인이다.
+Warning 발생 허용90초, CPU sample window≤90초, freshness≤30초는 settling300초와 별개다.
+
+`initialize` CLI는 GNU `timeout --signal=TERM --kill-after=5s`의 process group 안에서 내부 `_initialize`를
+1회 호출한다. Operator는 public `initialize`를 사용하며 더 짧은 외부 wrapper를 씌우지 않는다.
+외부 TERM 시점은 `330 + 300 + 30 + 100 + ingestion + 3×scrape + 5`초다.
+330초는 기존 Runtime setup의60초 command4개(git2/Azure2)와15초 kubectl6개 합계이며 command 상한 증액이 아니다.
+이후 settling300초(configuration 포함), 별도 baseline stats/logs collection30초, journey90초+kill/wait 여유10초,
+telemetry `ingestion+3×scrape`, dispatch 여유5초를 합한다. 현재 후보는 **840초**, 허용 cadence 최대는1005초,
+각각 TERM 뒤 kill-after5초이며 measured run600초와 구분한다. 정상 시 바로 종료한다.
+Settling의 각 configuration+guard collection은 `min(now+30, settling deadline)`을 공유하며 command≤15초를 유지한다.
+Baseline stats/logs는 완료된 settling collection과 분리한30초를 사용한다. Preparation 진입 시 외부 timeout+5초 kill 여유와
+기존 run/drain+30분 rollback reserve가 retention 전에 들어가는지도 검사한다.
 
 실패 event는 고정된 `stage`, 전체/단계 `elapsed_seconds`/`stage_elapsed_seconds`, 허용된
 `exception_class`와 제한된 `error_code`를 output 및 append-only initialization ledger에 기록하고 예외를 다시 전파한다.

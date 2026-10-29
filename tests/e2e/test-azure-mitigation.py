@@ -846,11 +846,11 @@ class MetricInitializationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'warning recurred'):
             m.initialization_safety(g, cpu_startup=cpu, emit=rows.append, at=31)
 
-    def archived_cpu_runtime(self):
-        with tarfile.open(ROOT / 'docs/evidence/p9-mitigation-third-20261029/raw-evidence.tar.gz') as t:
+    def archived_cpu_runtime(self, attempt="third"):
+        with tarfile.open(ROOT / f'docs/evidence/p9-mitigation-{attempt}-20261029/raw-evidence.tar.gz') as t:
             read = lambda n: json.load(t.extractfile(n))
             r = m.Runtime.__new__(m.Runtime); r.value = read('identity.json'); r.preparation = True; r.hpa_name = 'hpa-app-cpu'
-            r.since = '2026-10-29T05:56:40Z'
+            r.since = '2026-10-29T05:56:40Z' if attempt == 'third' else '2026-10-29T07:39:27Z'
             hpa = next(x for x in read('experiment-terminal.json')['items'] if x['kind'] == 'HorizontalPodAutoscaler')
             objects = {'nodes': read('nodes-before.json'), 'events': read('fixture-events-stop.json'),
                        'application': read('argo-before.json'), 'hpa': hpa}
@@ -947,6 +947,154 @@ class MetricInitializationTests(unittest.TestCase):
                 else:
                     with self.assertRaises(ValueError): m.initialization_safety(guard, cpu_startup=cpu, emit=lambda _: None, at=0)
 
+    def fourth_cpu_timeline(self):
+        """Archived objects through P8 guard -> P9, with explicit simulated timing.
+
+        The failed poll CPU/Warning history is replayed; the later-read HPA and
+        post-stop sample are NOT a live recovery. Only synthetic continuations
+        combine them and advance the next CPU sample at the observed ~65s cadence.
+        """
+        runtime, _ = self.archived_cpu_runtime('fourth')
+        with tarfile.open(ROOT / 'docs/evidence/p9-mitigation-fourth-20261029/raw-evidence.tar.gz') as t:
+            rows = [json.loads(line) for line in t.extractfile('healthy-initialization/events.jsonl')]
+        polls = [r for r in rows if r['record'] == 'cpu_preparation_poll']
+        hpa = runtime.j('-n', m.NS, 'get', 'hpa', 'hpa-app-cpu', '-o', 'json')
+        recovered = copy.deepcopy(hpa['status'])
+        metrics = runtime.j('get', '--raw', '/apis/metrics.k8s.io/v1beta1/pods')
+        sample = next(p for p in metrics['items'] if p['metadata']['labels'].get('app') == 'ext-authz-sim')
+        recorded_sample = copy.deepcopy(sample)
+        raw_events = runtime.j('get', 'events', '-A', '-o', 'json')['items']
+        created = m.p8.p7.utc(hpa['metadata']['creationTimestamp']).timestamp()
+        stamp = lambda sec: m.datetime.fromtimestamp(created + sec, m.timezone.utc).isoformat()
+        def frame(seconds, *, synthetic_recovery=False, advance=False):
+            # Replay the recorded poll's exact projected sample and event counts.
+            poll = polls[0 if seconds < 75 else 1]
+            for e in raw_events:
+                history = poll['warning_history'].get(e['metadata']['uid'])
+                if history:
+                    e['lastTimestamp'], e['count'] = history
+            sample.clear(); sample.update(copy.deepcopy(recorded_sample))
+            if not synthetic_recovery:
+                sample.update(timestamp=m.datetime.fromtimestamp(poll['sample_epoch'], m.timezone.utc).isoformat(),
+                              window=str(poll['sample']['window_seconds']) + 's')
+                next(c for c in sample['containers'] if c['name'] == 'app')['usage']['cpu'] = poll['sample']['app_cpu']
+            elif advance:
+                sample['timestamp'] = stamp(seconds)  # Synthetic second sample only.
+            hpa['status'] = copy.deepcopy(recovered)
+            if not synthetic_recovery:
+                active = next(c for c in hpa['status']['conditions'] if c['type'] == 'ScalingActive')
+                active.update(status='False', reason='FailedGetContainerResourceMetric', lastTransitionTime=stamp(15))
+                hpa['status']['currentMetrics'] = [{'type': ''}]
+            with patch.object(m.p8, 'utc', return_value=stamp(seconds)):
+                return m.Runtime.guard(runtime)
+        first = frame(40)
+        actual = {'targets': [{'uid': first['cpu_preparation_pods'][0]['uid'], 'name': sample['metadata']['name']}],
+                  'hpa_spec': copy.deepcopy(hpa['spec'])}
+        return actual, frame
+
+    def test_fourth_archive_pending_beyond_90_only_synthetic_advancing_recovery_completes(self):
+        actual, frame = self.fourth_cpu_timeline(); cpu, rows = m.CPUStartup(actual), []
+        for sec in (40, 80, 90, 110):
+            self.assertFalse(cpu.observe(frame(sec), rows.append, sec))
+            self.assertFalse(rows[-1]['valid_ready_window'])
+        self.assertEqual(len(cpu.history), 4)
+        g = frame(141, synthetic_recovery=True)
+        target_sample = next(p for p in g['pod_metrics'] if p['metadata']['name'] == actual['targets'][0]['name'])
+        self.assertEqual(target_sample['timestamp'], '2026-10-29T07:41:31Z')
+        self.assertEqual(target_sample['window'], '1m5.166s')
+        self.assertFalse(cpu.observe(g, rows.append, 141))
+        self.assertTrue(rows[-1]['valid_ready_window']); self.assertTrue(rows[-1]['hpa_metric_recovered'])
+        self.assertFalse(cpu.observe(frame(156, synthetic_recovery=True), rows.append, 156))  # Same sample.
+        self.assertTrue(cpu.observe(frame(206, synthetic_recovery=True, advance=True), rows.append, 206))
+        self.assertEqual(len(cpu.history), 4)  # No Warning suppression/reset.
+        self.assertTrue(all(r['measured_denominator'] is False for r in rows if r['record'] == 'cpu_preparation_poll'))
+
+    def test_fourth_warning_history_and_late_active_events_fail_closed(self):
+        for case in ('late', 'future', 'ambiguous-time', 'other-owner', 'other-reason', 'first-drift', 'reason-drift',
+                     'count-regression', 'count-only', 'time-only', 'lost', 'pod-created', 'hpa-created',
+                     'new-after-positive', 'recur-after-positive', 'recur-after-gap'):
+            with self.subTest(case=case):
+                actual, frame = self.fourth_cpu_timeline(); cpu = m.CPUStartup(actual)
+                cpu.observe(frame(110), lambda _: None, 110)
+                if case.endswith('after-positive') or case == 'recur-after-gap':
+                    cpu.observe(frame(141, synthetic_recovery=True), lambda _: None, 141)
+                    if case == 'recur-after-gap':
+                        gap = frame(146, synthetic_recovery=True); gap['pod_metrics'] = []
+                        self.assertFalse(cpu.observe(gap, lambda _: None, 146))
+                    g = frame(156, synthetic_recovery=True)
+                else: g = frame(120)
+                e = g['events'][-1]
+                if case == 'late': e['timestamp_utc'] = '2026-10-29T07:40:41Z'
+                elif case == 'future': e['timestamp_utc'] = '2026-10-29T07:42:41Z'
+                elif case == 'ambiguous-time': e.pop('first_timestamp_utc')
+                elif case == 'other-owner': e['owner']['uid'] = 'other'
+                elif case == 'other-reason': e['reason'] = 'Unhealthy'
+                elif case == 'first-drift': e['first_timestamp_utc'] = '2026-10-29T07:39:41Z'
+                elif case == 'reason-drift': e['reason'] = 'FailedGetContainerResourceMetric'
+                elif case == 'count-regression': e['count'] -= 1
+                elif case in {'count-only', 'recur-after-positive', 'recur-after-gap'}: e['count'] += 1
+                elif case == 'time-only': e['timestamp_utc'] = '2026-10-29T07:40:26Z'
+                elif case == 'lost': g['events'].pop()
+                elif case == 'pod-created': g['cpu_preparation_pods'][0]['creationTimestamp'] = '2026-10-29T07:39:11Z'
+                elif case == 'hpa-created': g['cpu_hpa']['metadata']['creationTimestamp'] = '2026-10-29T07:39:11Z'
+                elif case == 'new-after-positive':
+                    e = copy.deepcopy(e); e['uid'] = 'new-event'; g['events'].append(e)
+                with self.assertRaises((ValueError, KeyError)):
+                    cpu.observe(g, lambda _: None, 156)
+
+    def test_fourth_timeline_integrates_bounded_initialize_and_collection_cost(self):
+        for recover in (False, True):
+            with self.subTest(recover=recover):
+                actual, frame = self.fourth_cpu_timeline(); f, now, rows, calls = self.preparation(), [0], [], []
+                # Relative monotonic origin is initialize start, not object birth.
+                origin = 17.895
+                def configuration(*args, **kwargs):
+                    self.assertLessEqual(f.runtime.collection_deadline.at - now[0], 30)
+                    now[0] += 7  # Actual collection cost consumes settling budget.
+                    return copy.deepcopy(actual)
+                def guard():
+                    now[0] += min(11, f.runtime.collection_deadline.at - now[0])
+                    self.assertLessEqual(now[0], 300)
+                    age = origin + now[0]
+                    return frame(age, synthetic_recovery=recover and age >= 141, advance=age >= 206)
+                def journey(timeout):
+                    calls.append(now[0]); self.assertGreaterEqual(origin + now[0], 206)
+                    self.assertLess(now[0], 300); self.assertEqual(timeout, 90)
+                    self.assertEqual(rows[-1]['record'], 'healthy_journey_intent')
+                    raise RuntimeError('synthetic stop before journey load')
+                f.runtime.configuration, f.runtime.guard = configuration, guard
+                f.runtime.stats = lambda _: {}
+                f.runtime.logs = lambda _: {'checks': [], 'proxies': {'target': {}, 'ingress': {}}}
+                with patch.object(m.time, 'monotonic', side_effect=lambda: now[0]):
+                    with self.assertRaisesRegex((ValueError, RuntimeError), 'synthetic stop' if recover else 'settling timeout'):
+                        m.healthy_initialize(f.runtime, plan(), journey, rows.append, clock=lambda: now[0],
+                                             wait=lambda sec: now.__setitem__(0, now[0] + sec))
+                self.assertEqual(len(calls), int(recover))
+                self.assertLessEqual(now[0], 300)
+                self.assertTrue(any(r['record'] == 'cpu_preparation_poll' and r['at'] >= 90 and r['status'] == 'pending' for r in rows))
+
+    def test_initialize_process_group_timeout_covers_internal_budgets_and_retention(self):
+        v = plan()
+        self.assertEqual(m.initialization_process_seconds(v), 840)
+        self.assertEqual(m.initialization_process_seconds(v | {'scrape_seconds': 60, 'ingestion_seconds': 60}), 1005)
+        original_load = m.load
+        with patch.object(m, 'load', side_effect=lambda path: v if path == 'plan' else original_load(path)), patch.object(m.p8.subprocess, 'run') as run, patch.object(m, 'initialize') as initialize:
+            m.main(['initialize', 'identity', 'plan', 'approval', 'context', 'private', 'output', 'ledger'])
+            command = run.call_args.args[0]
+            self.assertEqual(command[:4], ['timeout', '--signal=TERM', '--kill-after=5s', '840s'])
+            self.assertEqual(command[6:], ['_initialize', 'identity', 'plan', 'approval', 'context', 'private', 'output', 'ledger'])
+            self.assertTrue(run.call_args.kwargs['check']); initialize.assert_not_called()
+            run.side_effect = m.p8.subprocess.CalledProcessError(124, command)
+            with self.assertRaises(m.p8.subprocess.CalledProcessError):
+                m.main(['initialize', 'identity', 'plan', 'approval', 'context', 'private', 'output', 'ledger'])
+            self.assertEqual(run.call_count, 2)  # One invocation per call, no retry.
+        # Previously enough for a run, now too short for preparation + that run.
+        now = m.DEADLINE - m.timedelta(seconds=2200 + 400)
+        with patch.dict(os.environ, {'P9_AZURE_APPROVED': t8.identity()['source_sha']}):
+            m.execution_gate(t8.identity(), v, approval(), [], now)
+            with self.assertRaisesRegex(ValueError, 'initialization/run/drain/rollback'):
+                m.preparation_gate(t8.identity(), v, approval(), [], now)
+
     def test_cpu_settling_timeout_other_warning_and_bad_metrics_never_start_journey(self):
         cases = ('persistent', 'pre-ready', 'missing', 'stale', 'zero', 'unknown', 'metric-container', 'metric-duplicate',
                  'hpa-metric', 'hpa-value-zero', 'owner', 'spec', 'other-warning', 'other-hpa', 'wrong-uid', 'no-owner',
@@ -1002,7 +1150,7 @@ class MetricInitializationTests(unittest.TestCase):
                         m.healthy_initialize(f.runtime, plan(), lambda _: calls.append(1), rows.append,
                                              clock=lambda: clock[0], wait=lambda seconds: clock.__setitem__(0, clock[0] + seconds))
                 self.assertEqual(calls, [])
-                self.assertLessEqual(clock[0], 90)
+                self.assertLessEqual(clock[0], 300)
                 self.assertFalse(rows[-1]['runtime_preflight_passed'])
                 self.assertFalse(any(r['record'] in {'healthy_journey_intent', 'healthy_initialization_complete'} for r in rows))
                 if case in {'other-warning', 'other-hpa', 'wrong-uid', 'no-owner', 'pod-unready', 'db', 'node', 'resource', 'owner', 'spec', 'generation'}:

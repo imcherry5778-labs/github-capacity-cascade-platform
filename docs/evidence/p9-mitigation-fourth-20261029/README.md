@@ -94,3 +94,9 @@ full traceback/Secret data/credential/kubeconfig/clone은 archive에서 제외�
 남은 gate는 생성 lifetime·settling wall-clock·실제 metric cadence의 계약 검토, 완료된 HPA/CPU positive proof,
 healthy shared-path/target telemetry·KEDA scaler auth 및 calibration/freeze/C0–C3 continuing-demand measurement다.
 현재 한도나 acceptance를 사후 완화하지 않았다. 새 exact-source gate와 필요한 별도 통합 승인 전 유료 Azure 실행은 없다.
+
+후속 source-only 시간 계약 보정은 [incident](../../incidents/p9-mitigation-fourth.md#후속-source-only-시간-계약-보정)과
+[현재 CPU preparation contract](../../p9-mitigation-recovery.md#최초-healthy-초기화-순서)를 따른다.
+Warning 발생 허용90초와 settling monotonic300초를 분리하고 외부 initialize timeout을 전체 단계 예산에 맞췄다.
+이 archive의 구조를 재사용한 회귀에서90초 이후 pending과 synthetic advancing recovery를 구분한다.
+실제 추가 Azure 실행/측정은 없으며 위 raw108/checksum·실행 승인/source·비용·준비/원복 누적4회를 보존한다.
