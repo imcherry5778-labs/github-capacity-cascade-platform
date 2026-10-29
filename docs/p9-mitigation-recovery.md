@@ -1,11 +1,25 @@
 # P9-W1 Mitigation & Recovery
 
+현재 상태: **제8차 normal valid·무재시작 Pod 준비 통과 / CPU 준비300초 경계 중단 / P9-owned 원복 완료 / P9 acceptance 미충족**.
+승인·실제 execution source는 `98e95e5850f2442e08a6306bf955aa12c0427b17`다.
+[제8차 통합 승인](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6505956066),
+[actual/negative/원복 evidence](evidence/p9-mitigation-eighth-20261030/README.md), [incident](incidents/p9-mitigation-eighth.md)를 연결한다.
+Warning은 생성 후121초 count8까지 보존·허용됐고 첫 fresh CPU/HPA 관측 뒤 이력이 변하지 않았다.
+Fresh CPU/HPA 관측은 실제 poll3·5에 있었으나 중간/후속 stale poll과 source의 candidate 해제 경로로 ready는0이었다(후보 해제는 source 판독 추론).
+Initialize1회는300.004초에 반복 내부 ingress Envoy config 수집 command_timeout으로 중단했다. CPU poll9 모두 pending이며
+healthy journey·KEDA 변경·fault·calibration·각 measured arm0, freeze 없음이다. Synthetic/자동 retry/source 수정은 없다.
+CUSTOM/shared/namespace·PAT19/image/AKS role·보호 사본 cleanup과 stable/KEDA/storage 보존을 확인했다.
+준비/원복 누적8회·two-RG ActualCost KRW44,295.3701043718·P9 incremental unknown·과거 raw/checksum을 보존한다.
+Source CI 성공과 actual positive preparation/mitigation/recovery 미완료를 구분한다. 제9차 자동 실행·merge/P10·retention 변경은 없다.
+
+## CPU preparation source 계약
+
 현재 source 계약: **제7차 Warning 시간 충돌 source-only 교정 / 실제 Azure positive gate 미통과 / P9 acceptance 미충족**.
 [독립 리뷰](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#pullrequestreview-5698170608)에 따라
 첫 fresh positive CPU/HPA recovery 전에는 정확한 CPU HPA metric Warning의 count/time 증가를 기존 monotonic settling300초 안에서 허용한다.
 별도 Warning 발생90초 상한은 제거하며300초 발생 상한으로 치환하지 않는다. 첫 recovery 관측 이후 새 Warning·count/time 증가와 history 유실은 계속 실패한다.
 Sample window90초/freshness30초, snapshot30초/command15초, quiet15초·두 advancing valid sample, outer840초/kill5초는 유지한다.
-아래7회 actual negative·비용·raw/checksum·원복 기록은 바꾸지 않는다. 이 교정은 새 Azure 실행 승인이 아니며 새 exact-head 독립 review와 사용자 통합 승인이 필요하다.
+과거 actual negative·비용·raw/checksum·원복 기록은 바꾸지 않는다. 이 교정 자체는 Azure 실행 승인이 아니며 새 exact-head 독립 review와 사용자 통합 승인이 필요하다.
 
 ## 제7차 historical 실행
 

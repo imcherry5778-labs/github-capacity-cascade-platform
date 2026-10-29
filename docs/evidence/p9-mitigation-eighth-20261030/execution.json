@@ -1,0 +1,81 @@
+{
+  "campaign": "eighth",
+  "source_sha": "98e95e5850f2442e08a6306bf955aa12c0427b17",
+  "main": "3f788a9c1d103f6c07bd403af269133fac287002",
+  "image_digest": "sha256:2cfa62dd9491ee4b06e554297364517be3a8e322671ca3638f0220c3829efe37",
+  "normal": {
+    "invocations": 1,
+    "validity": "valid",
+    "completion": "success",
+    "phase": "warmup",
+    "operations": 9,
+    "attempts": 9
+  },
+  "initialize": {
+    "invocations": 1,
+    "exit_code": 1,
+    "elapsed_seconds": 305.50665402599407,
+    "at_utc": "2026-10-29T19:38:20.264819+00:00"
+  },
+  "failure": {
+    "record": "healthy_initialization_failure",
+    "source_sha": "98e95e5850f2442e08a6306bf955aa12c0427b17",
+    "at": 51004.486377526,
+    "stage": "readiness_resource_guard",
+    "elapsed_seconds": 300.0035772880001,
+    "stage_elapsed_seconds": 286.2931730670025,
+    "exception_class": "TimeoutExpired",
+    "error_code": "command_timeout",
+    "runtime_preflight_passed": false,
+    "ready_for_keda_authentication": false,
+    "measured_denominator": false
+  },
+  "strict_ready_restart_zero": true,
+  "backend_service_before_haproxy": true,
+  "cpu_preparation": {
+    "polls": 9,
+    "ready_polls": 0,
+    "fresh_cpu_and_positive_hpa_poll_numbers": [
+      3,
+      5
+    ],
+    "source_logic_inference": "intermediate stale poll clears the candidate; no consecutive valid advancing completion",
+    "complete": false,
+    "internal_bound_seconds": 300,
+    "timeout_operation": "ingress_envoy_dynamic_route_configuration_collection",
+    "effective_final_command_timeout_seconds": 0.27242340899829287,
+    "warning_repeats_past_90_observed_and_not_rejected": true
+  },
+  "synthetic_input_used": false,
+  "healthy_journey_intents": 0,
+  "healthy_journey_invocations": 0,
+  "healthy_target_telemetry_verified": false,
+  "keda_mutations": 0,
+  "calibration_runs": 0,
+  "frozen_plan": false,
+  "measured_runs": {
+    "C0": 0,
+    "C1": 0,
+    "C2": 0,
+    "C3": 0
+  },
+  "mitigation_recovery_result": "not measured",
+  "continuing_demand_recovery": "not measured",
+  "p9_acceptance_met": false,
+  "automatic_retry": false,
+  "pod_history_reset": false,
+  "cumulative_preparation_cleanup_campaigns": 8,
+  "historical_keda_restarts": {
+    "apply": 1,
+    "restore": 1
+  },
+  "actual_cost_two_rg_krw": "44295.3701043718",
+  "previous_seventh_aggregate_krw": "38284.28956189241",
+  "p9_incremental_actual": "unknown; shared delayed billing",
+  "cost_plan_reset": false,
+  "environment_deadline": "2026-10-30T01:30:00Z",
+  "foundation_bootstrap_deadline": "2026-10-30T15:33:00Z",
+  "environment_teardown": false,
+  "retention_extended": false,
+  "cleanup_complete_for_owned_scope": true
+}
