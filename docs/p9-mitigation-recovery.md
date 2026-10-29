@@ -142,6 +142,19 @@ unknown series/UID, startup timeout은 중단 사유이며 inventory query guard
 normal/native-auth/TLS evidence, 같은 actual identity/plan hash/limits/retention을 요구한다.
 `healthy_gate_passed`/`runtime_preflight_passed`를 초기화 시작을 위해 true로 만들지 않는다.
 
+실패 event는 고정된 `stage`, 전체/단계 `elapsed_seconds`/`stage_elapsed_seconds`, 허용된
+`exception_class`와 제한된 `error_code`를 output 및 append-only initialization ledger에 기록하고 예외를 다시 전파한다.
+Journey intent 이전에는 `configuration` → `readiness_resource_guard` → `baseline_stats` → `baseline_logs`를 구분한다.
+이후 journey/accounting/validation·telemetry configuration/resource/signal·positive path도 별도 stage로 기록한다.
+Warning guard는 typed `warning_event`, 기존 snapshot command budget 소진은 `snapshot_command_budget_exceeded`,
+subprocess timeout은 `command_timeout`으로 구분하며 오류 문자열로 원인을 추정하지 않는다.
+공개 event에는 message/argv/stderr/body/path나 임의 exception class 이름을 넣지 않는다. 알려지지 않은 class는
+`BaseException`/`unknown_failure`로 기록한다. 상세 exception chain은 기존 mode0700 private directory의
+`initialization-failure.txt`를 mode0600/exclusive-create로 보존한다. 이 파일은 raw archive/publication 대상이 아니며
+승인된 보호 local cleanup 경계에서 제거한다. 기존 파일/쓰기 오류는 덮어쓰지 않고 안전한 별도 code를 남기며 원래 실패를 유지한다.
+실패 record는 `runtime_preflight_passed=false`이며 정상/healthy/runtime 승인 flag를 변경하지 않는다.
+이 source-only 진단 보완은 과거 unknown 원인을 소급 입증하거나 새 Azure 실행을 승인하지 않는다.
+
 1. 전용 kubeconfig/ownership/stable delta, exact CUSTOM hostname/provider/selector와 fail-closed/native auth/TLS,
    pinned image/controller, hold0/capacity1024/readiness, 실제 sidecar/init/overhead 포함 resource/headroom을 확인한다.
 2. 이미 계획한 bounded healthy journey **1회**를 재사용한다. Intent를 append-only initialization ledger에 먼저 기록하고

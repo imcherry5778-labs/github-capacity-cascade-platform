@@ -32,3 +32,28 @@ Warning safety gate 또는30초 snapshot budget이 관련됐을 가능성은 있
 
 이 action은 제안/미검증이다. Backoff/admission/proxy-scaling 효과는 measured하지 않았으며,
 부하 감소나 관측 없는 window를 recovered 또는 non-recovered 결과로 만들지 않는다.
+
+## 후속 source-only 진단 보완
+
+과거 raw/checksum·approval/execution SHA는 그대로 보존했다. 이번 수정은 stage/type/timing을 남기는 경계를 복구하며
+**위 실행의 root cause는 여전히 unknown**이다. Archive의 HPA warning lastTimestamp는 02:43:27/02:44:27 UTC이며
+P8 guard는 runtime `since` 이후 Warning을 검사한다. 실패한 호출의 `since`/stage별 timing/causal exception이 없으므로
+해당 event가 guard에서 반환됐는지, 30초 snapshot budget이 먼저 소진됐는지 판정할 수 없다.
+전체 invocation 약39.79초도 Runtime 생성 이후 collection 시간과 같다고 가정하지 않는다.
+Warning 필터와 30초 collection/명령별 최대15초 timeout은 변경하지 않았다.
+
+`healthy_initialize` 실패는 configuration·readiness/resource·baseline stats/logs 및 이후 단계별 stage와
+전체/단계 elapsed, 제한된 exception class/error code를 append-only로 기록한다.
+오류 message/argv/stderr/body/보호 local path는 공개하지 않는다. 상세 traceback은 protected mode0600 파일로 분리하고,
+쓰기 실패도 원래 예외를 삼키거나 기존 진단 파일을 덮어쓰지 않는다.
+Mocked configuration 실패, archived reason/timestamp를 사용한 synthetic warning guard, 실제 Runtime.k의 mocked command
+timeout/failure 및 budget 소진, baseline stats/log 실패가 서로 구분되는 것을 cost-free 회귀로 검사한다.
+모든 pre-journey 실패는 journey 미실행, completion 부재와 runtime-preflight false를 유지하며 positive-path/C3/release 회귀도 보존한다.
+이는 source 진단 동작의 검증이며 Azure causal proof나 backoff/admission/scaling corrective action 검증이 아니다.
+직접 P9 46개/P8 38개 및 `make static`을 통과했다. 동일 mocked configuration 실패를 이전 `bf62aae`와 대조하면
+이전 failure record에는 stage/type/code가 없고 수정본에는 `configuration`/`ValueError`/`validation_failed`가 남는다.
+Calibration·각 measured arm0 기록과 기존 archive SHA256은 보존했으며 새 Azure 접근·workload·mutation은 없다.
+
+새 exact-head source gate 이후 별도 유료 재개 승인에는 fresh IAM/image/credential/shared configuration 재준비,
+healthy initialization과 남은 KEDA·calibration/freeze/C0–C3 및 원복 범위를 함께 연결해야 한다.
+기존 source 승인/삭제된 identity/flags를 재사용하지 않으며 누적 비용·횟수·retention과 acceptance를 확대하지 않는다.

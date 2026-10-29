@@ -970,6 +970,126 @@ dev_git ls-remote https://example.invalid
             for i in (4, 5): self.assertIn('synthetic-run-operation-1-attempt-1', lines[i])
             self.assertNotIn('private-test', result.stdout)
 
+    def test_initialize_prejourney_failures_publish_safe_distinct_diagnostics(self):
+        cases = [('configuration', 'configuration', 'ValueError', 'validation_failed'),
+                 ('warning', 'readiness_resource_guard', 'InitializationGuardError', 'warning_event'),
+                 ('command-timeout', 'configuration', 'TimeoutExpired', 'command_timeout'),
+                 ('command-failed', 'configuration', 'CalledProcessError', 'command_failed'),
+                 ('budget', 'configuration', 'SnapshotBudgetExceeded', 'snapshot_command_budget_exceeded'),
+                 ('stats', 'baseline_stats', 'RuntimeError', 'runtime_failure'),
+                 ('logs', 'baseline_logs', 'RuntimeError', 'runtime_failure'),
+                 ('unknown', 'configuration', 'BaseException', 'unknown_failure')]
+        for case, stage, exception_class, code in cases:
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as d:
+                f, a = self.preparation(), approval()
+                a.update(healthy_gate_passed=False, runtime_preflight_passed=False)
+                private = Path(d, 'private'); private.mkdir(mode=0o700)
+                output, ledger = Path(d, 'output'), Path(d, 'ledger.jsonl')
+                retained = {'record': 'retained-negative'}
+                ledger.write_text(json.dumps(retained) + '\n')
+                secret = 'Bearer private-test-token credential=private-test-body ' + str(private)
+                f.runtime.prom_token = secret
+                def failed(*args, **kwargs):
+                    raise ValueError(secret)
+                if case == 'configuration': f.runtime.configuration = failed
+                elif case == 'warning':
+                    guard = f.guard()
+                    # Actual archived HPA reason/timestamp, synthetic guard payload.
+                    guard['events'] = [{'type': 'Warning', 'reason': 'FailedComputeMetricsReplicas',
+                                        'timestamp_utc': '2026-10-29T02:44:27Z', 'message': secret}]
+                    f.runtime.guard = lambda: guard
+                elif case in {'command-timeout', 'command-failed', 'budget'}:
+                    runtime_k = m.Runtime.k
+                    def command(*args, **kwargs):
+                        return runtime_k(f.runtime, 'get', 'pods', secret)
+                    f.runtime.configuration = command
+                elif case in {'stats', 'logs'}:
+                    def unavailable(*args, **kwargs):
+                        raise RuntimeError(secret)
+                    if case == 'stats': f.runtime.stats = unavailable
+                    else:
+                        # Exercise the inherited baseline log collector through k().
+                        def unavailable_logs(actual):
+                            with patch.object(f.runtime, 'k', side_effect=RuntimeError(secret)):
+                                return m.p8.Runtime.logs(f.runtime, actual)
+                        f.runtime.logs = unavailable_logs
+                else:
+                    def unknown(*args, **kwargs):
+                        raise type('PrivateClass' + secret, (Exception,), {})(secret)
+                    f.runtime.configuration = unknown
+                with patch.object(m, 'Runtime', return_value=f.runtime), patch.object(m.p8.subprocess, 'run') as process:
+                    if case == 'command-timeout':
+                        process.side_effect = m.p8.subprocess.TimeoutExpired(['kubectl', secret], 15, output=secret, stderr=secret)
+                    elif case == 'command-failed':
+                        process.side_effect = m.p8.subprocess.CalledProcessError(1, ['kubectl', secret], output=secret, stderr=secret)
+                    if case == 'budget':
+                        # The real k() rejects the existing shared 30s budget before executing.
+                        with patch.object(m.time, 'monotonic', side_effect=lambda: f.runtime.collection_deadline.at + 1):
+                            with self.assertRaises(ValueError):
+                                m.initialize(t8.identity(), plan(), a, Path(d, 'context'), private, output, ledger)
+                        process.assert_not_called()
+                    else:
+                        with self.assertRaises(Exception):
+                            m.initialize(t8.identity(), plan(), a, Path(d, 'context'), private, output, ledger)
+                    commands = [c.args[0] for c in process.call_args_list]
+                    self.assertFalse(any('forgejo-developer-journey.sh' in ' '.join(c) for c in commands))
+                    if case == 'command-timeout':
+                        self.assertGreater(process.call_args.kwargs['timeout'], 0)
+                        self.assertLessEqual(process.call_args.kwargs['timeout'], 15)
+                rows = [json.loads(line) for line in (output / 'events.jsonl').read_text().splitlines()]
+                self.assertEqual(len(rows), 1)
+                failure = rows[0]
+                self.assertEqual(failure['record'], 'healthy_initialization_failure')
+                self.assertEqual((failure['stage'], failure['exception_class'], failure['error_code']),
+                                 (stage, exception_class, code))
+                self.assertGreaterEqual(failure['elapsed_seconds'], failure['stage_elapsed_seconds'])
+                self.assertGreaterEqual(failure['stage_elapsed_seconds'], 0)
+                self.assertFalse(failure['runtime_preflight_passed'])
+                self.assertFalse(failure['ready_for_keda_authentication'])
+                self.assertFalse(failure['measured_denominator'])
+                self.assertFalse(a['runtime_preflight_passed']); self.assertFalse(a['healthy_gate_passed'])
+                self.assertIsNone(f.runtime.prom_token)
+                self.assertEqual([json.loads(line) for line in ledger.read_text().splitlines()], [retained] + rows)
+                public = json.dumps(rows) + ledger.read_text()
+                for sensitive in (secret, str(private), 'private-test-token', 'private-test-body', 'PrivateClass'):
+                    self.assertNotIn(sensitive, public)
+                trace = private / 'initialization-failure.txt'
+                self.assertEqual(trace.stat().st_mode & 0o777, 0o600)
+                self.assertIn('Traceback', trace.read_text())
+                if case in {'configuration', 'command-timeout', 'command-failed', 'unknown'}:
+                    self.assertIn(secret, trace.read_text())
+
+    def test_initialization_elapsed_and_private_diagnostic_write_failure(self):
+        f, now, rows = self.preparation(), [10], []
+        def configuration(*args, **kwargs):
+            self.assertEqual(f.runtime.collection_deadline.at, 40)  # Unchanged 30s budget.
+            now[0] = 12
+            raise ValueError('private detail')
+        f.runtime.configuration = configuration
+        with self.assertRaises(ValueError):
+            m.healthy_initialize(f.runtime, plan(), lambda _: self.fail('journey must not run'), rows.append,
+                                 clock=lambda: now[0])
+        self.assertEqual(rows[0]['elapsed_seconds'], 2)
+        self.assertEqual(rows[0]['stage_elapsed_seconds'], 2)
+        with tempfile.TemporaryDirectory() as d:
+            private = Path(d, 'private'); private.mkdir(mode=0o700)
+            trace = private / 'initialization-failure.txt'
+            trace.write_text('retained private diagnostic')
+            output, ledger = Path(d, 'output'), Path(d, 'ledger')
+            a = approval() | {'healthy_gate_passed': False, 'runtime_preflight_passed': False}
+            with patch.object(m, 'Runtime', return_value=f.runtime), patch.object(m.p8.subprocess, 'run') as workload:
+                # Use a separate failure without depending on the real monotonic clock.
+                with patch.object(f.runtime, 'configuration', side_effect=ValueError('private detail')):
+                    with self.assertRaisesRegex(ValueError, 'private detail'):
+                        m.initialize(t8.identity(), plan(), a, Path(d, 'context'), private, output, ledger)
+                workload.assert_not_called()
+            self.assertEqual(trace.read_text(), 'retained private diagnostic')
+            published = [json.loads(line) for line in ledger.read_text().splitlines()]
+            self.assertEqual(published[0]['error_code'], 'validation_failed')
+            self.assertEqual(published[1]['error_code'], 'private_diagnostic_write_failed')
+            self.assertNotIn('private detail', ledger.read_text())
+            self.assertFalse(published[0]['runtime_preflight_passed'])
+
     def test_initialize_entrypoint_binds_once_ledger_and_existing_warmup_journey(self):
         f, a, invoked = self.preparation(), approval(), []
         a.update(healthy_gate_passed=False, runtime_preflight_passed=False)
@@ -1028,9 +1148,11 @@ dev_git ls-remote https://example.invalid
         with self.assertRaisesRegex(RuntimeError, 'synthetic journey failure'):
             m.healthy_initialize(f.runtime, plan(), failed, rows.append)
         self.assertEqual(calls, [1])
-        self.assertEqual([r['record'] for r in rows], ['healthy_journey_intent', 'healthy_journey_accounting'])
+        self.assertEqual([r['record'] for r in rows], ['healthy_journey_intent', 'healthy_journey_accounting', 'healthy_initialization_failure'])
         self.assertFalse(rows[-1]['measured_denominator'])
-        self.assertIn('log_delta', rows[-1])
+        self.assertIn('log_delta', rows[-2])
+        self.assertEqual(rows[-1]['stage'], 'healthy_journey')
+        self.assertEqual(rows[-1]['error_code'], 'runtime_failure')
 
     def test_unsafe_preparation_prevents_journey(self):
         f = self.preparation(); f.pods[0]['spec']['containers'][0]['image'] = 'wrong'

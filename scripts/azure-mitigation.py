@@ -527,6 +527,36 @@ def config_guard(before, after, arm, healthy=False, releasing=False):
     require(one == two, 'unapproved configuration/UID/replica/hostname drift')
 
 
+class SnapshotBudgetExceeded(ValueError):
+    """Typed budget failure; never infer a cause from arbitrary error text."""
+
+
+class InitializationGuardError(ValueError):
+    """Only fixed codes from initialization_safety may be published."""
+
+
+def initialization_error(error):
+    # Never publish str(error), argv, stderr, response bodies or user class names.
+    if type(error) is InitializationGuardError:
+        code = error.args[0] if error.args else None
+        if not isinstance(code, str) or code not in {'admission_cap_exceeded', 'pod_not_ready_or_restarted', 'node_pressure',
+                        'insufficient_headroom', 'database_unhealthy', 'warning_event'}:
+            code = 'unknown_failure'
+        return {'exception_class': 'InitializationGuardError', 'error_code': code}
+    classes = ((SnapshotBudgetExceeded, 'snapshot_command_budget_exceeded'),
+               (p8.subprocess.TimeoutExpired, 'command_timeout'),
+               (p8.subprocess.CalledProcessError, 'command_failed'),
+               (json.JSONDecodeError, 'invalid_json'), (ValueError, 'validation_failed'),
+               (KeyError, 'missing_field'), (TypeError, 'invalid_type'),
+               (FileNotFoundError, 'file_not_found'), (PermissionError, 'permission_denied'),
+               (OSError, 'io_failure'), (RuntimeError, 'runtime_failure'),
+               (KeyboardInterrupt, 'interrupted'), (SystemExit, 'system_exit'))
+    for cls, code in classes:
+        if type(error) is cls:
+            return {'exception_class': cls.__name__, 'error_code': code}
+    return {'exception_class': 'BaseException', 'error_code': 'unknown_failure'}
+
+
 class Runtime(p8.Runtime):
     def __init__(self, identity, v, arm, approval, ledger, *, preparation=False):
         require(not preparation or arm == 'C0', 'healthy preparation uses CPU owner only')
@@ -552,7 +582,8 @@ class Runtime(p8.Runtime):
     def k(self, *args):
         deadline = getattr(getattr(self, 'collection_deadline', None), 'at', None)
         remaining = 15 if deadline is None else min(15, deadline - time.monotonic())
-        require(remaining > 0, 'snapshot command budget exceeded')
+        if remaining <= 0:
+            raise SnapshotBudgetExceeded('snapshot command budget exceeded')
         return p8.subprocess.run(['kubectl', '--request-timeout=10s', *args], check=True, capture_output=True, text=True, timeout=remaining).stdout.strip()
 
     def configuration(self, config, *, inventory=None, releasing=False, initializing=False):
@@ -713,16 +744,19 @@ def collect_snapshot(runtime, config, before, emit, release_started):
 
 
 def initialization_safety(guard):
+    def check(condition, code):
+        if not condition:
+            raise InitializationGuardError(code)
     admitted = guard['admission']
-    require(len(admitted['pods']) <= 4 and all(v['cpu'] <= 1.5 + 1e-9 and v['memory'] <= 2048 * 1024**2
-            for v in admitted['conservative_sum'].values()), 'initialization admitted cap')
-    require(guard['pods'] and all(p['ready'] and p['phase'] == 'Running' and not p['reason'] and
+    check(len(admitted['pods']) <= 4 and all(v['cpu'] <= 1.5 + 1e-9 and v['memory'] <= 2048 * 1024**2
+            for v in admitted['conservative_sum'].values()), 'admission_cap_exceeded')
+    check(guard['pods'] and all(p['ready'] and p['phase'] == 'Running' and not p['reason'] and
             all(c['ready'] and c['restarts'] == 0 and c['last_termination'] not in {'OOMKilled', 'Error'} for c in p['containers'])
-            for p in guard['pods']), 'initialization readiness/restart')
-    require(guard['nodes'] and all(n['conditions'] == {'Ready': 'True', 'MemoryPressure': 'False', 'DiskPressure': 'False', 'PIDPressure': 'False'} for n in guard['nodes']), 'initialization node pressure')
-    require(any(n['schedulable'] and n['cpu_free'] >= .15 and n['memory_free'] >= 192 * 1024**2 for n in guard['node_headroom']), 'initialization headroom')
-    require(guard['postgres']['query_ok'] and guard['postgres']['connections'] < guard['postgres']['max_connections'] - guard['postgres']['reserved'], 'initialization DB health')
-    require(not guard['events'], 'initialization warning event')
+            for p in guard['pods']), 'pod_not_ready_or_restarted')
+    check(guard['nodes'] and all(n['conditions'] == {'Ready': 'True', 'MemoryPressure': 'False', 'DiskPressure': 'False', 'PIDPressure': 'False'} for n in guard['nodes']), 'node_pressure')
+    check(any(n['schedulable'] and n['cpu_free'] >= .15 and n['memory_free'] >= 192 * 1024**2 for n in guard['node_headroom']), 'insufficient_headroom')
+    check(guard['postgres']['query_ok'] and guard['postgres']['connections'] < guard['postgres']['max_connections'] - guard['postgres']['reserved'], 'database_unhealthy')
+    check(not guard['events'], 'warning_event')
 
 
 def healthy_initialize(runtime, v, journey, emit, *, clock=time.monotonic, wait=time.sleep):
@@ -731,101 +765,126 @@ def healthy_initialize(runtime, v, journey, emit, *, clock=time.monotonic, wait=
     Caller holds the append-only initialization ledger lock. Preparation authority
     never grants the measure path or KEDA mutation/authentication success.
     """
-    require(getattr(runtime, 'preparation', False) and runtime.arm == 'C0', 'preparation runtime required')
-    runtime.emit = emit
-    runtime.collection_deadline.at = clock() + 30
-    config = {'max_requests': 1024, 'hold_ms': 0, 'logical_operations': 24, 'concurrency': 12,
-              'waves': (v['mitigation_seconds'] + v['recovery_seconds']) // 5, 'wave_interval_seconds': 5}
-    before = runtime.configuration(config, initializing=True)
-    require(len(before['targets']) == 1, 'healthy initialization starts with one Ready target')
-    initial = {t['uid'] for t in before['targets']}
-    initialization_safety(runtime.guard())
-    stats_before = copy.deepcopy(runtime.stats(before))
-    logs_before = runtime.logs(before)
-    emit({'record': 'healthy_journey_intent', 'source_sha': runtime.value['source_sha'], 'at': clock(),
-          'target_uids': sorted(initial), 'stats_before': stats_before, 'measured_denominator': False, 'invocations': 1})
+    started = stage_started = clock()
+    stage = 'preparation_boundary'
     try:
-        journey_path = journey(90)  # Existing journey only; never retry for telemetry.
-    finally:
-        # Keep actual request/check evidence on journey failure as well. The
-        # protected client audit separately retains every API intent/response.
-        deadline = clock() + v['ingestion_seconds'] + 3 * v['scrape_seconds']
-        runtime.collection_deadline.at = min(clock() + 30, deadline)
-        delta = p8.path_delta(logs_before, runtime.logs(before))
-        emit({'record': 'healthy_journey_accounting', 'at': clock(), 'measured_denominator': False,
-              'ingress_http_records': sum(not (int(r['status']) == 0 and r['detail'] == 'filter_chain_not_found' and r['cluster'] in {None, '-'}) for r in delta['proxies']['ingress']),
-              'authorization_checks': len(delta['checks']), 'log_delta': delta})
-    client = p8.p7.operations.validate(journey_path)
-    journey_rows = p8.p4.rows(journey_path)
-    require(client['validity'] == 'valid' and client['completion'] == 'success' and client['phase'] == 'warmup' and
-            client['source_sha'] == runtime.value['source_sha'] and journey_rows[0]['dirty'] is False and
-            client['transport'] == p8.measurement_transport(runtime.value), 'healthy journey provenance/completion differs')
-    attempts = {r['attempt_id']: r['operation_id'] for r in journey_rows if r['record'] == 'attempt'}
-    require(len(attempts) == 9 and sum(r['record'] == 'auxiliary_event' and r['kind'] == 'fixture' and
-            r['name'] == 'shared_gate_auxiliary_scope' and r['outcome'] == 'success' for r in journey_rows) == 1,
-            'healthy journey attempt/auxiliary scope absent')
-    auxiliary = journey_rows[0]['run_id'] + '-auxiliary'
-    known = attempts | {auxiliary + '-attempt-1': auxiliary}
-    window_start = p8.p7.utc(journey_rows[0]['started_at_utc'])
-    # Existing journey timestamps have second precision; include that final second.
-    window_end = p8.p7.utc(journey_rows[-1]['ended_at_utc']) + timedelta(seconds=1)
-    while True:
-        require(clock() < deadline, 'healthy initialization polling timeout; do not repeat journey')
-        runtime.collection_deadline.at = min(clock() + 30, deadline)
-        actual = runtime.configuration(config, initializing=True)
-        require({t['uid'] for t in actual['targets']} == initial and actual == before, 'initialization config/UID drift')
+        require(getattr(runtime, 'preparation', False) and runtime.arm == 'C0', 'preparation runtime required')
+        runtime.emit = emit
+        runtime.collection_deadline.at = clock() + 30
+        config = {'max_requests': 1024, 'hold_ms': 0, 'logical_operations': 24, 'concurrency': 12,
+                  'waves': (v['mitigation_seconds'] + v['recovery_seconds']) // 5, 'wave_interval_seconds': 5}
+        stage, stage_started = 'configuration', clock()
+        before = runtime.configuration(config, initializing=True)
+        require(len(before['targets']) == 1, 'healthy initialization starts with one Ready target')
+        initial = {t['uid'] for t in before['targets']}
+        stage, stage_started = 'readiness_resource_guard', clock()
         initialization_safety(runtime.guard())
-        pods = runtime.targets()
-        require({p['metadata']['uid'] for p in pods} == initial, 'initialization live UID drift')
-        signal = runtime.signal(pods, initializing=True)
-        emit({'record': 'healthy_telemetry_poll', 'at': clock(), 'configuration': actual,
-              'admin_stats': runtime.admin_observations, 'signal': signal, 'deadline': deadline})
-        if signal['status'] == 'observed':
-            require(clock() <= deadline, 'healthy initialization polling timeout')
-            logs_after = runtime.logs(actual)
-            delta = p8.path_delta(logs_before, logs_after)
-            ingress = delta['proxies']['ingress']
-            http = [r for r in ingress if not (int(r['status']) == 0 and r['detail'] == 'filter_chain_not_found' and r['cluster'] in {None, '-'})]
-            checks, target = delta['checks'], delta['proxies']['target']
-            require(checks and len(checks) == len(target) == len(http), 'healthy shared path missing/zero/mismatched')
-            p8.p4.gate.validate_checks(checks)
-            require(all(c['decision'] == 'ALLOW' and c['controlled_deny'] is False and
-                        c['credential_values_absent'] is True and c['body_absent'] is True and c['haproxy_hop'] is True and
-                        c['attempt_id'] in known and known[c['attempt_id']] == c['operation_id'] and
-                        window_start <= p8.p7.utc(c['timestamp_utc']) < window_end for c in checks),
-                    'healthy shared check denied/unattributed/outside journey window')
-            require(set(attempts) <= {c['attempt_id'] for c in checks}, 'healthy developer attempt bypassed shared path')
-            mapping = actual['targets'][0]['mapping']
-            require(all(int(r['status']) == 200 and r['detail'] == 'via_upstream' and
-                        r['cluster'] in {mapping['cluster_name'], mapping['alt_stat_name']} for r in target),
-                    'healthy target path denied/mismapped')
-            # Existing journey asserts private anonymous 401/404; those are native
-            # auth outcomes after an ALLOW check, never ext_authz denial/failure.
-            require(all(int(r['status']) in {200, 201, 401, 404} and r['detail'] == 'via_upstream' and
-                        re.fullmatch(r'outbound\|3000\|\|forgejo-http\.forgejo\.svc(?:\.cluster\.local)?;?', r['cluster'] or '') for r in http),
-                    'healthy ingress path denied/mismapped')
-            uid = actual['targets'][0]['uid']
-            total = p8.p4.by_suffix(runtime.stats(actual)[uid])['upstream_rq_total']
-            if uid in stats_before:
-                total -= p8.p4.by_suffix(stats_before[uid])['upstream_rq_total']
-                require(total == len(target), 'healthy target counter/log delta mismatch')
-            else:
-                require(total == len(logs_after['proxies']['target'][uid]), 'healthy target lifetime counter/log mismatch')
-            require(clock() <= deadline, 'healthy initialization polling timeout')
-            result = {'record': 'healthy_initialization_complete', 'source_sha': runtime.value['source_sha'],
-                      'at': clock(), 'metric_contract': metric_contract(), 'journey_invocations': 1,
-                      'ingress_http_records': len(http), 'authorization_checks': len(delta['checks']),
-                      'request_accounting': 'actual same-window server log deltas, not 1:1 operation/HTTP inference',
-                      'log_delta': delta, 'journey_sha256': hashlib.sha256(Path(journey_path).read_bytes()).hexdigest(),
-                      'correlated_attempt_checks': {aid: sum(c['attempt_id'] == aid for c in checks) for aid in attempts},
-                      'auxiliary_checks': sum(c['operation_id'] == auxiliary for c in checks),
-                      'target_requests': total, 'counter_accounting': 'observed-start-delta' if uid in stats_before else 'whole-UID-counter-and-log',
-                      'proxy_linkage': 'same-window count/cluster/status; proxy format has no per-request correlation IDs',
-                      'ready_for_keda_authentication': True, 'runtime_preflight_passed': False}
-            emit(result)
-            return result
-        require(clock() < deadline, 'healthy initialization polling timeout; do not repeat journey')
-        wait(min(v['scrape_seconds'], deadline - clock()))
+        stage, stage_started = 'baseline_stats', clock()
+        stats_before = copy.deepcopy(runtime.stats(before))
+        stage, stage_started = 'baseline_logs', clock()
+        logs_before = runtime.logs(before)
+        emit({'record': 'healthy_journey_intent', 'source_sha': runtime.value['source_sha'], 'at': clock(),
+              'target_uids': sorted(initial), 'stats_before': stats_before, 'measured_denominator': False, 'invocations': 1})
+        stage, stage_started = 'healthy_journey', clock()
+        journey_started = stage_started
+        try:
+            journey_path = journey(90)  # Existing journey only; never retry for telemetry.
+        finally:
+            # Keep actual request/check evidence on journey failure as well. The
+            # protected client audit separately retains every API intent/response.
+            stage, stage_started = 'journey_accounting', clock()
+            deadline = clock() + v['ingestion_seconds'] + 3 * v['scrape_seconds']
+            runtime.collection_deadline.at = min(clock() + 30, deadline)
+            delta = p8.path_delta(logs_before, runtime.logs(before))
+            emit({'record': 'healthy_journey_accounting', 'at': clock(), 'measured_denominator': False,
+                  'ingress_http_records': sum(not (int(r['status']) == 0 and r['detail'] == 'filter_chain_not_found' and r['cluster'] in {None, '-'}) for r in delta['proxies']['ingress']),
+                  'authorization_checks': len(delta['checks']), 'log_delta': delta})
+            stage, stage_started = 'healthy_journey', journey_started
+        stage, stage_started = 'journey_validation', clock()
+        client = p8.p7.operations.validate(journey_path)
+        journey_rows = p8.p4.rows(journey_path)
+        require(client['validity'] == 'valid' and client['completion'] == 'success' and client['phase'] == 'warmup' and
+                client['source_sha'] == runtime.value['source_sha'] and journey_rows[0]['dirty'] is False and
+                client['transport'] == p8.measurement_transport(runtime.value), 'healthy journey provenance/completion differs')
+        attempts = {r['attempt_id']: r['operation_id'] for r in journey_rows if r['record'] == 'attempt'}
+        require(len(attempts) == 9 and sum(r['record'] == 'auxiliary_event' and r['kind'] == 'fixture' and
+                r['name'] == 'shared_gate_auxiliary_scope' and r['outcome'] == 'success' for r in journey_rows) == 1,
+                'healthy journey attempt/auxiliary scope absent')
+        auxiliary = journey_rows[0]['run_id'] + '-auxiliary'
+        known = attempts | {auxiliary + '-attempt-1': auxiliary}
+        window_start = p8.p7.utc(journey_rows[0]['started_at_utc'])
+        # Existing journey timestamps have second precision; include that final second.
+        window_end = p8.p7.utc(journey_rows[-1]['ended_at_utc']) + timedelta(seconds=1)
+        while True:
+            stage, stage_started = 'telemetry_configuration', clock()
+            require(clock() < deadline, 'healthy initialization polling timeout; do not repeat journey')
+            runtime.collection_deadline.at = min(clock() + 30, deadline)
+            actual = runtime.configuration(config, initializing=True)
+            require({t['uid'] for t in actual['targets']} == initial and actual == before, 'initialization config/UID drift')
+            stage, stage_started = 'telemetry_resource_guard', clock()
+            initialization_safety(runtime.guard())
+            stage, stage_started = 'telemetry_signal', clock()
+            pods = runtime.targets()
+            require({p['metadata']['uid'] for p in pods} == initial, 'initialization live UID drift')
+            signal = runtime.signal(pods, initializing=True)
+            emit({'record': 'healthy_telemetry_poll', 'at': clock(), 'configuration': actual,
+                  'admin_stats': runtime.admin_observations, 'signal': signal, 'deadline': deadline})
+            if signal['status'] == 'observed':
+                require(clock() <= deadline, 'healthy initialization polling timeout')
+                stage, stage_started = 'positive_path', clock()
+                logs_after = runtime.logs(actual)
+                delta = p8.path_delta(logs_before, logs_after)
+                ingress = delta['proxies']['ingress']
+                http = [r for r in ingress if not (int(r['status']) == 0 and r['detail'] == 'filter_chain_not_found' and r['cluster'] in {None, '-'})]
+                checks, target = delta['checks'], delta['proxies']['target']
+                require(checks and len(checks) == len(target) == len(http), 'healthy shared path missing/zero/mismatched')
+                p8.p4.gate.validate_checks(checks)
+                require(all(c['decision'] == 'ALLOW' and c['controlled_deny'] is False and
+                            c['credential_values_absent'] is True and c['body_absent'] is True and c['haproxy_hop'] is True and
+                            c['attempt_id'] in known and known[c['attempt_id']] == c['operation_id'] and
+                            window_start <= p8.p7.utc(c['timestamp_utc']) < window_end for c in checks),
+                        'healthy shared check denied/unattributed/outside journey window')
+                require(set(attempts) <= {c['attempt_id'] for c in checks}, 'healthy developer attempt bypassed shared path')
+                mapping = actual['targets'][0]['mapping']
+                require(all(int(r['status']) == 200 and r['detail'] == 'via_upstream' and
+                            r['cluster'] in {mapping['cluster_name'], mapping['alt_stat_name']} for r in target),
+                        'healthy target path denied/mismapped')
+                # Existing journey asserts private anonymous 401/404; those are native
+                # auth outcomes after an ALLOW check, never ext_authz denial/failure.
+                require(all(int(r['status']) in {200, 201, 401, 404} and r['detail'] == 'via_upstream' and
+                            re.fullmatch(r'outbound\|3000\|\|forgejo-http\.forgejo\.svc(?:\.cluster\.local)?;?', r['cluster'] or '') for r in http),
+                        'healthy ingress path denied/mismapped')
+                uid = actual['targets'][0]['uid']
+                total = p8.p4.by_suffix(runtime.stats(actual)[uid])['upstream_rq_total']
+                if uid in stats_before:
+                    total -= p8.p4.by_suffix(stats_before[uid])['upstream_rq_total']
+                    require(total == len(target), 'healthy target counter/log delta mismatch')
+                else:
+                    require(total == len(logs_after['proxies']['target'][uid]), 'healthy target lifetime counter/log mismatch')
+                require(clock() <= deadline, 'healthy initialization polling timeout')
+                result = {'record': 'healthy_initialization_complete', 'source_sha': runtime.value['source_sha'],
+                          'at': clock(), 'metric_contract': metric_contract(), 'journey_invocations': 1,
+                          'ingress_http_records': len(http), 'authorization_checks': len(delta['checks']),
+                          'request_accounting': 'actual same-window server log deltas, not 1:1 operation/HTTP inference',
+                          'log_delta': delta, 'journey_sha256': hashlib.sha256(Path(journey_path).read_bytes()).hexdigest(),
+                          'correlated_attempt_checks': {aid: sum(c['attempt_id'] == aid for c in checks) for aid in attempts},
+                          'auxiliary_checks': sum(c['operation_id'] == auxiliary for c in checks),
+                          'target_requests': total, 'counter_accounting': 'observed-start-delta' if uid in stats_before else 'whole-UID-counter-and-log',
+                          'proxy_linkage': 'same-window count/cluster/status; proxy format has no per-request correlation IDs',
+                          'ready_for_keda_authentication': True, 'runtime_preflight_passed': False}
+                emit(result)
+                return result
+            stage, stage_started = 'telemetry_configuration', clock()
+            require(clock() < deadline, 'healthy initialization polling timeout; do not repeat journey')
+            wait(min(v['scrape_seconds'], deadline - clock()))
+    except BaseException as error:
+        at = clock()
+        emit({'record': 'healthy_initialization_failure', 'source_sha': runtime.value['source_sha'],
+              'at': at, 'stage': stage, 'elapsed_seconds': at - started,
+              'stage_elapsed_seconds': at - stage_started, **initialization_error(error),
+              'runtime_preflight_passed': False, 'ready_for_keda_authentication': False,
+              'measured_denominator': False})
+        raise
 
 
 def initialize(identity, v, approval, context, private, output, ledger):
@@ -858,8 +917,16 @@ def initialize(identity, v, approval, context, private, output, ledger):
             return paths[0]
         try:
             healthy_initialize(runtime, v, journey, emit)
-        except BaseException:
-            emit({'record': 'healthy_initialization_failure', 'source_sha': identity['source_sha'], 'at': time.monotonic()})
+        except BaseException as error:
+            # Publication is the fixed-field event above. Full exception chains may
+            # include sensitive command output/paths and stay in private mode0600.
+            import traceback
+            try:
+                with open(private / 'initialization-failure.txt', 'x', opener=lambda path, flags: os.open(path, flags, 0o600)) as trace:
+                    traceback.print_exception(type(error), error, error.__traceback__, file=trace)
+            except OSError:
+                emit({'record': 'healthy_initialization_private_diagnostic_failure',
+                      'source_sha': identity['source_sha'], 'error_code': 'private_diagnostic_write_failed'})
             raise
         finally:
             runtime.prom_token = None
