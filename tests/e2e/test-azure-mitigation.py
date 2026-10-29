@@ -711,6 +711,27 @@ class MetricInitializationTests(unittest.TestCase):
         f = LiveFixture('C0'); f.runtime.preparation = True
         name = f.pods[0]['metadata']['name']; f.capacities[name], f.holds[name] = 1024, 0
         f.no_admin = {'target'}
+        # Explicit synthetic CPU/HPA positive, separate from archived runtime data.
+        base = []
+        def cpu_guard():
+            epoch = m.time.time()
+            if not base: base.append(epoch)
+            stamp = lambda at: m.datetime.fromtimestamp(at, m.timezone.utc).isoformat()
+            pod = f.pods[0]
+            pod['metadata']['creationTimestamp'] = stamp(base[0] - 60)
+            pod['status']['conditions'][0]['lastTransitionTime'] = stamp(base[0] - 40)
+            f.hpa['metadata'].update(uid='cpu-hpa', namespace=m.NS, generation=1, creationTimestamp=stamp(base[0] - 65))
+            guard = f.guard()
+            guard['timestamp_utc'] = stamp(epoch)
+            guard['cpu_hpa'] = copy.deepcopy(f.hpa) | {'status': copy.deepcopy(guard['hpa'])}
+            guard['cpu_hpa']['status'].update(observedGeneration=1)
+            for c in guard['cpu_hpa']['status']['conditions']:
+                c['lastTransitionTime'] = stamp(base[0] - 20)
+            guard['cpu_hpa']['status']['currentMetrics'][0]['containerResource']['current']['averageValue'] = '1m'
+            for sample in guard['pod_metrics']:
+                sample.update(timestamp=stamp(epoch), window='15s')
+            return guard
+        f.runtime.guard = cpu_guard
         return f
 
     def positive_journey(self, f):
@@ -761,6 +782,191 @@ class MetricInitializationTests(unittest.TestCase):
             f.traffic += len(checks)
             return path
         return journey, path, logs
+
+    def startup_archive(self):
+        """Replay archived fields at a synthetic guard time to isolate window validity.
+
+        Actual stop export was later; this does not assert live freshness/recovery.
+        """
+        with tarfile.open(ROOT / 'docs/evidence/p9-mitigation-third-20261029/raw-evidence.tar.gz') as t:
+            read = lambda name: json.load(t.extractfile(name))
+            pod = next(p for p in read('initial-pods.json')['items'] if p['metadata']['labels'].get('app') == 'ext-authz-sim')
+            hpa = next(p for p in read('experiment-terminal.json')['items'] if p['kind'] == 'HorizontalPodAutoscaler')
+            sample = next(p for p in read('pod-metrics-stop.json')['items'] if p['metadata']['name'] == pod['metadata']['name'])
+            events = [{
+                'uid': e['metadata']['uid'], 'type': e['type'], 'reason': e['reason'], 'count': e['count'],
+                'first_timestamp_utc': e['firstTimestamp'], 'timestamp_utc': e['lastTimestamp'],
+                'owner': {k: e['involvedObject'][k] for k in ('kind', 'name', 'namespace', 'uid')}}
+                for e in read('fixture-events-stop.json')['items'] if e.get('firstTimestamp') == '2026-10-29T05:55:53Z']
+        f = self.preparation(); g = f.runtime.guard()
+        g.update(timestamp_utc='2026-10-29T05:56:25Z', cpu_hpa=hpa, pod_metrics=[sample], events=events)
+        g['admission']['pods'] = [pod]; g['pods'] = [m.p8.p4.pod_guard(pod)]
+        actual = {'targets': [{'uid': pod['metadata']['uid']}], 'hpa_spec': hpa['spec']}
+        return f, actual, g
+
+    def valid_cpu_recovery(self, g, seconds):
+        # Synthetic positive continuation, never historical/runtime recovery proof.
+        stamp = f'2026-10-29T05:56:{seconds:02d}Z'
+        g['timestamp_utc'] = stamp
+        g['pod_metrics'][0].update(timestamp=stamp, window='15s')
+        g['pod_metrics'][0]['containers'][0]['usage']['cpu'] = '10m'
+        hpa = g['cpu_hpa']; hpa['metadata']['generation'] = 1
+        hpa['status'].update(observedGeneration=1,
+            conditions=[{'type': 'AbleToScale', 'status': 'True'},
+                        {'type': 'ScalingActive', 'status': 'True', 'lastTransitionTime': '2026-10-29T05:56:39Z'}],
+            currentMetrics=[{'type': 'ContainerResource', 'containerResource': {'name': 'cpu', 'container': 'app',
+                'current': {'averageUtilization': 20, 'averageValue': '10m'}}}])
+
+    def test_archived_cpu_window_is_pending_and_only_synthetic_recovery_passes(self):
+        _, actual, g = self.startup_archive(); rows = []
+        cpu = m.CPUStartup(actual)
+        self.assertEqual(g['admission']['pods'][0]['status']['conditions'][2]['lastTransitionTime'], '2026-10-29T05:55:54Z')
+        self.assertEqual(g['pod_metrics'][0]['timestamp'], '2026-10-29T05:56:18Z')
+        self.assertEqual(g['pod_metrics'][0]['window'], '38.03202016s')
+        self.assertFalse(m.initialization_safety(g, cpu_startup=cpu, emit=rows.append, at=0))
+        self.assertFalse(rows[-1]['valid_ready_window'])
+        self.assertEqual(rows[-1]['sample']['window_seconds'], 38.03202016)
+        self.valid_cpu_recovery(g, 40)
+        self.assertFalse(m.initialization_safety(g, cpu_startup=cpu, emit=rows.append, at=15))
+        self.valid_cpu_recovery(g, 55)
+        self.assertTrue(m.initialization_safety(g, cpu_startup=cpu, emit=rows.append, at=30))
+        self.assertEqual(rows[-1]['hpa_current_cpu']['container'], 'app')
+        self.assertEqual(rows[-1]['sample']['app_cpu'], '10m')
+        self.assertEqual(len(cpu.history), 2)
+        self.assertTrue(any(r['record'] == 'cpu_preparation_warning' for r in rows))
+        with self.assertRaises(m.InitializationGuardError): m.initialization_safety(g)  # Default remains strict.
+        g['events'][0]['count'] += 1
+        with self.assertRaisesRegex(ValueError, 'warning recurred'):
+            m.initialization_safety(g, cpu_startup=cpu, emit=rows.append, at=31)
+
+    def test_cpu_settling_collector_keeps_owner_time_count_without_p8_default_change(self):
+        with tarfile.open(ROOT / 'docs/evidence/p9-mitigation-third-20261029/raw-evidence.tar.gz') as t:
+            read = lambda n: json.load(t.extractfile(n))
+            r = m.Runtime.__new__(m.Runtime); r.value = read('identity.json'); r.preparation = True; r.hpa_name = 'hpa-app-cpu'
+            r.since = '2026-10-29T05:56:40Z'
+            hpa = next(x for x in read('experiment-terminal.json')['items'] if x['kind'] == 'HorizontalPodAutoscaler')
+            objects = {'nodes': read('nodes-before.json'), 'events': read('fixture-events-stop.json'),
+                       'application': read('argo-before.json'), 'hpa': hpa}
+            owned, all_pods = read('initial-pods.json'), read('all-pods-before.json')
+            metrics = read('pod-metrics-stop.json')
+            stable = read('forgejo-pods-before.json')['items'][0]
+        def j(*args):
+            if '/apis/metrics.k8s.io/v1beta1/pods' in args: return metrics
+            if '/apis/metrics.k8s.io/v1beta1/nodes' in args: return {'items': []}
+            if 'pods' in args: return all_pods if '-A' in args else owned
+            return next(v for key, v in objects.items() if key in args)
+        r.j = j; r.pod = lambda *a: stable
+        r.k = lambda *a: '{"query_ok":true,"connections":4,"max_connections":100,"reserved":5}'
+        collected = m.Runtime.guard(r)
+        self.assertEqual(collected['cpu_hpa']['metadata']['uid'], hpa['metadata']['uid'])
+        historic = [e for e in collected['events'] if e['timestamp_utc'] == '2026-10-29T05:56:23Z']
+        self.assertEqual(len(historic), 2)
+        self.assertTrue(all(e['owner']['uid'] == hpa['metadata']['uid'] and e['count'] == 3 for e in historic))
+        self.assertNotIn('message', json.dumps(collected['events']))
+        strict = m.p8.Runtime.guard(r)
+        self.assertNotIn('cpu_hpa', strict)
+        self.assertTrue(all(set(e) == {'type', 'reason'} for e in strict['events']))
+
+    def test_cpu_settling_timeout_other_warning_and_bad_metrics_never_start_journey(self):
+        cases = ('persistent', 'pre-ready', 'missing', 'stale', 'zero', 'unknown', 'metric-container', 'metric-duplicate',
+                 'hpa-metric', 'hpa-value-zero', 'owner', 'spec', 'other-warning', 'other-hpa', 'wrong-uid', 'no-owner',
+                 'pod-unready', 'db', 'node', 'resource', 'ready-transition', 'generation', 'hpa-replaced', 'history-lost',
+                 'no-active', 'no-current', 'no-able')
+        for case in cases:
+            with self.subTest(case=case):
+                f = self.preparation(); guard = f.runtime.guard; rows, calls, clock = [], [], [0]
+                def snapshot():
+                    g = guard(); pod = g['admission']['pods'][0]; hpa = g['cpu_hpa']
+                    e = {'type': 'Warning', 'reason': 'FailedComputeMetricsReplicas', 'uid': 'event', 'count': 1,
+                         'first_timestamp_utc': hpa['metadata']['creationTimestamp'], 'timestamp_utc': hpa['metadata']['creationTimestamp'],
+                         'owner': {'kind': 'HorizontalPodAutoscaler', 'name': 'hpa-app-cpu', 'namespace': m.NS, 'uid': hpa['metadata']['uid']}}
+                    if case == 'persistent':
+                        e.update(timestamp_utc=g['timestamp_utc'], count=1 + int(clock[0])); g['events'] = [e]
+                    elif case == 'pre-ready': g['pod_metrics'][0]['timestamp'] = pod['status']['conditions'][0]['lastTransitionTime']
+                    elif case == 'missing': g['pod_metrics'] = []
+                    elif case == 'stale': g['pod_metrics'][0]['timestamp'] = pod['metadata']['creationTimestamp']
+                    elif case in {'zero', 'unknown'}: g['pod_metrics'][0]['containers'][0]['usage']['cpu'] = '0' if case == 'zero' else 'unknown'
+                    elif case == 'metric-container': g['pod_metrics'][0]['containers'][0]['name'] = 'other'
+                    elif case == 'metric-duplicate': g['pod_metrics'] *= 2
+                    elif case == 'hpa-metric': hpa['status']['currentMetrics'][0]['containerResource']['container'] = 'other'
+                    elif case == 'hpa-value-zero': hpa['status']['currentMetrics'][0]['containerResource']['current']['averageValue'] = '0'
+                    elif case == 'owner': hpa['metadata']['ownerReferences'] = [{'kind': 'ScaledObject'}]
+                    elif case == 'spec': hpa['spec']['maxReplicas'] = 3
+                    elif case in {'other-warning', 'other-hpa', 'wrong-uid', 'no-owner'}:
+                        if case == 'other-warning': e['reason'] = 'Unhealthy'
+                        elif case == 'other-hpa': e['owner']['name'] = 'other'
+                        elif case == 'wrong-uid': e['owner']['uid'] = 'other'
+                        else: e.pop('owner')
+                        g['events'] = [e]
+                    elif case == 'pod-unready': g['pods'][0]['ready'] = False
+                    elif case == 'db': g['postgres']['query_ok'] = False
+                    elif case == 'node': g['nodes'][0]['conditions']['MemoryPressure'] = 'True'
+                    elif case == 'resource': g['admission']['conservative_sum']['limits']['cpu'] = 2
+                    elif case == 'ready-transition':
+                        g['pod_metrics'] = []
+                        if clock[0]: pod['status']['conditions'][0]['lastTransitionTime'] = g['timestamp_utc']
+                    elif case == 'generation': hpa['status']['observedGeneration'] = 2
+                    elif case == 'hpa-replaced':
+                        g['pod_metrics'] = []
+                        if clock[0]: hpa['metadata']['uid'] = 'replaced'
+                    elif case == 'history-lost':
+                        g['pod_metrics'] = []
+                        if not clock[0]: g['events'] = [e]
+                    elif case == 'no-active': hpa['status']['conditions'] = [c for c in hpa['status']['conditions'] if c['type'] != 'ScalingActive']
+                    elif case == 'no-current': hpa['status']['currentMetrics'] = []
+                    elif case == 'no-able': hpa['status']['conditions'] = [c for c in hpa['status']['conditions'] if c['type'] != 'AbleToScale']
+                    return g
+                f.runtime.guard = snapshot
+                with patch.object(m.time, 'monotonic', side_effect=lambda: clock[0]), patch.object(m.time, 'time', side_effect=lambda: 1000 + clock[0]):
+                    with self.assertRaises((ValueError, KeyError)):
+                        m.healthy_initialize(f.runtime, plan(), lambda _: calls.append(1), rows.append,
+                                             clock=lambda: clock[0], wait=lambda seconds: clock.__setitem__(0, clock[0] + seconds))
+                self.assertEqual(calls, [])
+                self.assertLessEqual(clock[0], 90)
+                self.assertFalse(rows[-1]['runtime_preflight_passed'])
+                self.assertFalse(any(r['record'] in {'healthy_journey_intent', 'healthy_initialization_complete'} for r in rows))
+                if case in {'other-warning', 'other-hpa', 'wrong-uid', 'no-owner', 'pod-unready', 'db', 'node', 'resource', 'owner', 'spec', 'generation'}:
+                    self.assertEqual(clock[0], 0)  # No settling exemption for other failures.
+
+    def test_cpu_settling_then_journey_preserves_history_and_rejects_recurrence(self):
+        for case in ('success', 'new-warning', 'count-recurred', 'hpa-regressed'):
+            with self.subTest(case=case):
+                f, now, rows, calls = self.preparation(), [0], [], []
+                guard = f.runtime.guard; positive, _, _ = self.positive_journey(f)
+                stamp = lambda at: m.datetime.fromtimestamp(at, m.timezone.utc).isoformat()
+                def snapshot():
+                    g = guard(); g['admission']['pods'][0]['metadata']['creationTimestamp'] = stamp(970)
+                    g['admission']['pods'][0]['status']['conditions'][0]['lastTransitionTime'] = stamp(980)
+                    g['cpu_hpa']['metadata']['creationTimestamp'] = stamp(970)
+                    for c in g['cpu_hpa']['status']['conditions']: c['lastTransitionTime'] = stamp(995)
+                    g['events'] = [{'type': 'Warning', 'reason': 'FailedGetContainerResourceMetric', 'uid': 'startup-warning',
+                        'first_timestamp_utc': stamp(985), 'timestamp_utc': stamp(990), 'count': 1,
+                        'owner': {'kind': 'HorizontalPodAutoscaler', 'name': 'hpa-app-cpu', 'namespace': m.NS, 'uid': 'cpu-hpa'}}]
+                    if now[0] == 0: g['pod_metrics'][0]['timestamp'] = stamp(980)  # Pre-Ready window.
+                    if calls:
+                        if case == 'new-warning': g['events'][0]['uid'] = 'new-warning'
+                        if case == 'count-recurred': g['events'][0]['count'] += 1
+                        if case == 'hpa-regressed':
+                            g['cpu_hpa']['status']['conditions'][1].update(status='False', reason='FailedGetContainerResourceMetric')
+                    self.assertLessEqual(f.runtime.collection_deadline.at - now[0], 30)
+                    return g
+                def journey(timeout):
+                    self.assertEqual(now[0], 30)
+                    self.assertEqual(rows[-1]['record'], 'healthy_journey_intent')
+                    calls.append(1); f.no_admin.clear()
+                    return positive(timeout)
+                f.runtime.guard = snapshot
+                with patch.object(m.time, 'monotonic', side_effect=lambda: now[0]), patch.object(m.time, 'time', side_effect=lambda: 1000 + now[0]):
+                    kwargs = {'clock': lambda: now[0], 'wait': lambda s: now.__setitem__(0, now[0] + s)}
+                    if case == 'success':
+                        result = m.healthy_initialize(f.runtime, plan(), journey, rows.append, **kwargs)
+                        self.assertTrue(result['ready_for_keda_authentication'])
+                        self.assertFalse(result['runtime_preflight_passed'])
+                    else:
+                        with self.assertRaises(ValueError): m.healthy_initialize(f.runtime, plan(), journey, rows.append, **kwargs)
+                        self.assertFalse(any(e['record'] == 'healthy_initialization_complete' for e in rows))
+                self.assertEqual(calls, [1])
+                self.assertEqual([e['status'] for e in rows if e['record'] == 'cpu_preparation_poll'][:3], ['pending', 'pending', 'ready'])
 
     def test_preparation_authority_does_not_claim_full_preflight_or_keda_auth(self):
         v = plan() | {'identity_client_id': '00000000-0000-0000-0000-000000000000'}
@@ -993,7 +1199,7 @@ dev_git ls-remote https://example.invalid
                     raise ValueError(secret)
                 if case == 'configuration': f.runtime.configuration = failed
                 elif case == 'warning':
-                    guard = f.guard()
+                    guard = f.runtime.guard()
                     # Actual archived HPA reason/timestamp, synthetic guard payload.
                     guard['events'] = [{'type': 'Warning', 'reason': 'FailedComputeMetricsReplicas',
                                         'timestamp_utc': '2026-10-29T02:44:27Z', 'message': secret}]
@@ -1037,8 +1243,9 @@ dev_git ls-remote https://example.invalid
                         self.assertGreater(process.call_args.kwargs['timeout'], 0)
                         self.assertLessEqual(process.call_args.kwargs['timeout'], 15)
                 rows = [json.loads(line) for line in (output / 'events.jsonl').read_text().splitlines()]
-                self.assertEqual(len(rows), 1)
-                failure = rows[0]
+                failures = [r for r in rows if r['record'] == 'healthy_initialization_failure']
+                self.assertEqual(len(failures), 1)
+                failure = failures[0]
                 self.assertEqual(failure['record'], 'healthy_initialization_failure')
                 self.assertEqual((failure['stage'], failure['exception_class'], failure['error_code']),
                                  (stage, exception_class, code))
@@ -1148,7 +1355,7 @@ dev_git ls-remote https://example.invalid
         with self.assertRaisesRegex(RuntimeError, 'synthetic journey failure'):
             m.healthy_initialize(f.runtime, plan(), failed, rows.append)
         self.assertEqual(calls, [1])
-        self.assertEqual([r['record'] for r in rows], ['healthy_journey_intent', 'healthy_journey_accounting', 'healthy_initialization_failure'])
+        self.assertEqual([r['record'] for r in rows], ['cpu_preparation_poll', 'healthy_journey_intent', 'healthy_journey_accounting', 'healthy_initialization_failure'])
         self.assertFalse(rows[-1]['measured_denominator'])
         self.assertIn('log_delta', rows[-2])
         self.assertEqual(rows[-1]['stage'], 'healthy_journey')

@@ -629,7 +629,8 @@ class Runtime(p8.Runtime):
         return {uid: o['values'] for uid, o in self.admin_observations.items() if o['status'] == 'observed'}
 
     def guard(self):
-        return super().guard(hpa_name=self.hpa_name, event_timestamps=True)
+        return super().guard(hpa_name=self.hpa_name, event_timestamps=True,
+                             cpu_preparation=getattr(self, 'preparation', False))
 
     def haproxy(self):
         import csv
@@ -743,7 +744,134 @@ def collect_snapshot(runtime, config, before, emit, release_started):
         emit({'record': 'convergence', 'at': snap['end'], 'healthy': True, 'targets': [t['uid'] for t in actual['targets']]})
 
 
-def initialization_safety(guard):
+class CPUStartup:
+    """P9 C0 preparation only: retained startup warnings need positive recovery."""
+    seconds = 90
+    quiet_seconds = 15
+    reasons = {'FailedGetContainerResourceMetric', 'FailedComputeMetricsReplicas'}
+
+    def __init__(self, actual):
+        require(len(actual['targets']) == 1, 'CPU startup requires one target')
+        self.target = actual['targets'][0]['uid']
+        self.spec = copy.deepcopy(actual['hpa_spec'])
+        self.hpa_uid = self.ready_at = None
+        self.history, self.candidate, self.completed = {}, None, False
+
+    def observe(self, guard, emit, at):
+        epoch = p8.p7.utc(guard['timestamp_utc']).timestamp()
+        hpa = guard['cpu_hpa']; meta = hpa['metadata']
+        require(meta['name'] == 'hpa-app-cpu' and meta['namespace'] == NS and isinstance(meta.get('uid'), str) and
+                re.fullmatch(r'[A-Za-z0-9-]{1,64}', meta['uid']) and
+                not meta.get('ownerReferences') and not meta.get('deletionTimestamp') and hpa['spec'] == self.spec, 'CPU preparation owner/spec drift')
+        pods = [p for p in guard['admission']['pods'] if p['metadata']['uid'] == self.target]
+        require(len(pods) == 1, 'CPU preparation target UID drift')
+        pod = pods[0]
+        require(not pod['metadata'].get('deletionTimestamp'), 'CPU preparation terminating target')
+        ready = [c for c in pod['status']['conditions'] if c['type'] == 'Ready' and c['status'] == 'True']
+        require(len(ready) == 1, 'CPU preparation target not Ready')
+        ready_at = p8.p7.utc(ready[0]['lastTransitionTime']).timestamp()
+        if self.hpa_uid is None:
+            self.hpa_uid, self.ready_at = meta['uid'], ready_at
+        require((self.hpa_uid, self.ready_at) == (meta['uid'], ready_at), 'CPU preparation UID/Ready transition drift')
+        created = p8.p7.utc(meta['creationTimestamp']).timestamp()
+        require(created <= epoch and ready_at <= epoch, 'CPU preparation future lifecycle timestamp')
+        events = {}
+        for e in guard['events']:
+            # Owner includes the exact UID; reason alone never grants an exception.
+            owner = {'kind': 'HorizontalPodAutoscaler', 'name': 'hpa-app-cpu', 'namespace': NS, 'uid': self.hpa_uid}
+            safe = {'uid': e.get('uid') if isinstance(e.get('uid'), str) and re.fullmatch(r'[A-Za-z0-9-]{1,64}', e['uid']) else None,
+                    'reason': e.get('reason') if e.get('reason') in self.reasons | {'Unhealthy', 'FailedScheduling', 'BackOff', 'FailedMount', 'FailedRescale'} else 'OtherWarning',
+                    'type': 'Warning', 'count': e.get('count') if type(e.get('count')) is int else None,
+                    'owner': owner if e.get('owner') == owner else {'matches_cpu_hpa': False},
+                    **{k: p8.p7.utc(e[k]).isoformat() for k in ('first_timestamp_utc', 'timestamp_utc') if k in e}}
+            emit({'record': 'cpu_preparation_warning', 'at': at, 'event': safe})
+            if not (e['type'] == 'Warning' and e['reason'] in self.reasons and
+                    e.get('owner') == owner):
+                raise InitializationGuardError('warning_event')
+            first, last = [p8.p7.utc(e[k]).timestamp() for k in ('first_timestamp_utc', 'timestamp_utc')]
+            require(isinstance(e.get('uid'), str) and re.fullmatch(r'[A-Za-z0-9-]{1,64}', e['uid']) and
+                    e['uid'] not in events and type(e.get('count')) is int and e['count'] > 0 and
+                    created <= first <= last <= epoch, 'CPU preparation warning identity/time invalid')
+            signature = (e['timestamp_utc'], e['count'])
+            if e['uid'] in self.history:
+                previous = self.history[e['uid']]
+                require(p8.p7.utc(signature[0]) >= p8.p7.utc(previous[0]) and signature[1] >= previous[1], 'CPU warning history regressed')
+            if self.completed:
+                require(self.history.get(e['uid']) == signature, 'CPU preparation warning recurred')
+            else:
+                require(0 <= epoch - p8.p7.utc(pod['metadata']['creationTimestamp']).timestamp() <= self.seconds and
+                        0 <= epoch - p8.p7.utc(meta['creationTimestamp']).timestamp() <= self.seconds,
+                        'CPU warning outside startup lifetime')
+            events[e['uid']] = signature
+        require(set(self.history) <= set(events), 'CPU preparation warning history lost')
+        if events != self.history:
+            self.candidate = None
+        self.history = events
+        samples = [p for p in guard['pod_metrics'] if p['metadata']['namespace'] == NS and p['metadata']['name'] == pod['metadata']['name']]
+        require(len(samples) <= 1, 'ambiguous CPU preparation sample')
+        metric, status, stamp, sample_evidence, current_evidence = False, False, None, None, None
+        if samples:
+            sample = samples[0]
+            apps = [c for c in sample['containers'] if c['name'] == 'app']
+            require(len(apps) <= 1, 'ambiguous app CPU sample')
+            if apps:
+                cpu = apps[0]['usage'].get('cpu')
+                require(isinstance(cpu, str) and re.fullmatch(r'[0-9]+(?:\.[0-9]+)?(?:n|u|m)?', cpu) and
+                        math.isfinite(p8.quantity(cpu)) and p8.quantity(cpu) > 0, 'zero/unknown app CPU sample')
+                duration = re.fullmatch(r'([0-9]+(?:\.[0-9]+)?)s', sample['window'])
+                require(duration and 0 < float(duration[1]) <= self.seconds, 'invalid CPU sample window')
+                stamp = p8.p7.utc(sample['timestamp']).timestamp()
+                metric = 0 <= epoch - stamp <= 30 and ready_at <= stamp - float(duration[1])
+                sample_evidence = {'timestamp_epoch': stamp, 'window_seconds': float(duration[1]), 'app_cpu': cpu}
+        active = [c for c in hpa['status'].get('conditions', []) if c['type'] == 'ScalingActive']
+        able = [c for c in hpa['status'].get('conditions', []) if c['type'] == 'AbleToScale']
+        require(len(able) <= 1 and all(c['status'] == 'True' for c in able), 'CPU HPA unable to scale')
+        require(len(active) <= 1, 'ambiguous CPU HPA condition')
+        current = hpa['status'].get('currentMetrics', [])
+        empty_startup = (current == [{'type': ''}] and len(active) == 1 and active[0]['status'] == 'False' and
+                         active[0].get('reason') in self.reasons)
+        if current and not empty_startup:
+            require(len(current) == 1 and current[0]['type'] == 'ContainerResource' and
+                    current[0]['containerResource']['name'] == 'cpu' and current[0]['containerResource']['container'] == 'app', 'CPU HPA metric drift')
+            value = current[0]['containerResource']['current']
+            status = (type(value.get('averageUtilization')) is int and value['averageUtilization'] > 0 and
+                      isinstance(value.get('averageValue'), str) and
+                      re.fullmatch(r'[0-9]+(?:\.[0-9]+)?(?:n|u|m)?', value['averageValue']) is not None and
+                      math.isfinite(p8.quantity(value['averageValue'])) and p8.quantity(value['averageValue']) > 0)
+            current_evidence = {'container': 'app', 'name': 'cpu',
+                                'averageUtilization': value.get('averageUtilization') if type(value.get('averageUtilization')) is int else None,
+                                'averageValue': value.get('averageValue') if isinstance(value.get('averageValue'), str) and
+                                re.fullmatch(r'[0-9]+(?:\.[0-9]+)?(?:n|u|m)?', value['averageValue']) else None}
+        last = max((p8.p7.utc(e['timestamp_utc']).timestamp() for e in guard['events']), default=0)
+        transition = p8.p7.utc(active[0]['lastTransitionTime']).timestamp() if active else None
+        recovered = (len(active) == 1 and active[0]['status'] == 'True' and
+                     last <= transition <= epoch)
+        if active and active[0]['status'] != 'True':
+            require(active[0].get('reason') in self.reasons, 'CPU HPA non-startup failure')
+        generation = hpa['status'].get('observedGeneration')
+        require(generation is None or type(generation) is int and generation == meta.get('generation'), 'CPU HPA observed generation drift')
+        positive = bool(able) and metric and status and recovered and epoch - last >= self.quiet_seconds
+        if self.completed:
+            require(positive, 'CPU preparation regressed after recovery')
+        elif positive:
+            # Retained warnings require two advancing valid samples and a quiet
+            # HPA interval. An already healthy no-warning baseline needs no wait.
+            if not events or self.candidate and at - self.candidate[0] >= self.quiet_seconds and stamp > self.candidate[1]:
+                self.completed = True
+            elif self.candidate is None:
+                self.candidate = (at, stamp)
+        else:
+            self.candidate = None
+        emit({'record': 'cpu_preparation_poll', 'at': at, 'target_uid': self.target, 'hpa_uid': self.hpa_uid,
+              'ready_since_epoch': ready_at, 'sample_epoch': stamp, 'valid_ready_window': bool(metric),
+              'sample': sample_evidence, 'hpa_current_cpu': current_evidence, 'hpa_spec': self.spec,
+              'scaling_active': bool(active and active[0]['status'] == 'True'), 'hpa_transition_epoch': transition,
+              'hpa_metric_recovered': bool(status and recovered), 'status': 'ready' if self.completed else 'pending',
+              'warning_history': copy.deepcopy(self.history), 'measured_denominator': False})
+        return self.completed
+
+
+def initialization_safety(guard, *, cpu_startup=None, emit=None, at=None):
     def check(condition, code):
         if not condition:
             raise InitializationGuardError(code)
@@ -756,7 +884,10 @@ def initialization_safety(guard):
     check(guard['nodes'] and all(n['conditions'] == {'Ready': 'True', 'MemoryPressure': 'False', 'DiskPressure': 'False', 'PIDPressure': 'False'} for n in guard['nodes']), 'node_pressure')
     check(any(n['schedulable'] and n['cpu_free'] >= .15 and n['memory_free'] >= 192 * 1024**2 for n in guard['node_headroom']), 'insufficient_headroom')
     check(guard['postgres']['query_ok'] and guard['postgres']['connections'] < guard['postgres']['max_connections'] - guard['postgres']['reserved'], 'database_unhealthy')
-    check(not guard['events'], 'warning_event')
+    if cpu_startup is None:
+        check(not guard['events'], 'warning_event')
+        return True
+    return cpu_startup.observe(guard, emit, at)
 
 
 def healthy_initialize(runtime, v, journey, emit, *, clock=time.monotonic, wait=time.sleep):
@@ -777,8 +908,19 @@ def healthy_initialize(runtime, v, journey, emit, *, clock=time.monotonic, wait=
         before = runtime.configuration(config, initializing=True)
         require(len(before['targets']) == 1, 'healthy initialization starts with one Ready target')
         initial = {t['uid'] for t in before['targets']}
+        cpu_startup = CPUStartup(before)
+        settle_deadline = started + CPUStartup.seconds
         stage, stage_started = 'readiness_resource_guard', clock()
-        initialization_safety(runtime.guard())
+        while True:
+            complete = initialization_safety(runtime.guard(), cpu_startup=cpu_startup, emit=emit, at=clock())
+            require(clock() <= settle_deadline, 'CPU preparation settling timeout')
+            if complete:
+                break
+            wait(min(15, settle_deadline - clock()))
+            require(clock() < settle_deadline, 'CPU preparation settling timeout')
+            runtime.collection_deadline.at = min(clock() + 30, settle_deadline)
+            actual = runtime.configuration(config, initializing=True)
+            require(actual == before, 'CPU settling configuration drift')
         stage, stage_started = 'baseline_stats', clock()
         stats_before = copy.deepcopy(runtime.stats(before))
         stage, stage_started = 'baseline_logs', clock()
@@ -822,7 +964,7 @@ def healthy_initialize(runtime, v, journey, emit, *, clock=time.monotonic, wait=
             actual = runtime.configuration(config, initializing=True)
             require({t['uid'] for t in actual['targets']} == initial and actual == before, 'initialization config/UID drift')
             stage, stage_started = 'telemetry_resource_guard', clock()
-            initialization_safety(runtime.guard())
+            initialization_safety(runtime.guard(), cpu_startup=cpu_startup, emit=emit, at=clock())
             stage, stage_started = 'telemetry_signal', clock()
             pods = runtime.targets()
             require({p['metadata']['uid'] for p in pods} == initial, 'initialization live UID drift')

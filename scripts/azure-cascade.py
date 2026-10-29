@@ -437,7 +437,7 @@ class Runtime:
                     proxies[label][pod['uid']].append({k: row[k] for k in ('status', 'detail', 'duration_ms', 'cluster')})
         return {'checks': checks, 'proxies': proxies}
 
-    def guard(self, hpa_name='hpa-app-cpu', event_timestamps=False):
+    def guard(self, hpa_name='hpa-app-cpu', event_timestamps=False, cpu_preparation=False):
         owned = self.j('-n', NS, 'get', 'pods', '-o', 'json')['items']
         admitted = admission(self.value, owned)
         pods = [self.pod('forgejo', 'app.kubernetes.io/name=forgejo')] + owned
@@ -468,7 +468,10 @@ class Runtime:
         require(app['spec']['sources'][1]['targetRevision'] == app['spec']['sources'][2]['targetRevision'] == self.value['stable_revision'] and
                 app['spec']['syncPolicy']['automated'] == {'prune': False, 'selfHeal': True} and
                 app['status']['sync']['status'] == 'Synced' and app['status']['health']['status'] == 'Healthy', 'stable Argo drift')
-        return {'timestamp_utc': utc(), 'pods': sorted([p4.pod_guard(p) for p in pods], key=lambda p: p['uid']),
+        hpa = self.j('-n', NS, 'get', 'hpa', hpa_name, '-o', 'json')
+        result = {'timestamp_utc': utc(), 'pods': sorted([p4.pod_guard(p) for p in pods], key=lambda p: p['uid']),
+            **({'cpu_hpa': {**{k: hpa[k] for k in ('spec', 'status')}, 'metadata': {k: hpa['metadata'][k]
+                for k in ('name', 'namespace', 'uid', 'creationTimestamp', 'generation', 'ownerReferences', 'deletionTimestamp') if k in hpa['metadata']}}} if cpu_preparation else {}),
             'admission': admitted,
             'runtime_images': {p['metadata']['uid']: {s['name']: s['imageID'] for s in
                 p['status'].get('containerStatuses', []) + p['status'].get('initContainerStatuses', [])} for p in pods},
@@ -476,11 +479,19 @@ class Runtime:
             'nodes': [{'name': n['metadata']['name'], 'conditions': {c['type']: c['status'] for c in n['status']['conditions'] if c['type'] in {'Ready', 'MemoryPressure', 'DiskPressure', 'PIDPressure'}}} for n in nodes],
             'pod_metrics': [{k: p[k] for k in ('metadata', 'timestamp', 'window', 'containers')} for p in metric['items'] if p['metadata']['namespace'] in {NS, 'forgejo'}],
             'node_metrics': node_metric['items'], 'postgres': db,
-            'hpa': self.j('-n', NS, 'get', 'hpa', hpa_name, '-o', 'json')['status'],
+            'hpa': hpa['status'],
             'events': [({'reason': e.get('reason'), 'type': e.get('type')} |
-                        ({'timestamp_utc': e.get('lastTimestamp') or e.get('eventTime') or e['metadata']['creationTimestamp']} if event_timestamps else {})) for e in self.j('get', 'events', '-A', '-o', 'json')['items']
+                        ({'timestamp_utc': e.get('series', {}).get('lastObservedTime') or e.get('lastTimestamp') or e.get('eventTime') or e['metadata']['creationTimestamp'],
+                          'first_timestamp_utc': e.get('firstTimestamp') or e.get('eventTime') or e['metadata']['creationTimestamp'],
+                          'uid': e['metadata']['uid'], 'count': e.get('series', {}).get('count', e.get('count')),
+                          'owner': {k: e.get('involvedObject', {}).get(k) for k in ('kind', 'name', 'namespace', 'uid')}} if event_timestamps else {})) for e in self.j('get', 'events', '-A', '-o', 'json')['items']
                        if e.get('type') == 'Warning' and e.get('metadata', {}).get('namespace') in {NS, 'forgejo'} and
-                       (e.get('lastTimestamp') or e.get('eventTime') or e['metadata']['creationTimestamp']) >= self.since]}
+                       ((e.get('series', {}).get('lastObservedTime') or e.get('lastTimestamp') or e.get('eventTime') or e['metadata']['creationTimestamp']) >= self.since or
+                        cpu_preparation and e.get('involvedObject', {}).get('kind') == 'HorizontalPodAutoscaler' and
+                        e.get('involvedObject', {}).get('name') == hpa_name)]}
+        if cpu_preparation:
+            result['timestamp_utc'] = utc()  # Include the event read in the preparation observation window.
+        return result
 
 
 def request(path, headers, expected=None, direct=False):

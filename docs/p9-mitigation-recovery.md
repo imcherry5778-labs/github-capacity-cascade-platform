@@ -153,6 +153,30 @@ unknown series/UID, startup timeout은 중단 사유이며 inventory query guard
 normal/native-auth/TLS evidence, 같은 actual identity/plan hash/limits/retention을 요구한다.
 `healthy_gate_passed`/`runtime_preflight_passed`를 초기화 시작을 위해 true로 만들지 않는다.
 
+CPU HPA 준비는 별도 **read-only settling** 경계를 사용한다. `healthy_initialize` 시작부터 최대90초,
+poll 간격 최대15초이며 매 collection의 기존30초/명령별15초 budget은 유지한다. 추가 traffic/journey 반복은 없다.
+Configuration/image/hostname/owner 및 Pod/DB/node/admission/headroom은 매 poll에서 즉시 검사한다.
+준비 중 허용하는 pending 후보는 생성 후90초 안의 target Pod와 정확히 같은 namespace·UID의
+`HorizontalPodAutoscaler/hpa-app-cpu`에 속한 `FailedGetContainerResourceMetric`/`FailedComputeMetricsReplicas`뿐이다.
+다른 warning/owner/미귀속 event는 즉시 실패한다. Runtime.since를 재설정하거나 warning 이력을 삭제하지 않는다.
+
+준비 성공에는 고정 target UID의 실제 Ready/무재시작·변하지 않은 Ready transition, `app` CPU 양수 sample,
+sample window 전체가 Ready 이후이며 sample age≤30초인 관측을 요구한다. CPU HPA spec/UID/unowned CPU controller가
+일치하고 AbleToScale=True/ScalingActive=True 및 `ContainerResource/cpu/app`의 양수 currentMetrics averageValue/averageUtilization도 있어야 한다.
+ObservedGeneration이 있으면 actual generation과 대조한다. 필드가 없는 actual HPA에 generation을 합성하지 않는다.
+Startup 실패의 실제 placeholder `currentMetrics=[{type:""}]`는 알려진 ScalingActive=False 상태에서만 pending이며 정상 metric이 아니다.
+누락/stale/pre-Ready sample 또는 HPA 회복 미확인은 준비를 통과하지 못하고 bounded timeout에서 실패한다.
+Zero/unknown을 positive metric으로 승격하지 않는다. Pod/HPA UID·Ready transition/owner drift는 기다리지 않고 실패한다.
+
+Warning의 safe reason/time/owner·event UID/count를 append-only `cpu_preparation_warning`으로 보존한다.
+`cpu_preparation_poll`에는 실제 CPU timestamp/window/value, HPA spec/UID/current metric·ScalingActive/transition 및 pending/ready를 기록한다.
+원문 warning message/body/argv는 넣지 않으며 unknown reason/owner는 안전한 분류로만 남긴 뒤 실패한다.
+Startup warning이 있으면 HPA ScalingActive 회복 transition이 마지막 warning 이후여야 하고, 최소15초 quiet와
+15초 이상 떨어진 두 번의 advancing valid CPU sample·변하지 않은 warning UID/count/time을 확인한 뒤에만 준비를 통과한다.
+이미 양수 metric/HPA가 정상이고 warning이 없는 baseline은 별도 대기 없이 통과할 수 있다.
+회복 뒤 healthy journey/telemetry polling에서 새 warning·count/time 증가·history 유실·HPA/metric 상태 악화는 실패한다.
+Measured/C3의 기존 strict warning/controller/telemetry guard와 P8 기본 호출은 이 예외를 사용하지 않는다.
+
 실패 event는 고정된 `stage`, 전체/단계 `elapsed_seconds`/`stage_elapsed_seconds`, 허용된
 `exception_class`와 제한된 `error_code`를 output 및 append-only initialization ledger에 기록하고 예외를 다시 전파한다.
 Journey intent 이전에는 `configuration` → `readiness_resource_guard` → `baseline_stats` → `baseline_logs`를 구분한다.
