@@ -1,11 +1,16 @@
 # P9-W1 Mitigation & Recovery
 
-상태: **승인 source의 runtime telemetry gate 중단 / P9-owned controls 원복 완료**.
-승인·실제 execution source는 `c06ce67b2d438c7affde6b6934368b43afa4c1f4`이며
-[승인 기록](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6483350700)과
-[실제 실행·negative·원복 evidence](evidence/p9-mitigation-preflight-20261029/README.md)를 연결한다.
-Calibration/measured는 모두0회, freeze·mitigation/recovery 결과는 없다. 아래 C0–C3 contract와 상한은 유지하며
-actual label/초기화 contract의 새 source gate와 필요한 실행 승인 뒤 **같은 branch/PR**에서 재개한다.
+상태: **새 승인 source의 healthy initialization 준비 gate 중단 / P9-owned controls 원복 완료 / P9 acceptance 미충족**.
+새 승인·실제 execution source는 `9c7b4be942e534dff2e36fe069e144bfa96d045a`다.
+[사용자 통합 재개 승인](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6486166268),
+[독립 source gate](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#pullrequestreview-5692094220),
+[실제 재개·negative·원복 evidence](evidence/p9-mitigation-resume-20261029/README.md)를 연결한다.
+새 정상 create1/final verify1은 성공했고 initialize1회는 journey intent 전에 실패했다. Healthy journey·fault·calibration·measured는0,
+freeze·mitigation/recovery 결과는 없다. Causal exception은 CLI가 노출하지 않아 unknown이며 경고/시간 초과로 단정하지 않는다.
+이전 `c06ce67b2d438c7affde6b6934368b43afa4c1f4`의
+[승인](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6483350700)과
+[preflight/negative/cleanup](evidence/p9-mitigation-preflight-20261029/README.md)은 historical로 보존한다.
+아래 C0–C3 contract/상한을 유지하며 추가 workload를 자동 반복하지 않는다. 후속 evidence HEAD는 실행 승인 SHA가 아니다.
 P8 [reviewed evidence](evidence/p8-controlled-cascade-20261029/README.md)와
 [incident](incidents/p8-controlled-cascade.md)를 재사용하며 historical raw/validator는 보존한다.
 P6/P7 drill, P8 전체 실험, factorial/조합 최적화, P10은 범위 밖이다.
@@ -82,7 +87,7 @@ Issue12/Git1 worker와 최대49 pending으로 client backlog를 제한한다. �
 version별 실제 image/CRD/operator/SA 상태를 먼저 보존한다. 읽을 수 없으면 필수 실행 gate다.
 기록된 actual `2.19.0-25`에 맞춰 [2.19 scaler](https://keda.sh/docs/2.19/scalers/prometheus/)와
 [identity override](https://keda.sh/docs/2.19/authentication-providers/azure-ad-workload-identity/)를 참조한다.
-재개 시 actual version이 다르면 중단하고 matching contract를 확인한다. 이번 source correction은 새 runtime 조회나 upgrade를 수행하지 않는다.
+재개 시 actual version이 다르면 중단하고 matching contract를 확인한다. 이전 source correction 당시 runtime 조회/upgrade는 없었고, 이번 승인 재개에서 같은 image를 read-only 재확인했다. 실제 scaler 인증은 미검증이다.
 Managed controller의 Helm/resource/spec 임의 변경이나 self-managed 대체는 하지 않는다.
 
 실험 소유 `azmonitoring.coreos.com/v1 PodMonitor/p9-envoy`는 기존 scraper를 사용한다.
@@ -209,9 +214,9 @@ C2 queue는 측정 대상, 다른 arm에서는 경쟁 병목 guard다.
 같은 incident의 backoff/admission/proxy-scaling corrective action에 연결한다.
 결과가 없는 현재 corrective action은 검증 완료가 아니다.
 
-## 통합 승인 범위 — 승인 source 실행 중단·원복 완료
+## 이전 통합 승인 범위 — c06 preflight 이력
 
-이번 승인·실행 source는 **`c06ce67b2d438c7affde6b6934368b43afa4c1f4`**다. 승인 기록 URL과
+이전 승인·실행 source는 **`c06ce67b2d438c7affde6b6934368b43afa4c1f4`**다. 승인 기록 URL과
 actual identity, plan hash, limits를 보호된 입력에 연결했고 `P9_AZURE_APPROVED`도 같은 SHA를 사용했다.
 Gate 중단·원복 상태와 실제 flag는 evidence의 `approval-binding.json`에 보존했다.
 아래는 그 승인 범위이며 후속 문서/evidence HEAD나 다른 SHA를 실행 승인으로 치환하지 않는다. Normal/healthy/live preflight의 실제
@@ -280,19 +285,20 @@ IAM/FIC/UAMI, PAT/fixture login/보호 local 사본/port-forward 순으로 exact
 KEDA annotation/rollout 원복은 FIC 삭제 전에 수행한다. 정상 HTTPS/native auth, Argo revision/spec,
 원래 PVC/PV/Disk/Secret 보존을 확인한다. P9-owned cleanup과 전체 environment finalization은 다르다.
 
-## 재개 승인 delta — source gate 이후 한 번의 통합 승인 필요
+## 통합 재개 승인 delta와 실제 사용
 
-이번 source correction은 cost-free local 검증뿐이며 Azure 재개 승인은 없다. 새 exact HEAD의 source gate/CI/독립 review 뒤,
-앞선 승인 URL·`c06ce67b2d438c7affde6b6934368b43afa4c1f4` 실행·negative/cleanup evidence를 연결하여 다음 delta를 함께 승인받는다.
-기존 승인 SHA를 새 SHA로 치환하거나 삭제된 identity/client ID·과거 true flags를 재사용하지 않는다.
+새 exact source `9c7b4be942e534dff2e36fe069e144bfa96d045a`의 CI/source gate 뒤 위 통합 재개 승인을 받았다.
+아래 재준비 범위가 승인됐으며 실제 사용/미사용은 새 실행 evidence를 따른다. Normal proof만 실제 통과했고
+healthy/runtime-preflight flag는 false다. Initialize 준비 gate 실패 후 원복했으며 기존 승인 SHA를 다른 HEAD로 치환하지 않는다.
+이전·이번 준비/원복과 비용 unknown을 함께 보존하고 다음 유료 workload를 자동 시작하지 않는다.
 
 - 새 source/image digest의 재build/publish·cleanup, fixture/PAT 재준비와 version2 admin credential의 명시적 재사용,
   전용 AKS 임시 권한/보호 kubeconfig, experiment Secret/fixture/shared overlay 재준비·원복.
 - 위 healthy 초기화 순서와 실제 request accounting, 그 뒤 새 UAMI/FIC/workspace RBAC 및 **실제 필요할 때만**
   KEDA annotation/restart·원복. 이전 operator apply restart1/restore restart1은 이미 사용한 행동이며
-  추가 필요한 apply/restore 각1회의 delta와 다른 workload 영향을 새 승인에 명시한다. 자동 반복 한도 확대는 없다.
+  새 승인에는 필요 시 apply/restore 각1회의 delta와 다른 workload 영향 확인이 포함됐으며 이번 실제 사용은0/0이다. 자동 반복 한도 확대는 없다.
 - 이전 normal create1(구조화된 developer attempts9)/final verify1, image publish/delete1, IAM/fixture 준비·원복은 사용된 행동이다.
-  Healthy/CUSTOM/fault/calibration/measured는 각각0, freeze·non-recovery 결과는 없다. 기존 ledger/raw/negative/checksum을 보존하고
+  이전 Healthy/CUSTOM/fault/calibration/measured는 각각0이었다. 이번 CUSTOM은 적용/제거했고 healthy journey·fault/calibration/measured는0, freeze·non-recovery 결과는 없다. 기존 ledger/raw/negative/checksum을 보존하고
   새 preparation ledger와 연결한다. Calibration 총≤2와 measured 각 arm1회, resource/cost/retention 상한은 유지한다.
 - 이전 비용 관측 before/final **KRW18,845.545320581**, P9 증가분 unknown을 이어간다. USD5 예상/USD10 검토 예산을
   0으로 초기화하지 않는다. 재개 전 기존 준비·원복을 포함한 누적 비용/사용량 근거를 다시 확인한다.
@@ -308,7 +314,7 @@ Environment/Foundation 기한 연장, 새 compute/Disk/PVC, node autoscaling/DNS
 ## 실행 entrypoint와 남은 gate
 
 Source gate는 직접 회귀, P8 historical replay, `make static`, exact-head PR CI와 독립 review다.
-승인 source의 CI/source gate는 통과했으나 actual telemetry contract gate에서 중단했다.
+새 승인 source의 CI/source gate는 통과했으나 healthy initialization 준비 gate에서 중단했다. 실제 positive/telemetry gate는 미통과다.
 아래는 entrypoint 사용 형식이며 성공한 campaign 기록이 아니다. 재개 전 새 source gate와 필요한 승인을 확인한다.
 
 ```bash
