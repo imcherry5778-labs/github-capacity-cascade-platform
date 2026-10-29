@@ -850,9 +850,11 @@ class MetricInitializationTests(unittest.TestCase):
         with tarfile.open(ROOT / f'docs/evidence/p9-mitigation-{attempt}-20261029/raw-evidence.tar.gz') as t:
             read = lambda n: json.load(t.extractfile(n))
             r = m.Runtime.__new__(m.Runtime); r.value = read('identity.json'); r.preparation = True; r.hpa_name = 'hpa-app-cpu'
-            r.since = '2026-10-29T05:56:40Z' if attempt == 'third' else '2026-10-29T07:39:27Z'
-            hpa = next(x for x in read('experiment-terminal.json')['items'] if x['kind'] == 'HorizontalPodAutoscaler')
-            objects = {'nodes': read('nodes-before.json'), 'events': read('fixture-events-stop.json'),
+            r.since = {'third': '2026-10-29T05:56:40Z', 'fourth': '2026-10-29T07:39:27Z',
+                       'seventh': '2026-10-29T12:26:59Z'}[attempt]
+            terminal = read('experiment-terminal.json')
+            hpa = terminal['hpa']['items'][0] if attempt == 'seventh' else next(x for x in terminal['items'] if x['kind'] == 'HorizontalPodAutoscaler')
+            objects = {'nodes': read('nodes-before.json'), 'events': terminal['events'] if attempt == 'seventh' else read('fixture-events-stop.json'),
                        'application': read('argo-before.json'), 'hpa': hpa}
             owned, all_pods = read('initial-pods.json'), read('all-pods-before.json')
             metrics = read('pod-metrics-stop.json')
@@ -993,6 +995,172 @@ class MetricInitializationTests(unittest.TestCase):
                   'hpa_spec': copy.deepcopy(hpa['spec'])}
         return actual, frame
 
+    def seventh_cpu_timeline(self):
+        """Actual archived Warning progression through the existing P8 guard.
+
+        Snapshot times are simulated. Before the later-read export, replay only
+        emitted Warning observations and carry forward the last known pending
+        HPA/sample; the failing full guard was not archived. The later-read HPA,
+        sample and count8 history stay post-stop evidence. Only explicitly
+        synthetic fresh samples can complete this offline preparation.
+        """
+        runtime, owned = self.archived_cpu_runtime('seventh')
+        target = next(p for p in owned['items'] if p['metadata']['labels'].get('app') == 'ext-authz-sim')
+        with tarfile.open(ROOT / 'docs/evidence/p9-mitigation-seventh-20261029/raw-evidence.tar.gz') as t:
+            rows = [json.loads(line) for line in t.extractfile('healthy-initialization/events.jsonl')]
+        poll = next(r for r in rows if r['record'] == 'cpu_preparation_poll')
+        observed = [r for r in rows if r['record'] == 'cpu_preparation_warning']
+        hpa = runtime.j('-n', m.NS, 'get', 'hpa', 'hpa-app-cpu', '-o', 'json')
+        recovered = copy.deepcopy(hpa['status'])
+        metrics = runtime.j('get', '--raw', '/apis/metrics.k8s.io/v1beta1/pods')
+        sample = next(p for p in metrics['items'] if p['metadata']['name'] == target['metadata']['name'])
+        recorded_sample = copy.deepcopy(sample)
+        raw_events = runtime.j('get', 'events', '-A', '-o', 'json')['items']
+        recorded_events = copy.deepcopy(raw_events)
+        created = m.p8.p7.utc(target['metadata']['creationTimestamp']).timestamp()
+        stamp = lambda sec: m.datetime.fromtimestamp(created + sec, m.timezone.utc).isoformat()
+        canonical = lambda value: m.p8.p7.utc(value).isoformat().replace('+00:00', 'Z')
+        def frame(seconds, *, synthetic_recovery=False, advance=False):
+            raw_events[:] = copy.deepcopy(recorded_events)
+            if seconds < 178:
+                history = {r['event']['uid']: r['event'] for r in observed if r['at'] <= poll['at'] or seconds >= 105}
+                for e in raw_events:
+                    if e['metadata']['uid'] in history:
+                        old = history[e['metadata']['uid']]
+                        e.update(firstTimestamp=canonical(old['first_timestamp_utc']),
+                                 lastTimestamp=canonical(old['timestamp_utc']), count=old['count'])
+            sample.clear(); sample.update(copy.deepcopy(recorded_sample))
+            hpa['status'] = copy.deepcopy(recovered)
+            if seconds < 178:
+                sample.update(timestamp=m.datetime.fromtimestamp(poll['sample_epoch'], m.timezone.utc).isoformat(),
+                              window=str(poll['sample']['window_seconds']) + 's')
+                next(c for c in sample['containers'] if c['name'] == 'app')['usage']['cpu'] = poll['sample']['app_cpu']
+                active = next(c for c in hpa['status']['conditions'] if c['type'] == 'ScalingActive')
+                active.update(status='False', reason='FailedGetContainerResourceMetric', lastTransitionTime=stamp(16))
+                hpa['status']['currentMetrics'] = [{'type': ''}]  # Pending reconstruction, not a saved full HPA status.
+            if synthetic_recovery:
+                sample['timestamp'] = stamp(seconds if advance else 193)  # Synthetic CPU continuation only.
+            with patch.object(m.p8, 'utc', return_value=stamp(seconds)):
+                return m.Runtime.guard(runtime)
+        first = frame(72)
+        actual = {'targets': [{'uid': poll['target_uid'], 'name': sample['metadata']['name']}], 'hpa_spec': copy.deepcopy(hpa['spec'])}
+        self.assertEqual(first['cpu_preparation_pods'][0]['uid'], poll['target_uid'])
+        return actual, frame
+
+    def test_seventh_actual_count3_to5_at_pod91_stays_pending_until_synthetic_cpu_recovery(self):
+        actual, frame = self.seventh_cpu_timeline(); cpu, rows = m.CPUStartup(actual), []
+        event_uid = 'dc1109fc-9b0d-4b0d-92e5-85825b9e7db9'
+        self.assertFalse(m.initialization_safety(frame(72), cpu_startup=cpu, emit=rows.append, at=0))
+        self.assertEqual(cpu.history[event_uid][1], 3)
+        guard = frame(105)
+        event = next(e for e in guard['events'] if e['uid'] == event_uid)
+        self.assertEqual(event['timestamp_utc'], '2026-10-29T12:27:43Z')
+        self.assertEqual(event['count'], 5)
+        self.assertEqual(m.p8.p7.utc(event['timestamp_utc']).timestamp() -
+                         m.p8.p7.utc(guard['cpu_preparation_pods'][0]['creationTimestamp']).timestamp(), 91)
+        self.assertFalse(m.initialization_safety(guard, cpu_startup=cpu, emit=rows.append, at=33))
+        self.assertEqual(cpu.history[event_uid][1], 5)
+        self.assertFalse(rows[-1]['hpa_metric_recovered'])
+        self.assertFalse(rows[-1]['valid_ready_window'])
+        # Actual later-read HPA is positive, but the exported sample is stale.
+        self.assertFalse(m.initialization_safety(frame(178), cpu_startup=cpu, emit=rows.append, at=106))
+        self.assertTrue(rows[-1]['hpa_metric_recovered']); self.assertFalse(rows[-1]['valid_ready_window'])
+        self.assertEqual(cpu.history[event_uid][1], 8)
+        self.assertFalse(cpu.recovery_seen)
+        self.assertFalse(m.initialization_safety(frame(193, synthetic_recovery=True), cpu_startup=cpu, emit=rows.append, at=121))
+        self.assertTrue(cpu.recovery_seen); self.assertIsNotNone(cpu.candidate)
+        self.assertFalse(m.initialization_safety(frame(208, synthetic_recovery=True), cpu_startup=cpu, emit=rows.append, at=136))
+        self.assertTrue(m.initialization_safety(frame(208, synthetic_recovery=True, advance=True), cpu_startup=cpu, emit=rows.append, at=136))
+        self.assertEqual(rows[-1]['sample']['window_seconds'], 72.279)
+        self.assertEqual(len(cpu.history), 4)
+        with self.assertRaises(m.InitializationGuardError): m.initialization_safety(guard)  # Strict default unchanged.
+
+    def test_seventh_history_and_first_positive_candidate_recurrence_fail_closed(self):
+        for case in ('owner', 'reason', 'first', 'future', 'before-creation', 'count-back', 'count-only', 'time-only',
+                     'lost', 'hpa-uid', 'controller', 'pod-uid', 'ready-time', 'restart', 'db', 'node', 'resource',
+                     'candidate-new', 'candidate-progress', 'candidate-count-only', 'candidate-lost', 'candidate-gap'):
+            with self.subTest(case=case):
+                actual, frame = self.seventh_cpu_timeline(); cpu = m.CPUStartup(actual)
+                cpu.observe(frame(72), lambda _: None, 0)
+                if case.startswith('candidate-'):
+                    self.assertFalse(cpu.observe(frame(193, synthetic_recovery=True), lambda _: None, 121))
+                    self.assertFalse(cpu.completed); self.assertTrue(cpu.recovery_seen)
+                    if case == 'candidate-gap':
+                        gap = frame(198, synthetic_recovery=True); gap['pod_metrics'] = []
+                        self.assertFalse(cpu.observe(gap, lambda _: None, 126))
+                    guard = frame(208, synthetic_recovery=True, advance=True)
+                else: guard = frame(105)
+                e = next(e for e in guard['events'] if e['uid'] == 'dc1109fc-9b0d-4b0d-92e5-85825b9e7db9')
+                if case == 'owner': e['owner']['uid'] = 'other'
+                elif case == 'reason': e['reason'] = 'Unhealthy'
+                elif case == 'first': e['first_timestamp_utc'] = '2026-10-29T12:26:44Z'
+                elif case == 'future': e['timestamp_utc'] = '2026-10-29T12:30:00Z'
+                elif case == 'before-creation': e['first_timestamp_utc'] = '2026-10-29T12:26:11Z'
+                elif case == 'count-back': e['count'] = 2
+                elif case == 'time-only': e['count'] = 3
+                elif case in {'count-only', 'candidate-count-only'}:
+                    e['count'] += 1
+                    if case == 'count-only': e['timestamp_utc'] = '2026-10-29T12:27:13Z'
+                elif case in {'lost', 'candidate-lost'}: guard['events'].remove(e)
+                elif case == 'hpa-uid': guard['cpu_hpa']['metadata']['uid'] = 'replaced'
+                elif case == 'controller': guard['cpu_hpa']['metadata']['ownerReferences'] = [{'kind': 'ScaledObject'}]
+                elif case == 'pod-uid': guard['cpu_preparation_pods'][0]['uid'] = 'replaced'
+                elif case == 'ready-time': guard['cpu_preparation_pods'][0]['ready_conditions'][0]['lastTransitionTime'] = '2026-10-29T12:26:28Z'
+                elif case == 'restart': next(p for p in guard['pods'] if p['uid'] == cpu.target)['containers'][0]['restarts'] += 1
+                elif case == 'db': guard['postgres']['query_ok'] = False
+                elif case == 'node': guard['nodes'][0]['conditions']['MemoryPressure'] = 'True'
+                elif case == 'resource': guard['admission']['conservative_sum']['limits']['cpu'] = 2
+                elif case == 'candidate-new': guard['events'].append(copy.deepcopy(e) | {'uid': 'new-warning'})
+                elif case in {'candidate-progress', 'candidate-gap'}:
+                    e.update(count=e['count'] + 1, timestamp_utc='2026-10-29T12:28:29Z')
+                with self.assertRaises((ValueError, KeyError)):
+                    m.initialization_safety(guard, cpu_startup=cpu, emit=lambda _: None, at=136)
+
+    def test_seventh_bounded_initialize_times_out_without_real_recovery_or_uses_synthetic_samples(self):
+        for recover in (False, True):
+            with self.subTest(synthetic_recovery=recover):
+                actual, frame = self.seventh_cpu_timeline(); f, now, rows, calls = self.preparation(), [0], [], []
+                def configuration(*args, **kwargs):
+                    self.assertLessEqual(f.runtime.collection_deadline.at - now[0], 30)
+                    now[0] += 7
+                    return copy.deepcopy(actual)
+                def guard():
+                    now[0] += min(11, f.runtime.collection_deadline.at - now[0])
+                    age = 47.412445 + now[0]  # initialize start relative to archived Pod creation.
+                    return frame(age, synthetic_recovery=recover and age >= 193, advance=age >= 208)
+                def journey(timeout):
+                    calls.append(now[0]); self.assertLess(now[0], 300); self.assertEqual(timeout, 90)
+                    raise RuntimeError('synthetic stop before journey load')
+                f.runtime.configuration, f.runtime.guard = configuration, guard
+                f.runtime.stats = lambda _: {}
+                f.runtime.logs = lambda _: {'checks': [], 'proxies': {'target': {}, 'ingress': {}}}
+                with patch.object(m.time, 'monotonic', side_effect=lambda: now[0]):
+                    with self.assertRaisesRegex((ValueError, RuntimeError), 'synthetic stop' if recover else 'settling timeout'):
+                        m.healthy_initialize(f.runtime, plan(), journey, rows.append, clock=lambda: now[0],
+                                             wait=lambda sec: now.__setitem__(0, now[0] + sec))
+                self.assertEqual(len(calls), int(recover)); self.assertLessEqual(now[0], 300)
+                self.assertTrue(any(r['record'] == 'cpu_preparation_poll' and r['at'] >= 90 and r['status'] == 'pending' for r in rows))
+                if not recover: self.assertEqual(now[0], 300)
+
+    def test_first_positive_cpu_hpa_latches_recurrence_before_quiet_interval_completes(self):
+        for case in ('new', 'progress'):
+            with self.subTest(case=case):
+                actual, frame = self.seventh_cpu_timeline(); cpu = m.CPUStartup(actual)
+                cpu.observe(frame(178), lambda _: None, 0)
+                guard = frame(193, synthetic_recovery=True)
+                e = next(e for e in guard['events'] if e['uid'] == 'dc1109fc-9b0d-4b0d-92e5-85825b9e7db9')
+                e.update(count=e['count'] + 1, timestamp_utc='2026-10-29T12:29:20Z')
+                next(c for c in guard['cpu_hpa']['status']['conditions'] if c['type'] == 'ScalingActive')['lastTransitionTime'] = '2026-10-29T12:29:21Z'
+                # Synthetic CPU+HPA recovery with only5s quiet: pending, but
+                # subsequent warnings must already fail before a second sample.
+                self.assertFalse(cpu.observe(guard, lambda _: None, 15))
+                self.assertTrue(cpu.recovery_seen); self.assertIsNone(cpu.candidate)
+                guard['timestamp_utc'] = '2026-10-29T12:29:26Z'
+                if case == 'new': guard['events'].append(copy.deepcopy(e) | {'uid': 'new-warning'})
+                else: e.update(count=e['count'] + 1, timestamp_utc='2026-10-29T12:29:21Z')
+                with self.assertRaisesRegex(ValueError, 'warning recurred'):
+                    cpu.observe(guard, lambda _: None, 16)
+
     def test_fourth_archive_pending_beyond_90_only_synthetic_advancing_recovery_completes(self):
         actual, frame = self.fourth_cpu_timeline(); cpu, rows = m.CPUStartup(actual), []
         for sec in (40, 80, 90, 110):
@@ -1010,8 +1178,8 @@ class MetricInitializationTests(unittest.TestCase):
         self.assertEqual(len(cpu.history), 4)  # No Warning suppression/reset.
         self.assertTrue(all(r['measured_denominator'] is False for r in rows if r['record'] == 'cpu_preparation_poll'))
 
-    def test_fourth_warning_history_and_late_active_events_fail_closed(self):
-        for case in ('late', 'future', 'ambiguous-time', 'other-owner', 'other-reason', 'first-drift', 'reason-drift',
+    def test_fourth_warning_history_and_post_positive_events_fail_closed(self):
+        for case in ('future', 'ambiguous-time', 'other-owner', 'other-reason', 'first-drift', 'reason-drift',
                      'count-regression', 'count-only', 'time-only', 'lost', 'pod-created', 'hpa-created',
                      'new-after-positive', 'recur-after-positive', 'recur-after-gap'):
             with self.subTest(case=case):
@@ -1025,8 +1193,7 @@ class MetricInitializationTests(unittest.TestCase):
                     g = frame(156, synthetic_recovery=True)
                 else: g = frame(120)
                 e = g['events'][-1]
-                if case == 'late': e['timestamp_utc'] = '2026-10-29T07:40:41Z'
-                elif case == 'future': e['timestamp_utc'] = '2026-10-29T07:42:41Z'
+                if case == 'future': e['timestamp_utc'] = '2026-10-29T07:42:41Z'
                 elif case == 'ambiguous-time': e.pop('first_timestamp_utc')
                 elif case == 'other-owner': e['owner']['uid'] = 'other'
                 elif case == 'other-reason': e['reason'] = 'Unhealthy'
@@ -1107,7 +1274,8 @@ class MetricInitializationTests(unittest.TestCase):
                 def snapshot():
                     g = guard(); pod = g['cpu_preparation_pods'][0]; hpa = g['cpu_hpa']
                     e = {'type': 'Warning', 'reason': 'FailedComputeMetricsReplicas', 'uid': 'event', 'count': 1,
-                         'first_timestamp_utc': hpa['metadata']['creationTimestamp'], 'timestamp_utc': hpa['metadata']['creationTimestamp'],
+                         'first_timestamp_utc': max(pod['creationTimestamp'], hpa['metadata']['creationTimestamp']),
+                         'timestamp_utc': max(pod['creationTimestamp'], hpa['metadata']['creationTimestamp']),
                          'owner': {'kind': 'HorizontalPodAutoscaler', 'name': 'hpa-app-cpu', 'namespace': m.NS, 'uid': hpa['metadata']['uid']}}
                     if case == 'persistent':
                         e.update(timestamp_utc=g['timestamp_utc'], count=1 + int(clock[0])); g['events'] = [e]
@@ -1152,6 +1320,7 @@ class MetricInitializationTests(unittest.TestCase):
                                              clock=lambda: clock[0], wait=lambda seconds: clock.__setitem__(0, clock[0] + seconds))
                 self.assertEqual(calls, [])
                 self.assertLessEqual(clock[0], 300)
+                if case == 'persistent': self.assertEqual(clock[0], 300)
                 self.assertFalse(rows[-1]['runtime_preflight_passed'])
                 self.assertFalse(any(r['record'] in {'healthy_journey_intent', 'healthy_initialization_complete'} for r in rows))
                 if case in {'other-warning', 'other-hpa', 'wrong-uid', 'no-owner', 'pod-unready', 'db', 'node', 'resource', 'owner', 'spec', 'generation'}:

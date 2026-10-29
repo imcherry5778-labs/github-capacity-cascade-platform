@@ -1,5 +1,14 @@
 # P9-W1 Mitigation & Recovery
 
+현재 source 계약: **제7차 Warning 시간 충돌 source-only 교정 / 실제 Azure positive gate 미통과 / P9 acceptance 미충족**.
+[독립 리뷰](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#pullrequestreview-5698170608)에 따라
+첫 fresh positive CPU/HPA recovery 전에는 정확한 CPU HPA metric Warning의 count/time 증가를 기존 monotonic settling300초 안에서 허용한다.
+별도 Warning 발생90초 상한은 제거하며300초 발생 상한으로 치환하지 않는다. 첫 recovery 관측 이후 새 Warning·count/time 증가와 history 유실은 계속 실패한다.
+Sample window90초/freshness30초, snapshot30초/command15초, quiet15초·두 advancing valid sample, outer840초/kill5초는 유지한다.
+아래7회 actual negative·비용·raw/checksum·원복 기록은 바꾸지 않는다. 이 교정은 새 Azure 실행 승인이 아니며 새 exact-head 독립 review와 사용자 통합 승인이 필요하다.
+
+## 제7차 historical 실행
+
 현재 상태: **제7차 valid normal·무재시작 Pod 준비 통과 / CPU Warning 발생 경계 중단 / P9-owned 원복 완료 / P9 acceptance 미충족**.
 승인·실제 execution source는 `1ce291523ecddb3918e3879f322e45dfca122ee6`다.
 [제7차 통합 승인](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6496347488),
@@ -12,7 +21,7 @@ Initialize1회/57.649초는 같은 CPU HPA Warning의 count3→5·마지막 발�
 CPU poll1/pending, healthy journey·fault·KEDA 변경·calibration·각 measured arm0, freeze 없음이다.
 Post-stop HPA/metric을 positive proof로 바꾸지 않았다. CUSTOM/shared/namespace·PAT18/image/AKS role·보호 사본을 정리하고 stable/KEDA/storage를 보존했다.
 준비/원복 누적7회·two-RG ActualCost KRW38,284.28956189241·P9 incremental unknown·과거 raw/checksum을 유지한다.
-새 source/paid replay 없이 실제 Warning timeline과90초 발생 계약의 독립 검토가 필요하다. 추가 Azure 실행은 별도 통합 승인 대상이다.
+당시 source 수정/paid replay 없이 중단했다. 위 후속 source-only 교정은 historical 실패를 성공으로 바꾸지 않는다. 추가 Azure 실행은 별도 통합 승인 대상이다.
 
 ## 제6차 historical 실행
 
@@ -205,11 +214,13 @@ CPU HPA 준비는 별도 **read-only settling** 경계를 사용한다. `healthy
 monotonic hard cap **300초**, positive proof 확보 즉시 완료하며 성공 보장이나 고정 대기 시간이 아니다.
 poll 간격 최대15초이며 매 collection의 기존30초/명령별15초 budget은 유지한다. 추가 traffic/journey 반복은 없다.
 Configuration/image/hostname/owner 및 Pod/DB/node/admission/headroom은 매 poll에서 즉시 검사한다.
-준비 중 허용하는 Warning은 target Pod와 HPA 각각의 생성 후90초 안에 **first/last 발생 시각 모두**가 들어가고,
-정확히 같은 namespace·UID의 `HorizontalPodAutoscaler/hpa-app-cpu`에 속한 `FailedGetContainerResourceMetric`/`FailedComputeMetricsReplicas`뿐이다.
-현재 poll의 객체 age가90초를 넘었다는 이유로 이 historical Warning을 거부하지 않는다.
-다른 warning/owner/미귀속 event·90초 이후 새로운 활성 Warning은 즉시 실패한다. First timestamp/reason 변경,
-count/time 역행 또는 한쪽만 변경, history 유실과 첫 positive 이후 재발(중간 metric 누락 뒤에도)은 실패한다.
+첫 fresh positive CPU/HPA recovery 전까지 허용하는 Warning은 정확히 같은 namespace·UID의
+`HorizontalPodAutoscaler/hpa-app-cpu`에 속한 `FailedGetContainerResourceMetric`/`FailedComputeMetricsReplicas`뿐이다.
+이 Warning의 반복/count·last timestamp 증가는 별도 객체 age/발생 시간 제한 없이 기존 monotonic settling300초 안에서 허용한다.
+Pod/HPA 생성≤first≤last≤snapshot 시각을 요구한다. First timestamp/reason 불변, count/time 단조 증가·동시 변경과 history 보존을 검증한다.
+다른 Warning/owner/미귀속 event, timestamp 선후관계 위반·history drift/유실은 즉시 실패한다.
+첫 fresh positive CPU/HPA recovery 관측에서 recovery latch를 고정하며 이후 새로운 Warning 또는 기존 Warning의 count/time 증가는
+quiet15초/두 번째 sample을 기다리는 중이나 중간 metric 누락 뒤에도 즉시 실패한다.
 Runtime.since를 재설정하거나 warning 이력을 삭제하지 않는다.
 
 `Runtime.guard(cpu_preparation=True)`는 이미 수집한 owned Pod 중 CPU target의 namespace/name/UID,
@@ -238,7 +249,15 @@ Measured/C3의 기존 strict warning/controller/telemetry guard와 P8 기본 호
 post-stop sample07:41:31/window65.166초다. 이 window를 참고한 synthetic 다음 sample 간격65초와
 poll≤15초·수집≤30초를 포함하는 bounded 후보이며 실측 성공 시간은 아니다. 실제 sample cadence는 미확정이다. [Kubernetes HPA 문서](https://kubernetes.io/docs/concepts/workloads/autoscaling/horizontal-pod-autoscale/#pod-readiness-and-autoscaling-metrics)의
 Ready 전체 sample window/default CPU initialization period5분도 재확인했다. 해당 AKS flag 값은 미확인이다.
-Warning 발생 허용90초, CPU sample window≤90초, freshness≤30초는 settling300초와 별개다.
+제7차 Pod+91초의 실제 Warning count3→5는 첫 positive 전 pending으로 replay한다.
+실제 실패 시 full guard는 archive에 없어 마지막으로 관측한 pending HPA/sample을 유지한 reconstruction임을 명시한다.
+P8 `guard()`→P9 `CPUStartup`에 실제 UID/owner/reason/count/time·Pod lifecycle을 통과시키고,
+post-stop HPA/currentMetrics·stale CPU만으로 준비 완료를 주장하지 않는다. 후속 fresh advancing CPU sample2개는 명시적 synthetic이다.
+미회복 replay는 monotonic300초에 timeout하며 Warning 이력/첫 candidate 이후 재발·기타 safety negative와 제4차 관련 회귀를 유지한다.
+CPU sample window≤90초, freshness≤30초는 settling300초와 별개이며 별도 Warning 발생 deadline은 없다.
+Cost-free 검증: P9 regression60개(제4·7차 archive와 synthetic 구분, quiet 완료 전 recovery latch 포함), P8 regression38개와 `make static`을 통과했다.
+동일 제7차 입력을 이전 source class에 넣으면 Pod+91초에서 거부하고 수정 class에서는 pending인 것을 대조했다.
+일곱 차례 raw archive의 기존 byte/SHA256를 보존했으며 final exact-head CI·독립 review는 GitHub에서 별도 확인한다.
 
 `initialize` CLI는 GNU `timeout --signal=TERM --kill-after=5s`의 process group 안에서 내부 `_initialize`를
 1회 호출한다. Operator는 public `initialize`를 사용하며 더 짧은 외부 wrapper를 씌우지 않는다.
@@ -436,7 +455,7 @@ Environment/Foundation 기한 연장, 새 compute/Disk/PVC, node autoscaling/DNS
 ## 실행 entrypoint와 남은 gate
 
 Source gate는 직접 회귀, P8 historical replay, `make static`, exact-head PR CI와 독립 review다.
-제4차 승인 source의 CI/source gate는 통과했으나 CPU startup lifetime 검증에서 중단했다. 실제 positive/telemetry gate는 미통과다.
+제7차 actual CPU preparation 실패 뒤 Warning 시간 계약을 source-only 교정했다. 실제 positive/telemetry gate는 미통과다.
 아래는 entrypoint 사용 형식이며 성공한 campaign 기록이 아니다. 재개 전 새 source gate와 필요한 승인을 확인한다.
 
 ```bash

@@ -750,7 +750,6 @@ def collect_snapshot(runtime, config, before, emit, release_started):
 
 class CPUStartup:
     """P9 C0 preparation only: retained startup warnings need positive recovery."""
-    warning_startup_seconds = 90
     sample_window_seconds = 90
     settling_seconds = 300
     quiet_seconds = 15
@@ -811,11 +810,9 @@ class CPUStartup:
             first, last = [p8.p7.utc(e[k]).timestamp() for k in ('first_timestamp_utc', 'timestamp_utc')]
             require(isinstance(e.get('uid'), str) and re.fullmatch(r'[A-Za-z0-9-]{1,64}', e['uid']) and
                     e['uid'] not in events and type(e.get('count')) is int and e['count'] > 0 and
-                    created <= first <= last <= epoch, 'CPU preparation warning identity/time invalid')
-            # Bound when the event happened, not the age of its retained history
-            # at this poll. A later metric recovery must not erase that history.
-            require(all(0 <= first - origin <= last - origin <= self.warning_startup_seconds
-                        for origin in (pod_created, created)), 'CPU warning outside startup lifetime')
+                    max(pod_created, created) <= first <= last <= epoch, 'CPU preparation warning identity/time invalid')
+            # Pre-recovery metric warnings share healthy_initialize's monotonic
+            # settling deadline. Object age is not a separate warning deadline.
             signature = (e['timestamp_utc'], e['count'], e['first_timestamp_utc'], e['reason'])
             if self.recovery_seen:
                 require(self.history.get(e['uid']) == signature, 'CPU preparation warning recurred')
@@ -875,8 +872,9 @@ class CPUStartup:
             require(active[0].get('reason') in self.reasons, 'CPU HPA non-startup failure')
         generation = hpa['status'].get('observedGeneration')
         require(generation is None or type(generation) is int and generation == meta.get('generation'), 'CPU HPA observed generation drift')
-        positive = bool(able) and metric and status and recovered and epoch - last >= self.quiet_seconds
-        self.recovery_seen = self.recovery_seen or positive
+        positive = bool(able) and metric and status and recovered
+        self.recovery_seen = self.recovery_seen or positive  # Latch before quiet/two-sample waiting, even across metric gaps.
+        positive = positive and epoch - last >= self.quiet_seconds
         if self.completed:
             require(positive, 'CPU preparation regressed after recovery')
         elif positive:
