@@ -1,5 +1,20 @@
 # P9-W1 Mitigation & Recovery
 
+현재 상태: **제6차 valid normal 통과 / initialization Pod restart guard 중단 / P9-owned 원복 완료 / P9 acceptance 미충족**.
+승인·실제 execution source는 `30271ea59c4824b9bf4455ec038528891692d434`다.
+[제6차 통합 승인](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6494902133),
+[실행·negative·원복 evidence](evidence/p9-mitigation-sixth-20261029/README.md),
+[incident](incidents/p9-mitigation-sixth.md)를 연결한다.
+Warmup·실제 kubectl v1.36.4 path/hash 사전 대조와 fresh normal context를 사용했고 normal9 operations/attempts가 valid였다.
+Initialize1회는 `pod_not_ready_or_restarted`로 중단했다. HAProxy는 initial snapshot부터 restart3/Error였고
+previous container log에 backend DNS 해석 실패가 기록됐다. Ready=True를 무재시작 proof로 사용하지 않는다.
+CPU poll·healthy journey·fault·calibration·각 measured arm0, freeze 없음이다. Pod/history reset이나 initialize 반복은 없다.
+CUSTOM/shared/namespace·PAT17/image/AKS role·보호 사본 cleanup과 stable/KEDA/storage 보존을 확인했다.
+과거5회를 포함한 준비/원복 누적6회·비용·raw/checksum을 유지한다. Source 수정/새 Task 없이 실행 순서를 교정해야 하며
+별도 통합 재승인 전 자동 반복하지 않는다. 후속 evidence HEAD는 실제 execution source와 구분한다.
+
+## 제5차 historical 실행
+
 현재 상태: **제5차 승인 실행 normal result metadata invalid / P9-owned cleanup 완료 / P9 acceptance 미충족**.
 승인·실제 execution source는 `50aac4a9fab0881dfba41340f4a6ef0f5c4e0142`다.
 [제5차 통합 승인](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6493316821),
