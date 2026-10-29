@@ -952,7 +952,8 @@ class MetricInitializationTests(unittest.TestCase):
 
         The failed poll CPU/Warning history is replayed; the later-read HPA and
         post-stop sample are NOT a live recovery. Only synthetic continuations
-        combine them and advance the next CPU sample at the observed ~65s cadence.
+        combine them and advance a sample after a synthetic 65s interval. The
+        archived 65.166s window does not establish the live sampling cadence.
         """
         runtime, _ = self.archived_cpu_runtime('fourth')
         with tarfile.open(ROOT / 'docs/evidence/p9-mitigation-fourth-20261029/raw-evidence.tar.gz') as t:

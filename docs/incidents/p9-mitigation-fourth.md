@@ -47,7 +47,7 @@ measured run600초와 별개다. Preparation retention 검사에 이 예산과 �
 
 4차 archive의 실제 Pod/HPA/Warning/CPU 구조를 기존 P8 guard→P9 경계로 replay한 cost-free 회귀에서
 생성 age90/110초의 pending, post-stop 자료를 조합한 첫 positive만으로는 미완료,
-약65초 cadence 뒤 **synthetic** advancing sample에서만 완료됨을 검사한다.
+65초 간격을 가정한 **synthetic** advancing sample에서만 완료됨을 검사한다. Window65.166초는 실제 cadence proof가 아니다.
 Collection 비용을 포함한 initialize 통합 회귀도300초 timeout과 조기 완료를 구분한다.
 이는 Azure recovery proof가 아니며 healthy journey·calibration·C0–C3 measured는 여전히0이다.
 과거 실행 source/승인·raw/checksum·네 차례 준비/원복 비용·횟수는 변경하지 않았다.

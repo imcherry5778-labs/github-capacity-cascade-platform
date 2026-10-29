@@ -190,8 +190,8 @@ Startup warning이 있으면 HPA ScalingActive 회복 transition이 마지막 wa
 Measured/C3의 기존 strict warning/controller/telemetry guard와 P8 기본 호출은 이 예외를 사용하지 않는다.
 
 300초 선택 근거는 4차 생성07:39:10·Ready07:39:26·later-read HPA transition07:40:40과
-post-stop sample07:41:31/window65.166초다. 추가 sample 한 cadence(약65초), poll≤15초와 수집≤30초를
-포함하는 bounded 후보이며 실측 성공 시간은 아니다. [Kubernetes HPA 문서](https://kubernetes.io/docs/concepts/workloads/autoscaling/horizontal-pod-autoscale/#pod-readiness-and-autoscaling-metrics)의
+post-stop sample07:41:31/window65.166초다. 이 window를 참고한 synthetic 다음 sample 간격65초와
+poll≤15초·수집≤30초를 포함하는 bounded 후보이며 실측 성공 시간은 아니다. 실제 sample cadence는 미확정이다. [Kubernetes HPA 문서](https://kubernetes.io/docs/concepts/workloads/autoscaling/horizontal-pod-autoscale/#pod-readiness-and-autoscaling-metrics)의
 Ready 전체 sample window/default CPU initialization period5분도 재확인했다. 해당 AKS flag 값은 미확인이다.
 Warning 발생 허용90초, CPU sample window≤90초, freshness≤30초는 settling300초와 별개다.
 
