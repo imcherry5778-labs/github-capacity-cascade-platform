@@ -14,7 +14,10 @@ Source CI 성공과 actual positive preparation/mitigation/recovery 미완료를
 
 ## CPU preparation source 계약
 
-현재 source 계약: **제7차 Warning 시간 충돌 source-only 교정 / 실제 Azure positive gate 미통과 / P9 acceptance 미충족**.
+현재 source 계약: **제8차 freshness/candidate source-only 교정 / 실제 Azure positive gate 미통과 / P9 acceptance 미충족**.
+[제8차 독립 리뷰](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#pullrequestreview-5704588146)에 따라
+검증한 동일 CPU sample의 stale duplicate는 positive로 세지 않고 후보를 보존한다. 준비 완료 뒤 telemetry에서도
+구조가 유효한 stale export는 기존 bounded polling 안에서 pending이며, 최종 완료에는 현재 fresh CPU/HPA와 target telemetry 모두 필요하다.
 [독립 리뷰](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#pullrequestreview-5698170608)에 따라
 첫 fresh positive CPU/HPA recovery 전에는 정확한 CPU HPA metric Warning의 count/time 증가를 기존 monotonic settling300초 안에서 허용한다.
 별도 Warning 발생90초 상한은 제거하며300초 발생 상한으로 치환하지 않는다. 첫 recovery 관측 이후 새 Warning·count/time 증가와 history 유실은 계속 실패한다.
@@ -249,6 +252,10 @@ ObservedGeneration이 있으면 actual generation과 대조한다. 필드가 없
 Startup 실패의 실제 placeholder `currentMetrics=[{type:""}]`는 알려진 ScalingActive=False 상태에서만 pending이며 정상 metric이 아니다.
 누락/stale/pre-Ready sample 또는 HPA 회복 미확인은 준비를 통과하지 못하고 bounded timeout에서 실패한다.
 Zero/unknown을 positive metric으로 승격하지 않는다. Pod/HPA UID·Ready transition/owner drift는 기다리지 않고 실패한다.
+첫 후보 이후 **직전 검증 sample과 timestamp/window/app CPU가 같은 stale duplicate**이며 positive HPA와 ScalingActive transition,
+Warning history·Pod/UID·DB/node/resource invariant가 유지되면 후보를 보존한다. 이 poll은 pending/false이며 sample 수를 늘리지 않는다.
+다른 metric 누락/새 stale timestamp/HPA 미회복은 기존대로 후보를 취소한다. 새 fresh advancing sample은 매번 기존 window/freshness/quiet/HPA 조건을 만족해야 한다.
+마지막 검증 sample보다 timestamp가 역행하거나 같은 timestamp의 window/app CPU가 바뀌면 실패한다.
 
 Warning의 safe reason/time/owner·event UID/count를 append-only `cpu_preparation_warning`으로 보존한다.
 `cpu_preparation_poll`에는 실제 CPU timestamp/window/value, HPA spec/UID/current metric·ScalingActive/transition 및 pending/ready를 기록한다.
@@ -256,7 +263,12 @@ Warning의 safe reason/time/owner·event UID/count를 append-only `cpu_preparati
 Startup warning이 있으면 HPA ScalingActive 회복 transition이 마지막 warning 이후여야 하고, 최소15초 quiet와
 15초 이상 떨어진 두 번의 advancing valid CPU sample·변하지 않은 warning UID/count/time을 확인한 뒤에만 준비를 통과한다.
 이미 양수 metric/HPA가 정상이고 warning이 없는 baseline은 별도 대기 없이 통과할 수 있다.
-회복 뒤 healthy journey/telemetry polling에서 새 warning·count/time 증가·history 유실·HPA/metric 상태 악화는 실패한다.
+회복 뒤 healthy journey/telemetry polling에서 새 warning·count/time 증가·history 유실·HPA/invalid·missing metric 상태 악화는 실패한다.
+완료된 CPU 준비 proof와 현재 poll의 fresh 판정은 구분한다. Telemetry에서는 Ready 전체 window와 양수 CPU 구조가 유효하고
+HPA positive/ScalingActive transition이 유지되는 stale export(새 timestamp 포함)만 기존 `ingestion+3×scrape` deadline 안에서 pending으로 관측한다.
+Stale poll은 `CPUStartup.completed`를 보존해도 return/status는 false/pending이다. `healthy_initialize`는 target signal이 observed여도
+그 poll의 CPU/HPA가 fresh positive가 아니면 완료하지 않는다. Fresh CPU/HPA만 있고 target telemetry가 없을 때도 완료하지 않는다.
+최종 shared-path ALLOW/correlation·native auth·target inbound log/counter·per-Pod freshness/rate 검증은 그대로이며 journey를 반복하지 않는다.
 Measured/C3의 기존 strict warning/controller/telemetry guard와 P8 기본 호출은 이 예외를 사용하지 않는다.
 
 300초 선택 근거는 4차 생성07:39:10·Ready07:39:26·later-read HPA transition07:40:40과
@@ -269,9 +281,16 @@ P8 `guard()`→P9 `CPUStartup`에 실제 UID/owner/reason/count/time·Pod lifecy
 post-stop HPA/currentMetrics·stale CPU만으로 준비 완료를 주장하지 않는다. 후속 fresh advancing CPU sample2개는 명시적 synthetic이다.
 미회복 replay는 monotonic300초에 timeout하며 Warning 이력/첫 candidate 이후 재발·기타 safety negative와 제4차 관련 회귀를 유지한다.
 CPU sample window≤90초, freshness≤30초는 settling300초와 별개이며 별도 Warning 발생 deadline은 없다.
-Cost-free 검증: P9 regression60개(제4·7차 archive와 synthetic 구분, quiet 완료 전 recovery latch 포함), P8 regression38개와 `make static`을 통과했다.
+제8차9-poll도 같은 P8 guard adapter를 거쳐 replay한다. Full guard/UTC poll 시각은 미기록이므로 command-end UTC/failure monotonic anchor로
+wall clock을 재구성하고, 실제 sample/HPA/Warning projection·poll 간격·archived lifecycle을 유지한다. DB 응답은 기존 adapter의 synthetic이다.
+원래60개 회귀와 함께 Poll3 후보→Poll4 동일 stale pending/후보 유지→Poll5 fresh advancing에서 offline 준비 완료,
+Poll6–9 stale는 모두 pending/false임을 확인한다. **이는 수정 class의 cost-free replay이며 제8차 actual ready0을 변경하지 않는다.**
+전체 healthy_initialize 회귀는 실제 준비5 polls와 stale poll6 뒤 명시적 synthetic journey/server/Prometheus·fresh CPU 후속 sample을 사용한다.
+Target signal observed+stale CPU만으로 완료하지 않으며 fresh CPU와 positive target path가 함께 있을 때만 완료한다.
+Stale-only는 settling300초 또는 기존 telemetry deadline에서 실패하고 HPA/Warning/owner·UID·sample history·DB/node/resource negative도 유지한다.
+Cost-free 검증: P9 regression65개(제4·7·8차 archive와 synthetic 구분, quiet 완료 전 recovery latch 포함), P8 regression38개와 `make static`을 통과했다.
 동일 제7차 입력을 이전 source class에 넣으면 Pod+91초에서 거부하고 수정 class에서는 pending인 것을 대조했다.
-일곱 차례 raw archive의 기존 byte/SHA256를 보존했으며 final exact-head CI·독립 review는 GitHub에서 별도 확인한다.
+여덟 차례 raw archive의 기존 byte/SHA256를 보존했으며 final exact-head CI·독립 review는 GitHub에서 별도 확인한다.
 
 `initialize` CLI는 GNU `timeout --signal=TERM --kill-after=5s`의 process group 안에서 내부 `_initialize`를
 1회 호출한다. Operator는 public `initialize`를 사용하며 더 짧은 외부 wrapper를 씌우지 않는다.

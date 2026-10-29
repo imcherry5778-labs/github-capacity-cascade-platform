@@ -764,6 +764,8 @@ class CPUStartup:
         self.created = None
         self.history, self.candidate, self.completed = {}, None, False
         self.recovery_seen = False
+        self.validated_sample = None
+        self.validated_transition = None
 
     def observe(self, guard, emit, at):
         epoch = p8.p7.utc(guard['timestamp_utc']).timestamp()
@@ -828,7 +830,7 @@ class CPUStartup:
         self.history = events
         samples = [p for p in guard['pod_metrics'] if p['metadata']['namespace'] == NS and p['metadata']['name'] == pod['name']]
         require(len(samples) <= 1, 'ambiguous CPU preparation sample')
-        metric, status, stamp, sample_evidence, current_evidence = False, False, None, None, None
+        metric, ready_window, status, stamp, age, sample_evidence, current_evidence = False, False, False, None, None, None, None
         if samples:
             sample = samples[0]
             apps = [c for c in sample['containers'] if c['name'] == 'app']
@@ -843,8 +845,13 @@ class CPUStartup:
                 seconds = float(duration[1] or 0) * 60 + float(duration[2]) if duration else None
                 require(seconds is not None and 0 < seconds <= self.sample_window_seconds, 'invalid CPU sample window')
                 stamp = p8.p7.utc(sample['timestamp']).timestamp()
-                metric = 0 <= epoch - stamp <= 30 and ready_at <= stamp - seconds
+                age, ready_window = epoch - stamp, ready_at <= stamp - seconds
+                metric = 0 <= age <= 30 and ready_window
                 sample_evidence = {'timestamp_epoch': stamp, 'window_seconds': seconds, 'app_cpu': cpu}
+                if self.validated_sample is not None:
+                    require(stamp >= self.validated_sample['timestamp_epoch'] and
+                            (stamp != self.validated_sample['timestamp_epoch'] or sample_evidence == self.validated_sample),
+                            'CPU preparation sample history drift')
         active = [c for c in hpa['status'].get('conditions', []) if c['type'] == 'ScalingActive']
         able = [c for c in hpa['status'].get('conditions', []) if c['type'] == 'AbleToScale']
         require(len(able) <= 1 and all(c['status'] == 'True' for c in able), 'CPU HPA unable to scale')
@@ -872,11 +879,17 @@ class CPUStartup:
             require(active[0].get('reason') in self.reasons, 'CPU HPA non-startup failure')
         generation = hpa['status'].get('observedGeneration')
         require(generation is None or type(generation) is int and generation == meta.get('generation'), 'CPU HPA observed generation drift')
-        positive = bool(able) and metric and status and recovered
+        hpa_positive = bool(able) and status and recovered
+        positive = hpa_positive and metric
         self.recovery_seen = self.recovery_seen or positive  # Latch before quiet/two-sample waiting, even across metric gaps.
         positive = positive and epoch - last >= self.quiet_seconds
+        stale = (hpa_positive and ready_window and age > 30 and epoch - last >= self.quiet_seconds and
+                 transition == self.validated_transition)
+        stale_duplicate = stale and sample_evidence == self.validated_sample
         if self.completed:
-            require(positive, 'CPU preparation regressed after recovery')
+            # Telemetry may wait for a structurally valid stale export under its
+            # existing deadline. This poll never grants current CPU readiness.
+            require(positive or stale, 'CPU preparation regressed after recovery')
         elif positive:
             # Retained warnings require two advancing valid samples and a quiet
             # HPA interval. An already healthy no-warning baseline needs no wait.
@@ -884,15 +897,21 @@ class CPUStartup:
                 self.completed = True
             elif self.candidate is None:
                 self.candidate = (at, stamp)
-        else:
+        elif not stale_duplicate:
+            # A stale duplicate preserves the earlier fresh candidate without
+            # counting as another sample. Other gaps still invalidate it.
             self.candidate = None
+        if positive:
+            self.validated_sample = sample_evidence.copy()
+            self.validated_transition = transition
+        ready = self.completed and positive
         emit({'record': 'cpu_preparation_poll', 'at': at, 'target_uid': self.target, 'hpa_uid': self.hpa_uid,
               'ready_since_epoch': ready_at, 'sample_epoch': stamp, 'valid_ready_window': bool(metric),
               'sample': sample_evidence, 'hpa_current_cpu': current_evidence, 'hpa_spec': self.spec,
               'scaling_active': bool(active and active[0]['status'] == 'True'), 'hpa_transition_epoch': transition,
-              'hpa_metric_recovered': bool(status and recovered), 'status': 'ready' if self.completed else 'pending',
+              'hpa_metric_recovered': bool(status and recovered), 'status': 'ready' if ready else 'pending',
               'warning_history': copy.deepcopy(self.history), 'measured_denominator': False})
-        return self.completed
+        return ready
 
 
 def initialization_process_seconds(v):
@@ -998,14 +1017,14 @@ def healthy_initialize(runtime, v, journey, emit, *, clock=time.monotonic, wait=
             actual = runtime.configuration(config, initializing=True)
             require({t['uid'] for t in actual['targets']} == initial and actual == before, 'initialization config/UID drift')
             stage, stage_started = 'telemetry_resource_guard', clock()
-            initialization_safety(runtime.guard(), cpu_startup=cpu_startup, emit=emit, at=clock())
+            cpu_positive = initialization_safety(runtime.guard(), cpu_startup=cpu_startup, emit=emit, at=clock())
             stage, stage_started = 'telemetry_signal', clock()
             pods = runtime.targets()
             require({p['metadata']['uid'] for p in pods} == initial, 'initialization live UID drift')
             signal = runtime.signal(pods, initializing=True)
             emit({'record': 'healthy_telemetry_poll', 'at': clock(), 'configuration': actual,
                   'admin_stats': runtime.admin_observations, 'signal': signal, 'deadline': deadline})
-            if signal['status'] == 'observed':
+            if signal['status'] == 'observed' and cpu_positive:
                 require(clock() <= deadline, 'healthy initialization polling timeout')
                 stage, stage_started = 'positive_path', clock()
                 logs_after = runtime.logs(actual)

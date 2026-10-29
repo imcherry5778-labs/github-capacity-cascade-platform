@@ -776,11 +776,12 @@ class MetricInitializationTests(unittest.TestCase):
                    'operation_id': op, 'attempt_id': aid, 'decision': 'ALLOW', 'header_names': ['authorization'],
                    'credential_values_absent': True, 'body_absent': True, 'haproxy_hop': True, 'controlled_deny': False}
                   for i, (op, aid) in enumerate(pairs)]
-        logs = {'checks': [], 'proxies': {'target': {'target': []}, 'ingress': {'ingress': []}}}
+        uid = f.pods[0]['metadata']['uid']
+        logs = {'checks': [], 'proxies': {'target': {uid: []}, 'ingress': {'ingress': []}}}
         f.runtime.logs = lambda _: copy.deepcopy(logs)
         def journey(_):
             logs['checks'] += copy.deepcopy(checks)
-            logs['proxies']['target']['target'] += [{'status': 200, 'detail': 'via_upstream', 'cluster': 'inbound|8080||', 'duration_ms': 1}] * len(checks)
+            logs['proxies']['target'][uid] += [{'status': 200, 'detail': 'via_upstream', 'cluster': 'inbound|8080||', 'duration_ms': 1}] * len(checks)
             # Existing private-repo native-deny checks still receive gate ALLOW.
             logs['proxies']['ingress']['ingress'] += [{'status': status, 'detail': 'via_upstream',
                 'cluster': 'outbound|3000||forgejo-http.forgejo.svc.cluster.local', 'duration_ms': 1}
@@ -847,14 +848,15 @@ class MetricInitializationTests(unittest.TestCase):
             m.initialization_safety(g, cpu_startup=cpu, emit=rows.append, at=31)
 
     def archived_cpu_runtime(self, attempt="third"):
-        with tarfile.open(ROOT / f'docs/evidence/p9-mitigation-{attempt}-20261029/raw-evidence.tar.gz') as t:
+        date = '20261030' if attempt == 'eighth' else '20261029'
+        with tarfile.open(ROOT / f'docs/evidence/p9-mitigation-{attempt}-{date}/raw-evidence.tar.gz') as t:
             read = lambda n: json.load(t.extractfile(n))
             r = m.Runtime.__new__(m.Runtime); r.value = read('identity.json'); r.preparation = True; r.hpa_name = 'hpa-app-cpu'
             r.since = {'third': '2026-10-29T05:56:40Z', 'fourth': '2026-10-29T07:39:27Z',
-                       'seventh': '2026-10-29T12:26:59Z'}[attempt]
+                       'seventh': '2026-10-29T12:26:59Z', 'eighth': '2026-10-29T19:33:14Z'}[attempt]
             terminal = read('experiment-terminal.json')
-            hpa = terminal['hpa']['items'][0] if attempt == 'seventh' else next(x for x in terminal['items'] if x['kind'] == 'HorizontalPodAutoscaler')
-            objects = {'nodes': read('nodes-before.json'), 'events': terminal['events'] if attempt == 'seventh' else read('fixture-events-stop.json'),
+            hpa = terminal['hpa']['items'][0] if attempt in {'seventh', 'eighth'} else next(x for x in terminal['items'] if x['kind'] == 'HorizontalPodAutoscaler')
+            objects = {'nodes': read('nodes-before.json'), 'events': terminal['events'] if attempt in {'seventh', 'eighth'} else read('fixture-events-stop.json'),
                        'application': read('argo-before.json'), 'hpa': hpa}
             owned, all_pods = read('initial-pods.json'), read('all-pods-before.json')
             metrics = read('pod-metrics-stop.json')
@@ -867,6 +869,216 @@ class MetricInitializationTests(unittest.TestCase):
         r.j = j; r.pod = lambda *a: stable
         r.k = lambda *a: '{"query_ok":true,"connections":4,"max_connections":100,"reserved":5}'
         return r, owned
+
+    def eighth_cpu_timeline(self):
+        """Actual nine poll projections through P8 guard, not live recovery.
+
+        Full guards/UTC poll times were not emitted. Reconstruct the wall clock
+        from the command-end UTC/failure monotonic anchor; retain the actual
+        poll intervals, CPU/HPA/Warning fields and archived lifecycle. The
+        existing adapter supplies DB/node checks; these are not new live proof.
+        """
+        runtime, owned = self.archived_cpu_runtime('eighth')
+        with tarfile.open(ROOT / 'docs/evidence/p9-mitigation-eighth-20261030/raw-evidence.tar.gz') as t:
+            rows = [json.loads(line) for line in t.extractfile('healthy-initialization/events.jsonl')]
+            end = json.load(t.extractfile('initialize-command.json'))
+        polls = [r for r in rows if r['record'] == 'cpu_preparation_poll']
+        failure = rows[-1]
+        origin = failure['at'] - failure['elapsed_seconds']
+        wall_offset = m.p8.p7.utc(end['at_utc']).timestamp() - failure['at']
+        stamp = lambda epoch: m.datetime.fromtimestamp(epoch, m.timezone.utc).isoformat()
+        hpa = runtime.j('-n', m.NS, 'get', 'hpa', 'hpa-app-cpu', '-o', 'json')
+        target = next(p for p in owned['items'] if p['metadata']['uid'] == polls[0]['target_uid'])
+        sample = next(p for p in runtime.j('get', '--raw', '/apis/metrics.k8s.io/v1beta1/pods')['items']
+                      if p['metadata']['name'] == target['metadata']['name'])
+        events = runtime.j('get', 'events', '-A', '-o', 'json')['items']
+        frames = []
+        for poll in polls:
+            sample.update(timestamp=stamp(poll['sample_epoch']), window=str(poll['sample']['window_seconds']) + 's')
+            next(c for c in sample['containers'] if c['name'] == 'app')['usage']['cpu'] = poll['sample']['app_cpu']
+            active = next(c for c in hpa['status']['conditions'] if c['type'] == 'ScalingActive')
+            active.update(status='True' if poll['scaling_active'] else 'False',
+                          reason='ValidMetricFound' if poll['scaling_active'] else 'FailedGetContainerResourceMetric',
+                          lastTransitionTime=stamp(poll['hpa_transition_epoch']))
+            current = poll['hpa_current_cpu']
+            hpa['status']['currentMetrics'] = ([{'type': 'ContainerResource', 'containerResource':
+                {'container': current['container'], 'name': current['name'], 'current':
+                    {k: current[k] for k in ('averageValue', 'averageUtilization')}}}] if current else [{'type': ''}])
+            for e in events:
+                history = poll['warning_history'].get(e['metadata']['uid'])
+                if history is None:
+                    continue
+                last, count, first, reason = history
+                e.update(lastTimestamp=last, count=count, firstTimestamp=first, reason=reason)
+            with patch.object(m.p8, 'utc', return_value=stamp(wall_offset + poll['at'])):
+                frames.append((poll['at'] - origin, copy.deepcopy(m.Runtime.guard(runtime))))
+        actual = {'targets': [{'uid': target['metadata']['uid'], 'name': target['metadata']['name']}],
+                  'hpa_spec': copy.deepcopy(hpa['spec'])}
+        return actual, frames, polls
+
+    def test_eighth_actual_fresh_stale_fresh_preserves_candidate_without_counting_stale(self):
+        actual, frames, polls = self.eighth_cpu_timeline()
+        cpu, rows, ready = m.CPUStartup(actual), [], []
+        for i, (at, guard) in enumerate(frames):
+            ready.append(m.initialization_safety(guard, cpu_startup=cpu, emit=rows.append, at=at))
+            emitted = rows[-1]
+            self.assertEqual(emitted['sample'], polls[i]['sample'])
+            self.assertEqual(emitted['valid_ready_window'], polls[i]['valid_ready_window'])
+            self.assertEqual(emitted['hpa_metric_recovered'], polls[i]['hpa_metric_recovered'])
+            self.assertEqual(emitted['hpa_spec'], polls[i]['hpa_spec'])
+            self.assertEqual({k: list(v) for k, v in emitted['warning_history'].items()}, polls[i]['warning_history'])
+            if i == 2:
+                candidate = cpu.candidate
+                self.assertIsNotNone(candidate); self.assertFalse(cpu.completed)
+            if i == 3:
+                self.assertEqual(cpu.candidate, candidate)
+                self.assertFalse(cpu.completed); self.assertFalse(ready[-1])
+        self.assertEqual(ready, [False, False, False, False, True, False, False, False, False])
+        self.assertTrue(cpu.completed)  # Historical preparation proof, not current freshness.
+        self.assertEqual([r['status'] for r in rows if r['record'] == 'cpu_preparation_poll'],
+                         ['pending'] * 4 + ['ready'] + ['pending'] * 4)
+
+    def test_eighth_candidate_retention_is_only_for_the_validated_stale_duplicate(self):
+        for case in ('missing', 'missing-app', 'new-stale', 'no-current', 'no-active', 'hpa-regressed', 'hpa-transition', 'future'):
+            with self.subTest(case=case):
+                actual, frames, _ = self.eighth_cpu_timeline(); cpu = m.CPUStartup(actual)
+                for at, guard in frames[:3]: cpu.observe(guard, lambda _: None, at)
+                at, guard = copy.deepcopy(frames[3])
+                sample = next(p for p in guard['pod_metrics'] if p['metadata']['name'] == cpu.target_name)
+                if case == 'missing': guard['pod_metrics'] = []
+                elif case == 'missing-app': sample['containers'] = []
+                elif case in {'new-stale', 'future'}:
+                    sample['timestamp'] = (m.p8.p7.utc(sample['timestamp']) + m.timedelta(seconds=1 if case == 'new-stale' else 100)).isoformat()
+                elif case == 'no-current': guard['cpu_hpa']['status']['currentMetrics'] = []
+                elif case == 'no-active': guard['cpu_hpa']['status']['conditions'] = []
+                elif case == 'hpa-regressed':
+                    next(c for c in guard['cpu_hpa']['status']['conditions'] if c['type'] == 'ScalingActive').update(
+                        status='False', reason='FailedGetContainerResourceMetric')
+                elif case == 'hpa-transition':
+                    next(c for c in guard['cpu_hpa']['status']['conditions'] if c['type'] == 'ScalingActive')['lastTransitionTime'] = guard['timestamp_utc']
+                self.assertFalse(m.initialization_safety(guard, cpu_startup=cpu, emit=lambda _: None, at=at))
+                self.assertIsNone(cpu.candidate)
+                at, guard = frames[4]
+                self.assertFalse(cpu.observe(guard, lambda _: None, at))  # Only one fresh sample after invalidation.
+                self.assertFalse(cpu.completed)
+
+    def test_eighth_stale_poll_never_masks_safety_or_sample_history_failure(self):
+        cases = ('warning', 'warning-lost', 'warning-owner', 'warning-reason', 'hpa-uid', 'hpa-owner', 'pod-uid',
+                 'ready-time', 'restart', 'db', 'node', 'resource', 'zero', 'missing-cpu', 'window', 'cpu-drift', 'sample-regression')
+        for completed in (False, True):
+            for case in cases:
+                with self.subTest(completed=completed, case=case):
+                    actual, frames, _ = self.eighth_cpu_timeline(); cpu = m.CPUStartup(actual)
+                    for at, guard in frames[:5 if completed else 3]: cpu.observe(guard, lambda _: None, at)
+                    at, guard = copy.deepcopy(frames[5 if completed else 3])
+                    sample = next(p for p in guard['pod_metrics'] if p['metadata']['name'] == cpu.target_name)
+                    app = next(c for c in sample['containers'] if c['name'] == 'app')
+                    if case == 'warning': guard['events'][0]['count'] += 1
+                    elif case == 'warning-lost': guard['events'].pop()
+                    elif case == 'warning-owner': guard['events'][0]['owner']['uid'] = 'other'
+                    elif case == 'warning-reason': guard['events'][0]['reason'] = 'Unhealthy'
+                    elif case == 'hpa-uid': guard['cpu_hpa']['metadata']['uid'] = 'other'
+                    elif case == 'hpa-owner': guard['cpu_hpa']['metadata']['ownerReferences'] = [{'kind': 'ScaledObject'}]
+                    elif case == 'pod-uid': guard['cpu_preparation_pods'][0]['uid'] = 'other'
+                    elif case == 'ready-time': guard['cpu_preparation_pods'][0]['ready_conditions'][0]['lastTransitionTime'] = sample['timestamp']
+                    elif case == 'restart': guard['pods'][0]['containers'][0]['restarts'] = 1
+                    elif case == 'db': guard['postgres']['query_ok'] = False
+                    elif case == 'node': guard['nodes'][0]['conditions']['MemoryPressure'] = 'True'
+                    elif case == 'resource': guard['admission']['conservative_sum']['limits']['cpu'] = 2
+                    elif case == 'zero': app['usage']['cpu'] = '0'
+                    elif case == 'missing-cpu': app['usage'].pop('cpu')
+                    elif case == 'window': sample['window'] = '91s'
+                    elif case == 'cpu-drift': app['usage']['cpu'] = '1m'
+                    elif case == 'sample-regression':
+                        sample['timestamp'] = (m.p8.p7.utc(sample['timestamp']) - m.timedelta(seconds=1)).isoformat()
+                    with self.assertRaises(ValueError):
+                        m.initialization_safety(guard, cpu_startup=cpu, emit=lambda _: None, at=at)
+
+    def test_eighth_stale_only_candidate_cannot_complete_before_settling_timeout(self):
+        actual, frames, _ = self.eighth_cpu_timeline(); f, now, rows, calls = self.preparation(), [0], [], []
+        epoch = m.p8.p7.utc(frames[0][1]['timestamp_utc']).timestamp() - frames[0][0]
+        count = [0]
+        def guard():
+            i = count[0]; count[0] += 1
+            if i < 3:
+                now[0] = frames[i][0]
+                return copy.deepcopy(frames[i][1])
+            now[0] += min(17, f.runtime.collection_deadline.at - now[0])
+            g = copy.deepcopy(frames[3][1])
+            g['timestamp_utc'] = m.datetime.fromtimestamp(epoch + now[0], m.timezone.utc).isoformat()
+            return g
+        f.runtime.configuration = lambda *a, **kw: copy.deepcopy(actual)
+        f.runtime.guard = guard
+        with self.assertRaisesRegex(ValueError, 'settling timeout'):
+            m.healthy_initialize(f.runtime, plan(), lambda _: calls.append(1), rows.append, clock=lambda: now[0],
+                                 wait=lambda seconds: now.__setitem__(0, now[0] + seconds))
+        self.assertEqual(now[0], 300); self.assertEqual(calls, [])
+        self.assertFalse(any(r['record'] in {'healthy_journey_intent', 'healthy_initialization_complete'} for r in rows))
+        self.assertTrue(all(r['status'] == 'pending' for r in rows if r['record'] == 'cpu_preparation_poll'))
+
+    def test_eighth_healthy_initialize_requires_fresh_cpu_and_positive_target_telemetry(self):
+        # Actual archived preparation + stale telemetry poll6. Client/server,
+        # Prometheus and the later fresh CPU continuation are synthetic only.
+        for case in ('success', 'stale-only', 'target-missing', 'no-checks', 'hpa-regressed', 'warning', 'missing-cpu', 'uid'):
+            with self.subTest(case=case):
+                actual, frames, _ = self.eighth_cpu_timeline(); f, now, rows, calls = self.preparation(), [0], [], []
+                uid, name = actual['targets'][0]['uid'], actual['targets'][0]['name']
+                f.pods[0]['metadata'].update(uid=uid, name=name)
+                f.runtime.initial_uids = {uid}; f.no_admin = {uid}
+                f.capacities[name], f.holds[name] = 1024, 0
+                positive, _, logs = self.positive_journey(f)
+                configuration = f.runtime.configuration
+                config_calls, guard_calls = [0], [0]
+                epoch = m.p8.p7.utc(frames[0][1]['timestamp_utc']).timestamp() - frames[0][0]
+                def config(*args, **kwargs):
+                    cost = 13.710404221 if config_calls[0] == 0 else 7
+                    config_calls[0] += 1
+                    now[0] += min(cost, f.runtime.collection_deadline.at - now[0])
+                    return configuration(*args, **kwargs)
+                def guard():
+                    i = min(guard_calls[0], 8); guard_calls[0] += 1
+                    now[0] = min(frames[i][0], f.runtime.collection_deadline.at)
+                    g = copy.deepcopy(frames[i][1])
+                    g['timestamp_utc'] = m.datetime.fromtimestamp(epoch + now[0], m.timezone.utc).isoformat()
+                    if i >= 6:
+                        if case != 'stale-only':
+                            sample = next(p for p in g['pod_metrics'] if p['metadata']['name'] == name)
+                            sample['timestamp'] = m.datetime.fromtimestamp(epoch + now[0] - 5, m.timezone.utc).isoformat()
+                        if case == 'hpa-regressed': g['cpu_hpa']['status']['currentMetrics'] = []
+                        elif case == 'warning': g['events'][0]['count'] += 1
+                        elif case == 'missing-cpu': g['pod_metrics'] = []
+                        elif case == 'uid': g['cpu_preparation_pods'][0]['uid'] = 'other'
+                    return g
+                def journey(timeout):
+                    calls.append(timeout); now[0] += 5
+                    f.no_admin.clear()
+                    if case == 'target-missing': f.missing = {uid}
+                    path = positive(timeout)
+                    if case == 'no-checks': logs['checks'].clear()
+                    return path
+                f.runtime.configuration, f.runtime.guard = config, guard
+                with patch.object(m.time, 'monotonic', side_effect=lambda: now[0]), patch.object(m.time, 'time', side_effect=lambda: epoch + now[0]):
+                    kwargs = {'clock': lambda: now[0], 'wait': lambda seconds: now.__setitem__(0, now[0] + seconds)}
+                    if case == 'success':
+                        result = m.healthy_initialize(f.runtime, plan(), journey, rows.append, **kwargs)
+                        self.assertTrue(result['ready_for_keda_authentication']); self.assertFalse(result['runtime_preflight_passed'])
+                        self.assertEqual(len(result['correlated_attempt_checks']), 9)
+                        self.assertEqual(result['target_requests'], result['authorization_checks'])
+                    else:
+                        with self.assertRaises(ValueError) as error:
+                            m.healthy_initialize(f.runtime, plan(), journey, rows.append, **kwargs)
+                        self.assertFalse(any(r['record'] == 'healthy_initialization_complete' for r in rows))
+                self.assertEqual(calls, [90])
+                cpu_polls = [r for r in rows if r['record'] == 'cpu_preparation_poll']
+                self.assertEqual([r['status'] for r in cpu_polls[:6]], ['pending'] * 4 + ['ready', 'pending'])
+                self.assertFalse(cpu_polls[5]['valid_ready_window'])
+                if case in {'success', 'stale-only', 'no-checks'}:
+                    first = next(r for r in rows if r['record'] == 'healthy_telemetry_poll')
+                    self.assertEqual(first['signal']['status'], 'observed')  # Still cannot complete on stale CPU.
+                if case in {'stale-only', 'target-missing'}:
+                    self.assertEqual(rows[-1]['error_code'], 'validation_failed')
+                    self.assertIn('polling timeout', str(error.exception))
+                    self.assertLessEqual(now[0], frames[4][0] + 5 + plan()['ingestion_seconds'] + 3 * plan()['scrape_seconds'])
 
     def test_cpu_settling_collector_keeps_owner_time_count_without_p8_default_change(self):
         r, owned = self.archived_cpu_runtime()
