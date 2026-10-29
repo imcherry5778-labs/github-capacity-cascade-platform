@@ -802,7 +802,7 @@ def healthy_initialize(runtime, v, journey, emit, *, clock=time.monotonic, wait=
             # Existing journey asserts private anonymous 401/404; those are native
             # auth outcomes after an ALLOW check, never ext_authz denial/failure.
             require(all(int(r['status']) in {200, 201, 401, 404} and r['detail'] == 'via_upstream' and
-                        re.fullmatch(r'outbound\|[0-9]+\|\|forgejo-http\.forgejo\.svc(?:\.cluster\.local)?', r['cluster'] or '') for r in http),
+                        re.fullmatch(r'outbound\|3000\|\|forgejo-http\.forgejo\.svc(?:\.cluster\.local)?;?', r['cluster'] or '') for r in http),
                     'healthy ingress path denied/mismapped')
             uid = actual['targets'][0]['uid']
             total = p8.p4.by_suffix(runtime.stats(actual)[uid])['upstream_rq_total']

@@ -796,6 +796,50 @@ class MetricInitializationTests(unittest.TestCase):
         self.assertIn(3, result['correlated_attempt_checks'].values())  # Git is not HTTP1/check1.
         self.assertEqual(result['auxiliary_checks'], 3)
 
+    def test_archived_p8_normal_cluster_suffix_and_wrong_ingress_rejection(self):
+        # Replay only archived normal log shapes into the synthetic journey;
+        # this is a source regression, not new P9 Azure positive evidence.
+        with tarfile.open(ROOT / 'docs/evidence/p8-controlled-cascade-20261029/raw-evidence.tar.gz') as archive:
+            raw = json.load(archive.extractfile('calibration-05/path.json'))
+        normal = {label: next(r for r in raw['proxies'][label] if r['status'] == 200 and r['detail'] == 'via_upstream')
+                  for label in ('target', 'ingress')}
+        self.assertEqual(normal['target']['cluster'], 'inbound|8080||;')
+        cluster = normal['ingress']['cluster']
+        self.assertEqual(cluster, 'outbound|3000||forgejo-http.forgejo.svc.cluster.local;')
+        cases = [('archived-normal', cluster, 200, 'via_upstream', True),
+                 ('wrong-service', cluster.replace('forgejo-http', 'other'), 200, 'via_upstream', False),
+                 ('wrong-namespace', cluster.replace('.forgejo.svc', '.other.svc'), 200, 'via_upstream', False),
+                 ('wrong-port', cluster.replace('|3000|', '|3001|'), 200, 'via_upstream', False),
+                 ('double-semicolon', cluster + ';', 200, 'via_upstream', False),
+                 ('extra-suffix', cluster + 'other', 200, 'via_upstream', False),
+                 ('denied', cluster, 403, 'ext_authz_denied', False),
+                 ('error', cluster, 403, 'ext_authz_error', False)]
+        for name, ingress_cluster, status, detail, accepted in cases:
+            with self.subTest(case=name):
+                f, rows, calls = self.preparation(), [], []
+                positive, _, logs = self.positive_journey(f)
+                def journey(timeout):
+                    calls.append(1)
+                    path = positive(timeout)
+                    f.no_admin.clear()
+                    for r in logs['proxies']['target']['target']: r.update(normal['target'])
+                    for r in logs['proxies']['ingress']['ingress']:
+                        r.update(normal['ingress'], cluster=ingress_cluster, status=status, detail=detail)
+                    return path
+                if accepted:
+                    result = m.healthy_initialize(f.runtime, plan(), journey, rows.append)
+                    self.assertTrue(result['ready_for_keda_authentication'])
+                    self.assertFalse(result['runtime_preflight_passed'])
+                    self.assertEqual(result['authorization_checks'], result['ingress_http_records'])
+                    self.assertEqual(len(result['correlated_attempt_checks']), 9)
+                    self.assertIn(3, result['correlated_attempt_checks'].values())
+                    self.assertEqual(result['target_requests'], result['authorization_checks'])
+                else:
+                    with self.assertRaisesRegex(ValueError, 'healthy ingress path denied/mismapped'):
+                        m.healthy_initialize(f.runtime, plan(), journey, rows.append)
+                    self.assertFalse(any(r['record'] == 'healthy_initialization_complete' for r in rows))
+                self.assertEqual(calls, [1])
+
     def test_observed_telemetry_without_new_shared_checks_is_rejected(self):
         f, rows, calls = self.preparation(), [], []
         f.no_admin.clear(); f.traffic = 7  # Pre-existing observed series/counters.
