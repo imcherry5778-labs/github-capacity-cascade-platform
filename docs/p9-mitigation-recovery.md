@@ -1,14 +1,16 @@
 # P9-W1 Mitigation & Recovery
 
-상태: **제3차 승인 source의 readiness/resource warning gate 중단 / P9-owned 원복 완료 / P9 acceptance 미충족**.
-승인·실제 execution source는 `ffea5cb865728af54554c91460e3b96364d955fb`다.
-[제3차 사용자 승인](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6488955743),
-[source gate](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6487437745),
-[실제 실행·stage-aware negative·원복 evidence](evidence/p9-mitigation-third-20261029/README.md)를 연결한다.
-Initialize1회는 `readiness_resource_guard / InitializationGuardError / warning_event`로 journey intent 전에 중단했다.
-Healthy journey·fault·calibration·각 measured arm0, freeze·mitigation/recovery 결과 없음이다.
-이번 직접 failure는 확인됐지만 더 깊은 metric 부재 원인은 미확정이며 이전 unknown 원인을 소급 추론하지 않는다.
-아래 이전 이력과 C0–C3 contract/상한을 보존한다. 후속 docs/evidence HEAD는 실행 승인 source가 아니다.
+상태: **제4차 승인 실행 CPU preparation 실패 / P9-owned 원복 완료 / P9 acceptance 미충족**.
+승인·실제 execution source는 `b484160cc0bf13af93d234a5ba30c4013f1d8e00`다.
+[통합 승인](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6490726245),
+[독립 source review](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#pullrequestreview-5694111880),
+[제4차 실제 실행·negative·원복 evidence](evidence/p9-mitigation-fourth-20261029/README.md)를 연결한다.
+Initialize1회는 `readiness_resource_guard / ValueError / validation_failed`, private source error
+`CPU warning outside startup lifetime`로 중단했다. CPU poll2개는 pending, healthy journey·fault·calibration·각 measured arm0,
+freeze·mitigation/recovery 결과 없음이다. Later-read HPA 회복 status를 완료된 준비 proof로 승격하지 않는다.
+Cleanup 뒤 실제 CPU window `1m5.166s` 표현만 cost-free source correction했다. 새로운 Azure 실행은 없으며
+후속 HEAD는 실행 승인 source가 아니다. 기존 상한·acceptance와 이전 세 차례 이력을 보존한다.
+이전 제3차 `ffea5cb`의 [실행/원복](evidence/p9-mitigation-third-20261029/README.md)은 별도 historical evidence다.
 
 이전 제2차 이력:
 상태: **새 승인 source의 healthy initialization 준비 gate 중단 / P9-owned controls 원복 완료 / P9 acceptance 미충족**.
@@ -166,7 +168,7 @@ CPUStartup은 이 opt-in lifecycle을 사용한다. `admission.pods`의 name/uid
 P8 admission accounting·기본 guard 계약은 유지한다. Lifecycle 필드 누락/UID·Ready transition drift는 fail-closed다.
 
 준비 성공에는 고정 target UID의 실제 Ready/무재시작·변하지 않은 Ready transition, `app` CPU 양수 sample,
-sample window 전체가 Ready 이후이며 sample age≤30초인 관측을 요구한다. CPU HPA spec/UID/unowned CPU controller가
+sample window 전체가 Ready 이후이며 sample age≤30초인 관측을 요구한다. 실제 `38.03s`/`1m5.166s` 표현을 초로 해석하되 window≤90초를 유지한다. CPU HPA spec/UID/unowned CPU controller가
 일치하고 AbleToScale=True/ScalingActive=True 및 `ContainerResource/cpu/app`의 양수 currentMetrics averageValue/averageUtilization도 있어야 한다.
 ObservedGeneration이 있으면 actual generation과 대조한다. 필드가 없는 actual HPA에 generation을 합성하지 않는다.
 Startup 실패의 실제 placeholder `currentMetrics=[{type:""}]`는 알려진 ScalingActive=False 상태에서만 pending이며 정상 metric이 아니다.
@@ -367,7 +369,7 @@ Environment/Foundation 기한 연장, 새 compute/Disk/PVC, node autoscaling/DNS
 ## 실행 entrypoint와 남은 gate
 
 Source gate는 직접 회귀, P8 historical replay, `make static`, exact-head PR CI와 독립 review다.
-제3차 승인 source의 CI/source gate는 통과했으나 readiness/resource warning gate에서 중단했다. 실제 positive/telemetry gate는 미통과다.
+제4차 승인 source의 CI/source gate는 통과했으나 CPU startup lifetime 검증에서 중단했다. 실제 positive/telemetry gate는 미통과다.
 아래는 entrypoint 사용 형식이며 성공한 campaign 기록이 아니다. 재개 전 새 source gate와 필요한 승인을 확인한다.
 
 ```bash

@@ -924,6 +924,29 @@ class MetricInitializationTests(unittest.TestCase):
                     guard['cpu_preparation_pods'][0].pop(key)
                 with self.assertRaises(ValueError): cpu.observe(guard, lambda _: None, 1)
 
+    def test_recorded_resource_cpu_window_minutes_preserves_ready_and_duration_bounds(self):
+        with tarfile.open(ROOT / 'docs/evidence/p9-mitigation-fourth-20261029/raw-evidence.tar.gz') as archive:
+            samples = json.load(archive.extractfile('pod-metrics-stop.json'))['items']
+        recorded = next(p for p in samples if p['metadata']['labels'].get('app') == 'ext-authz-sim')
+        self.assertEqual(recorded['window'], '1m5.166s')
+        # Only the recorded window format is replayed into a synthetic healthy
+        # CPU/HPA wrapper. The post-stop payload is not a completed live gate.
+        for window, accepted in ((recorded['window'], True), ('65.166s', True), ('1m30.001s', False),
+                                 ('2m0s', False), ('0m0s', False), ('unknown', False), (recorded['window'], None)):
+            with self.subTest(window=window):
+                f = self.preparation(); guard = f.runtime.guard(); epoch = m.p8.p7.utc(guard['timestamp_utc']).timestamp()
+                stamp = lambda value: m.datetime.fromtimestamp(value, m.timezone.utc).isoformat()
+                guard['cpu_preparation_pods'][0].update(creationTimestamp=stamp(epoch-100),
+                    ready_conditions=[{'status': 'True', 'lastTransitionTime': stamp(epoch-(40 if accepted is None else 80))}])
+                guard['pod_metrics'][0]['window'] = window
+                cpu = m.CPUStartup(f.baseline)
+                if accepted is None:
+                    self.assertFalse(m.initialization_safety(guard, cpu_startup=cpu, emit=lambda _: None, at=0))
+                elif accepted:
+                    self.assertTrue(m.initialization_safety(guard, cpu_startup=cpu, emit=lambda _: None, at=0))
+                else:
+                    with self.assertRaises(ValueError): m.initialization_safety(guard, cpu_startup=cpu, emit=lambda _: None, at=0)
+
     def test_cpu_settling_timeout_other_warning_and_bad_metrics_never_start_journey(self):
         cases = ('persistent', 'pre-ready', 'missing', 'stale', 'zero', 'unknown', 'metric-container', 'metric-duplicate',
                  'hpa-metric', 'hpa-value-zero', 'owner', 'spec', 'other-warning', 'other-hpa', 'wrong-uid', 'no-owner',

@@ -826,11 +826,14 @@ class CPUStartup:
                 cpu = apps[0]['usage'].get('cpu')
                 require(isinstance(cpu, str) and re.fullmatch(r'[0-9]+(?:\.[0-9]+)?(?:n|u|m)?', cpu) and
                         math.isfinite(p8.quantity(cpu)) and p8.quantity(cpu) > 0, 'zero/unknown app CPU sample')
-                duration = re.fullmatch(r'([0-9]+(?:\.[0-9]+)?)s', sample['window'])
-                require(duration and 0 < float(duration[1]) <= self.seconds, 'invalid CPU sample window')
+                # Resource Metrics serializes Go durations: both 38.03s and
+                # 1m5.166s are observed. Keep the same <=90s semantic bound.
+                duration = re.fullmatch(r'(?:([0-9]+)m)?([0-9]+(?:\.[0-9]+)?)s', sample['window'])
+                seconds = float(duration[1] or 0) * 60 + float(duration[2]) if duration else None
+                require(seconds is not None and 0 < seconds <= self.seconds, 'invalid CPU sample window')
                 stamp = p8.p7.utc(sample['timestamp']).timestamp()
-                metric = 0 <= epoch - stamp <= 30 and ready_at <= stamp - float(duration[1])
-                sample_evidence = {'timestamp_epoch': stamp, 'window_seconds': float(duration[1]), 'app_cpu': cpu}
+                metric = 0 <= epoch - stamp <= 30 and ready_at <= stamp - seconds
+                sample_evidence = {'timestamp_epoch': stamp, 'window_seconds': seconds, 'app_cpu': cpu}
         active = [c for c in hpa['status'].get('conditions', []) if c['type'] == 'ScalingActive']
         able = [c for c in hpa['status'].get('conditions', []) if c['type'] == 'AbleToScale']
         require(len(able) <= 1 and all(c['status'] == 'True' for c in able), 'CPU HPA unable to scale')
