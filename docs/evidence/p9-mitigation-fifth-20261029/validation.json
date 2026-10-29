@@ -1,0 +1,38 @@
+{
+  "execution_source_sha": "50aac4a9fab0881dfba41340f4a6ef0f5c4e0142",
+  "execution_source_unchanged_during_runtime": true,
+  "normal_validator_negative_reproduced": "ValueError: invalid phase",
+  "normal_raw_phase": "baseline",
+  "normal_raw_not_rewritten": true,
+  "normal_create_replayed": false,
+  "archive_files": 82,
+  "archive_sha256": "4ad683e43a4a277613442cc4e6a45f4c0bf4f1e8ef65699879f25d971307dbae",
+  "member_inventory_size_sha256_verified": true,
+  "privacy_scan": "known credentials/private path patterns absent from intended publication",
+  "protected_credential_directory_removed": true,
+  "restoration_comparisons_verified": [
+    "CUSTOM and experiment namespace never created; absent at final read",
+    "shared ConfigMap UID/data unchanged",
+    "KEDA Deployment UID/spec and SA UID/annotations unchanged; Ready2",
+    "stable Deployment UID/spec; Argo Synced/Healthy",
+    "stable Secret UID/data hash unchanged",
+    "node/PVC/PV/service UID sets unchanged",
+    "environment ARM resource ID set unchanged",
+    "exact owned image/tag/local tag removed; live references0",
+    "owned AKS role absent; original assignment IDs preserved",
+    "PAT16 DELETE204/0 bytes; PAT401/list0 before prohibit_login; Basic401",
+    "final native normal verify exit0",
+    "PV/PVC specs unchanged; existing PV handles match Azure Disk IDs/10GiB"
+  ],
+  "historical_archive_sha256": {
+    "p9-mitigation-fourth-20261029": "e9d4cf692c124bfe09c80a4c281b7b9b701ca9f1820846cacde251fab938582d",
+    "p9-mitigation-preflight-20261029": "8dca74dba05b1ae6177d8629274caca0bf34375a096a7e11b93fb38107da7bc2",
+    "p9-mitigation-resume-20261029": "8f706ed5731559f07a5e1c0201470862285f2b86b3a76fb039a4bc6a78f1a41f",
+    "p9-mitigation-third-20261029": "1e10986b55b33de85a784fae01d40469748a0ae9967850b700e7214e7eb04c22"
+  },
+  "implementation_tests_rerun": false,
+  "reason_no_source_tests_rerun": "docs/evidence-only change; approved implementation bytes unchanged; artifact/negative validator verification performed",
+  "p9_acceptance_met": false,
+  "final_exact_head_ci": "verify GitHub final evidence/docs HEAD; separate from approved execution source",
+  "temporary_operator_helpers_removed": true
+}

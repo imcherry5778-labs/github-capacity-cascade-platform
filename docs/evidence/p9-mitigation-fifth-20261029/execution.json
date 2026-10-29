@@ -1,0 +1,94 @@
+{
+  "approved_source_sha": "50aac4a9fab0881dfba41340f4a6ef0f5c4e0142",
+  "execution_source_sha": "50aac4a9fab0881dfba41340f4a6ef0f5c4e0142",
+  "approval_url": "https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6493316821",
+  "image": {
+    "source_sha": "50aac4a9fab0881dfba41340f4a6ef0f5c4e0142",
+    "tag": "acrccpp6krc57781024.azurecr.io/ext-authz-sim:50aac4a9fab0881dfba41340f4a6ef0f5c4e0142",
+    "digest": "sha256:2ecf02b0e2a19036de097bb645669dda57ad2fda0020d3f2d07a73d73289e4af",
+    "base": "docker.io/library/python:3.14.7-alpine3.24@sha256:9e9fde4d32eedce0b661d9ab91e826b62dddf28e928c230ec55f1866cac66b01",
+    "at_utc": "2026-10-29T10:11:35.353997+00:00"
+  },
+  "outcome": "normal result metadata invalid; no CPU/healthy preparation or measured run started",
+  "normal_create_invocations": 1,
+  "normal_command_exit_code": 0,
+  "normal_operation_results": 9,
+  "normal_attempt_results": 9,
+  "normal_structured_validation": "invalid_phase",
+  "normal_actual_phase": "baseline",
+  "normal_required_phase": [
+    "warmup",
+    "measured"
+  ],
+  "operator_error": true,
+  "normal_create_replayed": false,
+  "normal_final_verify_invocations": 1,
+  "normal_final_verify_exit_code": 0,
+  "initialize_invocations": 0,
+  "healthy_journey": 0,
+  "fault": 0,
+  "calibration": 0,
+  "measured": {
+    "C0": 0,
+    "C1": 0,
+    "C2": 0,
+    "C3": 0
+  },
+  "frozen_plan": null,
+  "mitigation": "not measured",
+  "recovery": "not measured",
+  "keda_mutations": 0,
+  "keda_apply_restart_this_attempt": 0,
+  "keda_restore_restart_this_attempt": 0,
+  "historical_preparation_cleanup_count": 4,
+  "cumulative_preparation_cleanup_count": 5,
+  "historical_keda_restart_counts": [
+    1,
+    1
+  ],
+  "cost_before_rows": [
+    [
+      30259.1340498108,
+      20261028,
+      "KRW"
+    ],
+    [
+      4068.5293715974,
+      20261029,
+      "KRW"
+    ]
+  ],
+  "p9_incremental_actual": "unknown; delayed/shared billing",
+  "planning_increment_usd": 5,
+  "cumulative_review_usd": 10,
+  "billing_hard_cap": false,
+  "experiment_namespace_created": false,
+  "experiment_pods_admitted": 0,
+  "resource_caps": {
+    "pods": 4,
+    "cpu_m_requests_and_limits": 1500,
+    "memory_mi_requests_and_limits": 2048
+  },
+  "environment_retained_until": "2026-10-30T10:30:00+09:00",
+  "foundation_bootstrap_retained_until": "2026-10-31T00:33:00+09:00",
+  "owned_cleanup_complete": true,
+  "whole_environment_teardown": false,
+  "p9_acceptance_met": false,
+  "cost_final_rows": [
+    [
+      30259.1340498108,
+      20261028,
+      "KRW"
+    ],
+    [
+      4068.5293715974,
+      20261029,
+      "KRW"
+    ]
+  ],
+  "cost_before_aggregate_krw": 34327.6634214082,
+  "cost_final_aggregate_krw": 34327.6634214082,
+  "final_cost_read_failures": 1,
+  "final_cost_retry_count": 1,
+  "local_credential_cleanup_complete": true
+}

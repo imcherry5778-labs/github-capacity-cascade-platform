@@ -1,5 +1,19 @@
 # P9-W1 Mitigation & Recovery
 
+현재 상태: **제5차 승인 실행 normal result metadata invalid / P9-owned cleanup 완료 / P9 acceptance 미충족**.
+승인·실제 execution source는 `50aac4a9fab0881dfba41340f4a6ef0f5c4e0142`다.
+[제5차 통합 승인](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6493316821),
+[실행·negative·원복 evidence](evidence/p9-mitigation-fifth-20261029/README.md),
+[incident](incidents/p9-mitigation-fifth.md)를 연결한다.
+Operator가 normal create에 `RESULT_PHASE=baseline`을 지정해 structured validator가 `invalid phase`로 거부했다.
+Developer operations/attempts9개 성공·exit0과 valid provenance를 구분한다. Raw 수정/normal create 반복/flag 승격은 없다.
+Initialize·CPU preparation·healthy journey·fault·calibration·각 measured arm0이며 namespace/CUSTOM/KEDA 변경 전 중단했다.
+최종 native verify1과 PAT16/image/AKS 임시 role·보호 credential cleanup, stable/shared/KEDA/storage 보존을 확인했다.
+준비/원복 누적5회·비용·과거 raw/checksum을 보존한다. 후속 evidence HEAD는 실행 승인 source가 아니다.
+정상 경로 phase는 validator의 기존 `warmup` 계약을 사용해야 하며 재승인 전 자동 반복하지 않는다.
+
+## 제4차 historical 실행
+
 상태: **제4차 승인 실행 CPU preparation 실패 / P9-owned 원복 완료 / P9 acceptance 미충족**.
 승인·실제 execution source는 `b484160cc0bf13af93d234a5ba30c4013f1d8e00`다.
 [통합 승인](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6490726245),
