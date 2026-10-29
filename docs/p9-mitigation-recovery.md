@@ -1,5 +1,21 @@
 # P9-W1 Mitigation & Recovery
 
+현재 상태: **제7차 valid normal·무재시작 Pod 준비 통과 / CPU Warning 발생 경계 중단 / P9-owned 원복 완료 / P9 acceptance 미충족**.
+승인·실제 execution source는 `1ce291523ecddb3918e3879f322e45dfca122ee6`다.
+[제7차 통합 승인](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6496347488),
+[실행·negative·원복 evidence](evidence/p9-mitigation-seventh-20261029/README.md),
+[incident](incidents/p9-mitigation-seventh.md)를 연결한다.
+Backend Service/config·실제 ClusterIP/selector·Ready endpoint를 HAProxy 생성 전에 확인했고 initial Pod3는 Ready/restart0이었다.
+Warmup·fresh kubectl v1.36.4 path/hash·context와 normal9 operations/attempts valid를 유지했다.
+Initialize1회/57.649초는 같은 CPU HPA Warning의 count3→5·마지막 발생 Pod+91초/HPA+90초로
+`CPU warning outside startup lifetime`에서 중단했다. Retained history age 또는 settling300초 timeout 실패가 아니다.
+CPU poll1/pending, healthy journey·fault·KEDA 변경·calibration·각 measured arm0, freeze 없음이다.
+Post-stop HPA/metric을 positive proof로 바꾸지 않았다. CUSTOM/shared/namespace·PAT18/image/AKS role·보호 사본을 정리하고 stable/KEDA/storage를 보존했다.
+준비/원복 누적7회·two-RG ActualCost KRW38,284.28956189241·P9 incremental unknown·과거 raw/checksum을 유지한다.
+새 source/paid replay 없이 실제 Warning timeline과90초 발생 계약의 독립 검토가 필요하다. 추가 Azure 실행은 별도 통합 승인 대상이다.
+
+## 제6차 historical 실행
+
 현재 상태: **제6차 valid normal 통과 / initialization Pod restart guard 중단 / P9-owned 원복 완료 / P9 acceptance 미충족**.
 승인·실제 execution source는 `30271ea59c4824b9bf4455ec038528891692d434`다.
 [제6차 통합 승인](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6494902133),
