@@ -1,0 +1,119 @@
+{
+  "approved_source_sha": "b484160cc0bf13af93d234a5ba30c4013f1d8e00",
+  "execution_source_sha": "b484160cc0bf13af93d234a5ba30c4013f1d8e00",
+  "approval_url": "https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6490726245",
+  "image": {
+    "at_utc": "2026-10-29T07:37:22.123321+00:00",
+    "source_sha": "b484160cc0bf13af93d234a5ba30c4013f1d8e00",
+    "tag": "acrccpp6krc57781024.azurecr.io/ext-authz-sim:b484160cc0bf13af93d234a5ba30c4013f1d8e00",
+    "digest": "sha256:351ac866e37d4fd4e977c3218d1e3223d5c1c2b9df67666bea7762e24db92026",
+    "base": "docker.io/library/python:3.14.7-alpine3.24@sha256:9e9fde4d32eedce0b661d9ab91e826b62dddf28e928c230ec55f1866cac66b01"
+  },
+  "outcome": "mandatory CPU preparation lifetime validation failed; owned safe rollback completed",
+  "initialize_invocations": 1,
+  "initialize_failure": {
+    "record": "healthy_initialization_failure",
+    "source_sha": "b484160cc0bf13af93d234a5ba30c4013f1d8e00",
+    "at": 7964.404105363,
+    "stage": "readiness_resource_guard",
+    "elapsed_seconds": 87.14042051599972,
+    "stage_elapsed_seconds": 72.45100893200015,
+    "exception_class": "ValueError",
+    "error_code": "validation_failed",
+    "runtime_preflight_passed": false,
+    "ready_for_keda_authentication": false,
+    "measured_denominator": false
+  },
+  "command_elapsed_seconds": 92.25792962500054,
+  "normal_create": 1,
+  "normal_attempts": 9,
+  "normal_final_verify": 1,
+  "cpu_pending_polls": 2,
+  "healthy_journey": 0,
+  "fault": 0,
+  "calibration": 0,
+  "measured": {
+    "C0": 0,
+    "C1": 0,
+    "C2": 0,
+    "C3": 0
+  },
+  "frozen_plan": null,
+  "candidate_plan": {
+    "mitigation_seconds": 180,
+    "recovery_seconds": 180,
+    "backoff_ms": [
+      250,
+      750
+    ],
+    "seed": 5778,
+    "queue_limit": 12,
+    "queue_timeout_ms": 250,
+    "threshold": 0.5,
+    "scrape_seconds": 15,
+    "ingestion_seconds": 30,
+    "controller_seconds": 15,
+    "freshness_seconds": 60,
+    "prometheus": "https://amw-ccp-krc-p6-frh3gzbxdugmffa7.koreacentral.prometheus.monitor.azure.com",
+    "prometheus_cluster": "aks-ccp-krc-p6",
+    "identity_client_id": "00000000-0000-0000-0000-000000000000",
+    "keda_version": "2.19.0-25"
+  },
+  "candidate_plan_sha256": "ec82078689d9d5df7e15a3315ceefbd6c82bb375a8c8efd1f9bab785a008958e",
+  "mitigation": "not measured",
+  "recovery": "not measured; no fault/recovery observation window",
+  "bounded_cpu_preparation_passed": false,
+  "post_stop_hpa_scaling_active_reported": true,
+  "post_stop_status_not_promoted_to_gate_success": true,
+  "keda_mutations_this_attempt": 0,
+  "keda_apply_restart_this_attempt": 0,
+  "keda_restore_restart_this_attempt": 0,
+  "historical_preparation_cleanup_count": 3,
+  "historical_keda_restart_counts": [
+    1,
+    1
+  ],
+  "historical_cost_krw": [
+    18845.545320581,
+    24292.445425032,
+    26885.8891798273
+  ],
+  "cost_before_krw": 26885.8891798273,
+  "cost_final_krw": 26885.8891798273,
+  "cost_usage_date": 20261028,
+  "p9_incremental_actual": "unknown; delayed/shared billing",
+  "planning_increment_usd": 5,
+  "cumulative_review_usd": 10,
+  "experiment_pods": 3,
+  "actual_admission": {
+    "requests": {
+      "cpu": 0.4,
+      "memory": 536870912.0
+    },
+    "limits": {
+      "cpu": 0.9,
+      "memory": 1073741824.0
+    }
+  },
+  "resource_caps": {
+    "pods": 4,
+    "cpu_m_requests_and_limits": 1500,
+    "memory_mi_requests_and_limits": 2048
+  },
+  "environment_retained_until": "2026-10-30T10:30:00+09:00",
+  "foundation_bootstrap_retained_until": "2026-10-31T00:33:00+09:00",
+  "owned_cleanup_complete": true,
+  "whole_environment_teardown": false,
+  "credential_cleanup": {
+    "user": "dev-20261029073822-2f9e58",
+    "token_id": 15,
+    "delete_status": 204,
+    "delete_response_bytes": 0,
+    "pat_status_before_login_block": 401,
+    "token_count_before_login_block": 0,
+    "prohibit_login": true,
+    "basic_after_login_block": 401
+  },
+  "p9_acceptance_met": false,
+  "workload_retried": false
+}

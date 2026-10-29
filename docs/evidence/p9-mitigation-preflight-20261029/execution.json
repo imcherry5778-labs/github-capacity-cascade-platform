@@ -1,0 +1,199 @@
+{
+  "work_unit": "P9-W1",
+  "state": "blocked-before-calibration; owned controls restored",
+  "expected_main_sha": "3f788a9c1d103f6c07bd403af269133fac287002",
+  "approval_source_sha": "c06ce67b2d438c7affde6b6934368b43afa4c1f4",
+  "actual_execution_source_sha": "c06ce67b2d438c7affde6b6934368b43afa4c1f4",
+  "approval_url": "https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6483350700",
+  "source_gate_url": "https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#pullrequestreview-5690941787",
+  "implementation_source_modified": false,
+  "execution_counts": {
+    "normal_journey_create": 1,
+    "normal_final_verify": 1,
+    "healthy_gate_journey_create": 0,
+    "calibration_total": 0,
+    "measured_per_arm": {
+      "C0": 0,
+      "C1": 0,
+      "C2": 0,
+      "C3": 0
+    },
+    "fixture_accounts": 1,
+    "pats": 1,
+    "custom_policy_apply": 0,
+    "fault_apply": 0,
+    "scaledobject_create": 0,
+    "keda_operator_apply_restarts": 1,
+    "keda_operator_restore_restarts": 1
+  },
+  "frozen_values": null,
+  "candidate_plan": {
+    "mitigation_seconds": 180,
+    "recovery_seconds": 180,
+    "backoff_ms": [
+      250,
+      750
+    ],
+    "seed": 5778,
+    "queue_limit": 12,
+    "queue_timeout_ms": 250,
+    "threshold": 0.5,
+    "scrape_seconds": 15,
+    "ingestion_seconds": 30,
+    "controller_seconds": 15,
+    "freshness_seconds": 60,
+    "prometheus": "https://amw-ccp-krc-p6-frh3gzbxdugmffa7.koreacentral.prometheus.monitor.azure.com",
+    "prometheus_cluster": "aks-ccp-krc-p6",
+    "identity_client_id": "24c98830-9994-458c-9794-232cdf11c28e",
+    "keda_version": "2.19.0-25"
+  },
+  "candidate_cadence_status": "not verified/frozen; values were not promoted to measured contract",
+  "plan_sha256": "e1c9240509f1c3ad5a57adff92a67ce71d08370119c27688cb8f0f17a990149d",
+  "normal_healthy_runtime_flags": {
+    "normal_test_passed": true,
+    "healthy_gate_passed": false,
+    "runtime_preflight_passed": false
+  },
+  "runtime": {
+    "aks": "1.36.4",
+    "managed_istio_revision": "asm-1-30",
+    "keda_image": "mcr.microsoft.com/oss/v2/kedacore/keda:2.19.0-25",
+    "image_tag": "acrccpp6krc57781024.azurecr.io/ext-authz-sim:c06ce67b2d438c7affde6b6934368b43afa4c1f4",
+    "image_digest": "sha256:53e6c5a580f0b35953cc4a021cacbe0a11764c7d7dc66c4a2d7c2ed2c4240d07",
+    "image_published_then_removed": true,
+    "cluster_uid": "407dcf3f-5345-4166-9070-90609e2c91a9",
+    "stable_revision": "2f63d283ebba12aaed8705732f1206d71ddc33db",
+    "actual_envoy_cluster_label": "cluster_name",
+    "source_envoy_cluster_label": "envoy_cluster_name",
+    "keda_workspace_authentication": "not verified; injection alone is not authentication"
+  },
+  "gate_failure": {
+    "status": "not passed",
+    "evidence": [
+      "actual-envoy-cluster-label.json",
+      "ingested-envoy-cluster-label.json",
+      "target-prometheus-exact-source-gate.json",
+      "target-admin-initial-required-stat-negative.json"
+    ],
+    "facts": [
+      "actual native cluster samples and bootstrap tag extractor use cluster_name",
+      "source selector uses envoy_cluster_name",
+      "up1 and exact kube_pod_info UID observed while required selector vectors empty",
+      "inbound required stats were not materialized before healthy traffic in the captured startup observation"
+    ],
+    "scope_response": "stop new workload/changes; no source/SHA substitution or acceptance relaxation"
+  },
+  "admission": {
+    "observed_initial_pods": 3,
+    "observed_initial_requests_cpu": 0.4,
+    "observed_initial_limits_cpu": 0.9,
+    "observed_initial_requests_memory_mi": 512,
+    "observed_initial_limits_memory_mi": 1024,
+    "second_target": "not actually admitted; duplicate of admitted target spec used only for conservative budget check",
+    "conservative_two_target_limits_cpu_m": 1450,
+    "conservative_two_target_limits_memory_mi": 1664,
+    "ceiling": {
+      "pod": 4,
+      "cpu_m": 1500,
+      "memory_mi": 2048
+    }
+  },
+  "accounting": {
+    "normal_structured_operation_attempts": 9,
+    "normal_http_requests_including_git_internal_requests": "not enumerated; never treated as 1:1 attempts",
+    "p9_gate_demand_issued": 0,
+    "target_authorization_check_total": "not measured; CUSTOM policy not installed",
+    "telemetry_query_invocations_recorded": 18,
+    "telemetry_query_failed_http501": 1,
+    "telemetry_501_body_retained": false,
+    "credential_cleanup_api_invocations_recorded": 13,
+    "credential_delete_numeric_id_and_http_status": "not retained; reconstructed request entry is explicit",
+    "operator_action_counts": {
+      "create-aks-resource-rbac": 1,
+      "publish-owned-image": 1,
+      "create-owned-uami": 1,
+      "create-owned-fic": 1,
+      "create-owned-workspace-reader": 1,
+      "annotate-keda-sa": 1,
+      "restart-keda-operator": 2,
+      "telemetry-query": 18,
+      "normal-health-read": 1,
+      "normal-journey-create": 1,
+      "create-experiment-namespace": 1,
+      "create-owned-db-secret": 1,
+      "apply-owned-mesh-delta": 1,
+      "create-owned-fixtures-observed": 1,
+      "stop-at-required-runtime-gate": 1,
+      "safety-custom-policy-absence-confirmed": 1,
+      "restore-shared-mesh-data": 1,
+      "restore-keda-sa-annotation": 1,
+      "delete-owned-experiment-object": 4,
+      "delete-owned-experiment-namespace": 1,
+      "delete-owned-workspace-reader": 1,
+      "delete-owned-fic": 1,
+      "delete-owned-uami": 1,
+      "delete-owned-acr-manifest": 1,
+      "normal-final-health-read": 1,
+      "normal-final-journey-verify": 1,
+      "credential-cleanup-api": 13,
+      "delete-owned-aks-resource-rbac": 1,
+      "local-finalization-start": 1
+    }
+  },
+  "cleanup": {
+    "owned_controls_restored": true,
+    "namespace_absent": true,
+    "shared_mesh_data_equal_original": true,
+    "keda_sa_template_identity_env_equal_original": true,
+    "keda_ready_replicas": 2,
+    "workspace_role_fic_uami_removed": true,
+    "temporary_aks_role_removed": true,
+    "source_image_tag_digest_and_local_owned_image_removed": true,
+    "pat_remaining": 0,
+    "pat_http401_before_login_block": true,
+    "fixture_prohibit_login": true,
+    "retained_fixture_records": "private journey repo/Issue/PR retained with login blocked",
+    "stable_argo_spec_secret_data_pv_pvc_ingress_nodes_preserved": true,
+    "protected_local_copies_removed": true,
+    "owned_forwards_started": 0,
+    "whole_environment_zero_residual_claim": false
+  },
+  "cost": {
+    "before_rows": [
+      [
+        18845.545320581,
+        20261028,
+        "KRW"
+      ]
+    ],
+    "after_rows": [
+      [
+        18845.545320581,
+        20261028,
+        "KRW"
+      ]
+    ],
+    "shared_rg_actual_krw": 18845.545320581,
+    "p9_incremental_actual": "unknown; delayed shared-resource billing",
+    "planning_increment_usd": 5,
+    "additional_review_budget_usd": 10,
+    "hard_cap": false
+  },
+  "retention": {
+    "environment_kst": "2026-10-30 10:30",
+    "foundation_bootstrap_kst": "2026-10-31 00:33",
+    "extended": false,
+    "environment_teardown": false
+  },
+  "limitations": [
+    "no calibration/freeze/measured mitigation or continuing-demand recovery result",
+    "KEDA workspace auth and all-Pod signal freshness/cadence not verified",
+    "inbound lazy stat initialization not established by healthy traffic; no further workload after source/runtime label conflict",
+    "normal HTTP totals including Git internals not enumerated; structured attempts are separate",
+    "numeric token ID and original DELETE HTTP status not retained after parser failure; tokens0 and original PAT401 independently observed before login block",
+    "one exploratory metric-name regex query returned501; body not retained, failure recorded late",
+    "temporary AKS role absence verified; immediate Kubernetes authorization-cache revocation not tested",
+    "physical media/node image-cache erasure not claimed; visible owned objects/registry artifact/local copies cleaned"
+  ],
+  "restart_condition": "correct and independently gate actual metric-label/initialization contract on a new exact source, then obtain the required exact-source execution approval; do not replace approved SHA in existing binding"
+}

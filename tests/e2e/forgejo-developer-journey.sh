@@ -173,13 +173,24 @@ result_finish() {
   RUN_FINISHED=1
 }
 
+# P9 initialization attributes auxiliary HTTP too; measured attempts retain IDs.
+gate_curl() {
+  local -a correlation=()
+  if [[ "${JOURNEY_GATE_AUX_CORRELATION:-0}" == 1 ]]; then
+    local op="$RUN_ID-auxiliary"
+    if [[ "${OP_ACTIVE:-0}" == 1 && "${ATTEMPT_ACTIVE:-0}" == 1 ]]; then op="$OP_ID"; fi
+    correlation=(-H "x-operation-id: $op" -H "x-attempt-id: $op-attempt-1")
+  fi
+  curl "$@" "${correlation[@]}"
+}
+
 # request CURL_CONFIG_LINE METHOD PATH EXPECTED_STATUS [JSON_BODY]
 # Credential과 body는 mode 0600 파일로 준비해 process argv에 남기지 않는다.
 request() {
-  local auth="$1" method="$2" path="$3" expected="$4" body="${5-}" status rc command_end
+  local auth="$1" method="$2" path="$3" expected="$4" body="${5-}" status rc command_end bytes=0
   local response="$JOURNEY_DIR/response.json" auth_file="$JOURNEY_DIR/request-auth" body_file="$JOURNEY_DIR/request-body"
   local -a args=(-s --retry 0 --max-time 60 -o "$response" -w '%{http_code}' -X "$method" -H 'Accept: application/json')
-  if [[ "${JOURNEY_GATE_CORRELATION:-0}" == 1 && "${OP_ACTIVE:-0}" == 1 && "${ATTEMPT_ACTIVE:-0}" == 1 ]]; then
+  if [[ "${JOURNEY_GATE_CORRELATION:-0}" == 1 && "${JOURNEY_GATE_AUX_CORRELATION:-0}" != 1 && "${OP_ACTIVE:-0}" == 1 && "${ATTEMPT_ACTIVE:-0}" == 1 ]]; then
     args+=(-H "x-operation-id: $OP_ID" -H "x-attempt-id: $ATTEMPT_ID")
   fi
   printf '%s\n' "$auth" >"$auth_file"
@@ -188,16 +199,24 @@ request() {
     args+=(-H 'Content-Type: application/json' --data-binary "@$body_file")
   fi
   args+=(-K "$auth_file" "$API$path")
+  rm -f "$response"
+  # Append intent before the side effect; no credential/body values in metadata.
+  jq -nc --arg method "$method" --arg path "$path" --arg expected "$expected" --arg ts "$(utc)" \
+    '{record:"request_intent",method:$method,path:$path,expected_status:($expected|tonumber),timestamp_utc:$ts}' >>"$JOURNEY_DIR/request-events.jsonl"
   if [[ -n "${RESULT_FILE:-}" && "${OP_ACTIVE:-0}" == 1 && "${ATTEMPT_ACTIVE:-0}" == 1 ]]; then
     printf '%s' "$(utc)" >"$RESULT_DIR/command_timestamp"
     printf '%s' "$(mono)" >"$RESULT_DIR/command_start"
   fi
-  if status="$(curl "${CURL_TRANSPORT_ARGS[@]}" "${args[@]}")"; then
+  if status="$(gate_curl "${CURL_TRANSPORT_ARGS[@]}" "${args[@]}")"; then
     rc=0
   else
     rc=$?
   fi
   command_end="$(mono)"
+  [[ ! -f "$response" ]] || bytes="$(wc -c <"$response")"
+  jq -nc --arg method "$method" --arg path "$path" --arg status "$status" --argjson rc "$rc" \
+    --argjson bytes "$bytes" \
+    '{record:"request_response",method:$method,path:$path,http_status:(if $status=="000" or $status=="" then null else ($status|tonumber) end),exit_code:$rc,response_bytes:$bytes}' >>"$JOURNEY_DIR/request-events.jsonl"
   if [[ -n "${RESULT_FILE:-}" && "${OP_ACTIVE:-0}" == 1 && "${ATTEMPT_ACTIVE:-0}" == 1 ]]; then
     printf '%s' "$command_end" >"$RESULT_DIR/command_end"
     printf '%s' "$rc" >"$RESULT_DIR/command_exit"
@@ -227,10 +246,12 @@ dev_git() {
   local -x GIT_CONFIG_KEY_1=credential.helper GIT_CONFIG_VALUE_1=''
   basic="$(printf '%s:%s' "$DEV_USER" "$DEV_TOKEN" | base64 | tr -d '\n')"
   GIT_CONFIG_VALUE_0="Authorization: Basic $basic"
-  if [[ "${JOURNEY_GATE_CORRELATION:-0}" == 1 && "${OP_ACTIVE:-0}" == 1 && "${ATTEMPT_ACTIVE:-0}" == 1 ]]; then
+  if [[ "${JOURNEY_GATE_CORRELATION:-0}" == 1 && "${OP_ACTIVE:-0}" == 1 && "${ATTEMPT_ACTIVE:-0}" == 1 || "${JOURNEY_GATE_AUX_CORRELATION:-0}" == 1 ]]; then
+    local gate_op="${OP_ID:-}"
+    if [[ "${OP_ACTIVE:-0}" != 1 || "${ATTEMPT_ACTIVE:-0}" != 1 ]]; then gate_op="$RUN_ID-auxiliary"; fi
     GIT_CONFIG_COUNT=4
-    local -x GIT_CONFIG_KEY_2=http.extraHeader GIT_CONFIG_VALUE_2="x-operation-id: $OP_ID"
-    local -x GIT_CONFIG_KEY_3=http.extraHeader GIT_CONFIG_VALUE_3="x-attempt-id: $ATTEMPT_ID"
+    local -x GIT_CONFIG_KEY_2=http.extraHeader GIT_CONFIG_VALUE_2="x-operation-id: $gate_op"
+    local -x GIT_CONFIG_KEY_3=http.extraHeader GIT_CONFIG_VALUE_3="x-attempt-id: $gate_op-attempt-1"
   fi
   if [[ -n "${RESULT_FILE:-}" && "${OP_ACTIVE:-0}" == 1 && "${ATTEMPT_ACTIVE:-0}" == 1 ]]; then
     printf '%s' "$(utc)" >"$RESULT_DIR/command_timestamp"
@@ -268,7 +289,7 @@ expect_remote_ref() { # REPO_DIR REF SHA DESCRIPTION
 expect_anonymous_denied() {
   local status
   request "" GET "/repos/$DEV_USER/$REPO" 404 >/dev/null
-  status="$(curl "${CURL_TRANSPORT_ARGS[@]}" -sS --max-time 60 -o /dev/null -w '%{http_code}' "$TRANSPORT_CLONE_URL/info/refs?service=git-upload-pack")"
+  status="$(gate_curl "${CURL_TRANSPORT_ARGS[@]}" -sS --max-time 60 -o /dev/null -w '%{http_code}' "$TRANSPORT_CLONE_URL/info/refs?service=git-upload-pack")"
   [[ "$status" == 401 ]] || fail "anonymous Git HTTP read of private repository: expected 401, got $status"
 }
 
@@ -282,7 +303,7 @@ wait_initial_push_processed() {
   while (( SECONDS < deadline )); do
     remaining=$((deadline - SECONDS))
     curl_timeout=$((remaining < 5 ? remaining : 5))
-    if status="$(curl "${CURL_TRANSPORT_ARGS[@]}" -sS --max-time "$curl_timeout" -o "$response" -w '%{http_code}' -X GET \
+    if status="$(gate_curl "${CURL_TRANSPORT_ARGS[@]}" -sS --max-time "$curl_timeout" -o "$response" -w '%{http_code}' -X GET \
       -H 'Accept: application/json' -K <(printf '%s\n' "$DEV_AUTH") "$API/repos/$DEV_USER/$REPO" 2>/dev/null)"; then
       if [[ "$status" != 200 ]]; then
         fail "initial push settle: expected HTTP 200, got $status" http_status
@@ -328,6 +349,9 @@ create() {
   export CLONE_URL="$FORGEJO_URL/$DEV_USER/$REPO.git"
   export TRANSPORT_CLONE_URL="$ENDPOINT/$DEV_USER/$REPO.git"
   result_start
+  if [[ "${JOURNEY_GATE_AUX_CORRELATION:-0}" == 1 ]]; then
+    aux_event fixture shared_gate_auxiliary_scope success
+  fi
   aux_event readiness argo_application success
   aux_event readiness forgejo_health success
 
@@ -338,9 +362,13 @@ create() {
       password: env.DEV_PASSWORD, must_change_password: false}')" >/dev/null
   token_json="$(request "user = \"$DEV_USER:$dev_password\"" POST "/users/$DEV_USER/tokens" 201 \
     '{"name":"journey","scopes":["write:repository","write:issue","write:user"]}')"
-  DEV_TOKEN="$(jq -r .sha1 <<<"$token_json")"
+  # Retain numeric ID before using this PAT for any following mutation.
+  TOKEN_ID="$(jq -er '.id | select(type=="number" and .>0 and floor==.)' <<<"$token_json")"
+  DEV_TOKEN="$(jq -er '.sha1 | select(type=="string" and length>0)' <<<"$token_json")"
+  jq -nc --arg user "$DEV_USER" --argjson id "$TOKEN_ID" \
+    '{record:"credential_created",user:$user,token_id:$id}' >>"$JOURNEY_DIR/request-events.jsonl"
   DEV_AUTH="header = \"Authorization: token $DEV_TOKEN\""
-  printf 'DEV_USER=%q\nDEV_TOKEN=%q\n' "$DEV_USER" "$DEV_TOKEN" >"$JOURNEY_DIR/credentials.env"
+  printf 'DEV_USER=%q\nDEV_TOKEN=%q\nTOKEN_ID=%q\n' "$DEV_USER" "$DEV_TOKEN" "$TOKEN_ID" >"$JOURNEY_DIR/credentials.env"
   if [[ "${RECOVERY_FIXTURE:-0}" == 1 ]]; then
     printf 'DEV_PASSWORD=%q\n' "$dev_password" >>"$JOURNEY_DIR/credentials.env"
   fi

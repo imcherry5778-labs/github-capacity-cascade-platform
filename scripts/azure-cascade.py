@@ -213,7 +213,7 @@ def gateway_scope(value, policy, listeners):
             'policy_spec_sha256': digest(policy['spec']), 'effective_policy_id': policy_id, 'filter_chains': matches}
 
 
-def target_mapping(dump, stat_payload, capacity, listeners=None):
+def target_mapping(dump, stat_payload, capacity, listeners=None, *, allowed_capacities=None, allow_uninitialized=False):
     clusters = [v['cluster'] for v in walk(dump) if isinstance(v.get('cluster'), dict) and
                 v['cluster'].get('name', '').startswith('inbound|')]
     bindings = {v['route']['cluster'] for chain in walk(listeners) if chain.get('filter_chain_match', {}).get('destination_port') == 8080
@@ -223,13 +223,25 @@ def target_mapping(dump, stat_payload, capacity, listeners=None):
     require(len(selected) == 1, 'actual inbound app endpoint cluster absent/ambiguous')
     c = selected[0]
     thresholds = c.get('circuit_breakers', {}).get('thresholds', [])
+    if allowed_capacities is not None:
+        actual = [t.get('max_requests') for t in thresholds if t.get('priority', 'DEFAULT') == 'DEFAULT']
+        require(len(actual) == 1 and actual[0] in allowed_capacities, 'actual active-request capacity outside release boundary')
+        capacity = actual[0]
     require(any(t.get('priority', 'DEFAULT') == 'DEFAULT' and t.get('max_requests') == capacity for t in thresholds), 'actual active-request capacity differs')
     prefixes = {'cluster.' + n + '.' for n in (c['name'], c.get('alt_stat_name')) if n}
     names = {s['name']: s['value'] for s in stat_payload['stats'] if any(s.get('name', '').startswith(p) and
              s['name'][len(p):] in p4.SUFFIXES for p in prefixes)}
-    require(len(names) == len(p4.SUFFIXES) and set(p4.by_suffix(names)) == set(p4.SUFFIXES), 'required actual target stats absent/ambiguous')
+    if allow_uninitialized:
+        # Only the caller's explicit new-UID/pre-traffic boundary may defer
+        # materialization. Structural names are never inferred from other clusters.
+        expected = {'cluster.' + (c.get('alt_stat_name') or c['name']) + '.' + key for key in p4.SUFFIXES}
+        require(set(names) <= expected and len(names) == sum(1 for row in stat_payload['stats'] if row.get('name') in names), 'ambiguous target stats')
+        stat_names = sorted(expected)
+    else:
+        require(len(names) == len(p4.SUFFIXES) and set(p4.by_suffix(names)) == set(p4.SUFFIXES), 'required actual target stats absent/ambiguous')
+        stat_names = sorted(names)
     return {'cluster_name': c['name'], 'alt_stat_name': c.get('alt_stat_name'), 'capacity': capacity,
-            'stat_names': sorted(names), 'endpoint_mapping': 'listener-port-8080-to-ORIGINAL_DST' if c.get('type') == 'ORIGINAL_DST' else 'load_assignment'}, names
+            'stat_names': stat_names, 'endpoint_mapping': 'listener-port-8080-to-ORIGINAL_DST' if c.get('type') == 'ORIGINAL_DST' else 'load_assignment'}, names
 
 
 def quantity(value):
@@ -289,11 +301,11 @@ def admission(value, pods):
 
 
 class Runtime:
-    def __init__(self, value):
+    def __init__(self, value, approval_key='P8_AZURE_APPROVED'):
         self.value = identity(value)
         self.since = utc()
-        require(os.environ.get('P8_AZURE_APPROVED') == value['source_sha'], 'explicit P8 execution acknowledgement required')
-        require(datetime.now(timezone.utc) < datetime(2026, 10, 30, 1, 30, tzinfo=timezone.utc), 'environment retention deadline reached')
+        require(os.environ.get(approval_key) == value['source_sha'], 'explicit campaign execution acknowledgement required')
+        require(datetime.now(timezone.utc) < datetime(2026, 11, 2, 1, 30, tzinfo=timezone.utc), 'environment retention deadline reached')
         require(os.environ.get('KUBECONFIG') and Path(os.environ['KUBECONFIG']).is_file(), 'dedicated protected kubeconfig required')
         require(Path(os.environ['KUBECONFIG']).stat().st_mode & 0o077 == 0, 'kubeconfig must be protected')
         require(p7.command(['git', '-C', str(ROOT), 'rev-parse', 'HEAD']) == value['source_sha'] and
@@ -327,28 +339,42 @@ class Runtime:
     def targets(self):
         return self.pods(NS, 'app=ext-authz-sim')
 
-    def configuration(self, config):
+    def configuration(self, config, *, target_range=(1, 1), haproxy_config=None, hpa_name='hpa-app-cpu',
+                      target_pods=None, releasing=False, stat_uids=None, stats_path='stats?format=json&filter=upstream_rq_'):
         measurement_transport(self.value)
         policy = self.j('-n', 'aks-istio-ingress', 'get', 'authorizationpolicy', 'p8-shared-gate', '-o', 'json')
         result = {'targets': [], 'scenario': config, 'ingress': [], 'forgejo_hostname': self.value['forgejo_hostname']}
-        for pod in self.targets():
+        for pod in self.targets() if target_pods is None else target_pods:
             name = pod['metadata']['name']
             require(next(c['image'] for c in pod['spec']['containers'] if c['name'] == 'app') == self.value['ext_authz_image'], 'target source image drift')
-            mapping, _ = target_mapping(self.admin(NS, name, 'config_dump?resource=dynamic_active_clusters'),
-                self.admin(NS, name, 'stats?format=json&filter=upstream_rq_'), config['max_requests'],
-                self.admin(NS, name, 'config_dump?resource=dynamic_listeners'))
-            require(int(self.k('-n', NS, 'exec', name, '-c', 'app', '--', 'cat', '/config/hold-ms')) == config['hold_ms'], 'hold convergence')
+            cluster_dump = self.admin(NS, name, 'config_dump?resource=dynamic_active_clusters')
+            stat_payload = self.admin(NS, name, stats_path)
+            mapping, values = target_mapping(cluster_dump,
+                stat_payload, config['max_requests'],
+                self.admin(NS, name, 'config_dump?resource=dynamic_listeners'),
+                allowed_capacities=(2, 1024) if releasing else None,
+                allow_uninitialized=stat_uids is not None and pod['metadata']['uid'] in stat_uids)
+            if stat_uids is not None:
+                require(len(values) == sum(row.get('name') in values for row in stat_payload['stats']), 'ambiguous target stats')
+                missing = sorted(set(mapping['stat_names']) - set(values))
+                result.setdefault('stat_observations', {})[pod['metadata']['uid']] = {
+                    'status': 'uninitialized' if missing else 'observed', 'values': values, 'missing': missing}
+            hold = int(self.k('-n', NS, 'exec', name, '-c', 'app', '--', 'cat', '/config/hold-ms'))
+            require(hold in (0, 1000) if releasing else hold == config['hold_ms'], 'hold convergence')
+            if releasing:
+                result.setdefault('fault_state', {})[pod['metadata']['uid']] = {'hold_ms': hold, 'max_requests': mapping['capacity']}
             statuses = pod['status'].get('containerStatuses', []) + pod['status'].get('initContainerStatuses', [])
             result['targets'].append({'uid': pod['metadata']['uid'], 'name': name, 'mapping': mapping,
                 'images': {s['name']: s['imageID'] for s in statuses},
                 'proxy_version': self.admin(NS, name, 'server_info')['version'],
                 'runtime_guard': self.admin(NS, name, 'runtime?format=json').get('entries', {}).get(p4.GUARD),
                 'stats_matcher': [v['stats_matcher'] for v in walk(self.admin(NS, name, 'config_dump?mask=bootstrap.stats_config')) if 'stats_matcher' in v]})
-        require(len(result['targets']) == 1, 'paired scenario requires one replica and scale headroom to two')
+        require(target_range[0] <= len(result['targets']) <= target_range[1], 'target replica range differs')
         hp = self.pod(NS, 'app=haproxy')
         require(next(c['image'] for c in hp['spec']['containers'] if c['name'] == 'haproxy') == PINS['HAPROXY_IMAGE'], 'HAProxy source image drift')
         hp_config = self.k('-n', NS, 'exec', hp['metadata']['name'], '-c', 'haproxy', '--', 'cat', '/config/haproxy.cfg')
-        require('retries 0' in hp_config and 'maxconn' not in hp_config and 'rate-limit' not in hp_config, 'HAProxy policy drift')
+        require(hp_config == haproxy_config.rstrip('\n') if haproxy_config is not None else
+                'retries 0' in hp_config and 'maxconn' not in hp_config and 'rate-limit' not in hp_config, 'HAProxy policy drift')
         result['haproxy'] = {'uid': hp['metadata']['uid'], 'config_sha256': hashlib.sha256(hp_config.encode()).hexdigest()}
         selector = ','.join(k + '=' + v for k, v in self.value['ingress_selector'].items())
         for ingress in self.pods('aks-istio-ingress', selector):
@@ -372,7 +398,7 @@ class Runtime:
             'deployment_spec_sha256': digest(self.j('-n', 'forgejo', 'get', 'deployment', 'forgejo', '-o', 'json')['spec'])}
         result['targets'].sort(key=lambda t: t['uid'])
         result['ingress'].sort(key=lambda t: t['uid'])
-        result['hpa_spec'] = self.j('-n', NS, 'get', 'hpa', 'hpa-app-cpu', '-o', 'json')['spec']
+        result['hpa_spec'] = self.j('-n', NS, 'get', 'hpa', hpa_name, '-o', 'json')['spec']
         return result
 
     def stats(self, actual):
@@ -411,7 +437,7 @@ class Runtime:
                     proxies[label][pod['uid']].append({k: row[k] for k in ('status', 'detail', 'duration_ms', 'cluster')})
         return {'checks': checks, 'proxies': proxies}
 
-    def guard(self):
+    def guard(self, hpa_name='hpa-app-cpu', event_timestamps=False, cpu_preparation=False):
         owned = self.j('-n', NS, 'get', 'pods', '-o', 'json')['items']
         admitted = admission(self.value, owned)
         pods = [self.pod('forgejo', 'app.kubernetes.io/name=forgejo')] + owned
@@ -442,7 +468,15 @@ class Runtime:
         require(app['spec']['sources'][1]['targetRevision'] == app['spec']['sources'][2]['targetRevision'] == self.value['stable_revision'] and
                 app['spec']['syncPolicy']['automated'] == {'prune': False, 'selfHeal': True} and
                 app['status']['sync']['status'] == 'Synced' and app['status']['health']['status'] == 'Healthy', 'stable Argo drift')
-        return {'timestamp_utc': utc(), 'pods': sorted([p4.pod_guard(p) for p in pods], key=lambda p: p['uid']),
+        hpa = self.j('-n', NS, 'get', 'hpa', hpa_name, '-o', 'json')
+        result = {'timestamp_utc': utc(), 'pods': sorted([p4.pod_guard(p) for p in pods], key=lambda p: p['uid']),
+            **({'cpu_hpa': {**{k: hpa[k] for k in ('spec', 'status')}, 'metadata': {k: hpa['metadata'][k]
+                for k in ('name', 'namespace', 'uid', 'creationTimestamp', 'generation', 'ownerReferences', 'deletionTimestamp') if k in hpa['metadata']}},
+                'cpu_preparation_pods': [{**{k: p['metadata'].get(k) for k in
+                    ('namespace', 'name', 'uid', 'creationTimestamp', 'deletionTimestamp')},
+                    'ready_conditions': [{k: c.get(k) for k in ('status', 'lastTransitionTime')}
+                        for c in p['status'].get('conditions', []) if c['type'] == 'Ready']}
+                    for p in owned if p['metadata'].get('labels', {}).get('app') == 'ext-authz-sim']} if cpu_preparation else {}),
             'admission': admitted,
             'runtime_images': {p['metadata']['uid']: {s['name']: s['imageID'] for s in
                 p['status'].get('containerStatuses', []) + p['status'].get('initContainerStatuses', [])} for p in pods},
@@ -450,10 +484,19 @@ class Runtime:
             'nodes': [{'name': n['metadata']['name'], 'conditions': {c['type']: c['status'] for c in n['status']['conditions'] if c['type'] in {'Ready', 'MemoryPressure', 'DiskPressure', 'PIDPressure'}}} for n in nodes],
             'pod_metrics': [{k: p[k] for k in ('metadata', 'timestamp', 'window', 'containers')} for p in metric['items'] if p['metadata']['namespace'] in {NS, 'forgejo'}],
             'node_metrics': node_metric['items'], 'postgres': db,
-            'hpa': self.j('-n', NS, 'get', 'hpa', 'hpa-app-cpu', '-o', 'json')['status'],
-            'events': [{'reason': e.get('reason'), 'type': e.get('type')} for e in self.j('get', 'events', '-A', '-o', 'json')['items']
+            'hpa': hpa['status'],
+            'events': [({'reason': e.get('reason'), 'type': e.get('type')} |
+                        ({'timestamp_utc': e.get('series', {}).get('lastObservedTime') or e.get('lastTimestamp') or e.get('eventTime') or e['metadata']['creationTimestamp'],
+                          'first_timestamp_utc': e.get('firstTimestamp') or e.get('eventTime') or e['metadata']['creationTimestamp'],
+                          'uid': e['metadata']['uid'], 'count': e.get('series', {}).get('count', e.get('count')),
+                          'owner': {k: e.get('involvedObject', {}).get(k) for k in ('kind', 'name', 'namespace', 'uid')}} if event_timestamps else {})) for e in self.j('get', 'events', '-A', '-o', 'json')['items']
                        if e.get('type') == 'Warning' and e.get('metadata', {}).get('namespace') in {NS, 'forgejo'} and
-                       (e.get('lastTimestamp') or e.get('eventTime') or e['metadata']['creationTimestamp']) >= self.since]}
+                       ((e.get('series', {}).get('lastObservedTime') or e.get('lastTimestamp') or e.get('eventTime') or e['metadata']['creationTimestamp']) >= self.since or
+                        cpu_preparation and e.get('involvedObject', {}).get('kind') == 'HorizontalPodAutoscaler' and
+                        e.get('involvedObject', {}).get('name') == hpa_name)]}
+        if cpu_preparation:
+            result['timestamp_utc'] = utc()  # Include the event read in the preparation observation window.
+        return result
 
 
 def request(path, headers, expected=None, direct=False):

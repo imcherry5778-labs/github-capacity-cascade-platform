@@ -144,13 +144,13 @@ def prom_result(payload):
     return {'status': 'observed' if any(s['values'] for s in result) else 'no-data', 'series': result}
 
 
-def http_json(url, token):
+def http_json(url, token, timeout=60):
     request = urllib.request.Request(url, headers={'Authorization': 'Bearer ' + token})
     # TLS verification uses the OS trust store. No redirects to another credential origin.
     class NoRedirect(urllib.request.HTTPRedirectHandler):
         def redirect_request(self, *_args, **_kwargs):
             return None
-    with urllib.request.build_opener(NoRedirect).open(request, timeout=60) as response:
+    with urllib.request.build_opener(NoRedirect).open(request, timeout=timeout) as response:
         return json.load(response)
 
 

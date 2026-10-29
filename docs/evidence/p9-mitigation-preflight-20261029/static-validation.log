@@ -1,0 +1,145 @@
+scripts/local-verify.sh static
+k3d version v5.9.0
+kubectl v1.36.4
+helm v3.22.0
+terraform 1.16.7
+PASS deterministic R1-R4 prefixes/inventory/CLI/timing/curl, Git timeout/kill-after and credential hygiene
+PASS HTTPS producer, DNS override and TLS verification configuration
+PASS P4 baseline context extraction and direct/gated endpoint-specific transport
+PASS P7 Local compatibility/HTTPS transport, mixed baseline refusal, query no-data/zero, original DB/PVC and admission guards
+PASS same native-session cookie continuity, private-only A login, unauthenticated/tampered rejection
+PASS actual Forgejo CLI version spelling and exact doctor runtime version extraction
+......................................
+----------------------------------------------------------------------
+Ran 38 tests in 0.034s
+
+OK
+.........................
+----------------------------------------------------------------------
+Ran 25 tests in 7.246s
+
+OK
+.....................
+----------------------------------------------------------------------
+Ran 21 tests in 0.010s
+
+OK
+.............
+----------------------------------------------------------------------
+Ran 13 tests in 0.009s
+
+OK
+...............
+----------------------------------------------------------------------
+Ran 15 tests in 3.529s
+
+OK
+..........
+----------------------------------------------------------------------
+Ran 10 tests in 0.015s
+
+OK
+.................................
+----------------------------------------------------------------------
+Ran 33 tests in 1.521s
+
+OK
+............
+----------------------------------------------------------------------
+Ran 12 tests in 1.054s
+
+OK
+.................................
+----------------------------------------------------------------------
+Ran 33 tests in 1.886s
+
+OK
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.643s
+
+OK
+[local-verify] PASS shell syntax + shellcheck (0.11.0, 11 files)
+[local-verify] PASS source pins match versions.env
+[local-verify] PASS Argo CD Core v3.5.6 commit=c2b1e3017e2cec86b122172e861dcd026453ae44 sha256=d3d9d3555ad77eb4b6d27b1ec0d2af7978a91537e84d54631f983c227f0a3d31
+[local-verify] PASS restricted project, exact Git/chart revisions, automated self-heal, prune off
+Pulled: code.forgejo.org/forgejo-helm/forgejo:17.1.7
+Digest: sha256:f5044e73361f5991978f1bc281a570bf893fd0f468e7d76274a7853eb27428cf
+[local-verify] PASS helm template chart 17.1.7 (values.schema.json validated)
+[local-verify] PASS render: single Deployment, replicas=1, Recreate, image=code.forgejo.org/forgejo/forgejo:15.0.11-rootless, no bundled DB/ingress/admin Secret
+[local-verify] PASS rendered config contract (16 keys)
+Pulled: code.forgejo.org/forgejo-helm/forgejo:17.1.7
+Digest: sha256:f5044e73361f5991978f1bc281a570bf893fd0f468e7d76274a7853eb27428cf
+[local-verify] PASS maintenance A override preserves chart/Core render
+scripts/terraform-verify.sh
+[terraform-verify] PASS bootstrap inventory/local state/pins/Environment OIDC/mock-only guard
+[terraform-verify] PASS foundation inventory/remote backend/OIDC-only/Key Vault/recovery-negative/mock-only guard
+[terraform-verify] PASS environment inventory/remote backend/OIDC-only/private PostgreSQL/write-only credential/Key Vault reference/AKS managed capability/RBAC/output guard + 15 rejected mutations + mock-only guard
+[0m[1mInitializing provider plugins...[0m
+- Reusing previous version of hashicorp/azurerm from the dependency lock file
+- Installing hashicorp/azurerm v5.11.0...
+- Installed hashicorp/azurerm v5.11.0 (signed by HashiCorp)
+
+[0m[1m[32mTerraform has been successfully initialized![0m[32m[0m
+[32m[1mSuccess![0m The configuration is valid.
+[0m
+tests/security.tftest.hcl... [37min progress[0m
+[0m  run "reject_collapsed_permission_boundary"... [32mpass[0m[0m
+  run "trust_and_permission_boundary"... [32mpass[0m[0m
+tests/security.tftest.hcl... [37mtearing down[0m
+[0mtests/security.tftest.hcl... [32mpass[0m[0m
+
+[32mSuccess![0m[0m 2 passed, 0 failed.
+[terraform-verify] PASS bootstrap clean credential-free fmt/init/validate + mock security contract
+[0m[1mInitializing provider plugins...[0m
+- Reusing previous version of hashicorp/azurerm from the dependency lock file
+- Installing hashicorp/azurerm v5.11.0...
+- Installed hashicorp/azurerm v5.11.0 (signed by HashiCorp)
+
+[0m[1m[32mTerraform has been successfully initialized![0m[32m[0m
+[32m[1mSuccess![0m The configuration is valid.
+[0m
+tests/security.tftest.hcl... [37min progress[0m
+[0m  run "shared_resource_contract"... [32mpass[0m[0m
+tests/security.tftest.hcl... [37mtearing down[0m
+[0mtests/security.tftest.hcl... [32mpass[0m[0m
+
+[32mSuccess![0m[0m 1 passed, 0 failed.
+[terraform-verify] PASS foundation clean credential-free fmt/init/validate + mock security contract
+[0m[1mInitializing provider plugins...[0m
+- Reusing previous version of hashicorp/azurerm from the dependency lock file
+- Installing hashicorp/azurerm v5.11.0...
+- Installed hashicorp/azurerm v5.11.0 (signed by HashiCorp)
+
+[0m[1m[32mTerraform has been successfully initialized![0m[32m[0m
+[32m[1mSuccess![0m The configuration is valid.
+[0m
+tests/security.tftest.hcl... [37min progress[0m
+[0m  run "environment_contract"... [32mpass[0m[0m
+  run "restricted_api_server_ranges"... [32mpass[0m[0m
+  run "reject_single_node_system_pool"... [32mpass[0m[0m
+  run "reject_overlapping_subnets"... [32mpass[0m[0m
+  run "reject_subnet_outside_vnet"... [32mpass[0m[0m
+  run "reject_pod_cidr_overlapping_vnet"... [32mpass[0m[0m
+  run "reject_undersized_postgresql_subnet"... [32mpass[0m[0m
+  run "reject_dns_service_ip_outside_service_cidr"... [32mpass[0m[0m
+  run "reject_malformed_cidr"... [32mpass[0m[0m
+  run "reject_non_key_vault_reference"... [32mpass[0m[0m
+  run "reject_premium_registry"... [32mpass[0m[0m
+  run "reject_unmanaged_istio_revision"... [32mpass[0m[0m
+  run "reject_reserved_postgresql_administrator"... [32mpass[0m[0m
+  run "reject_short_postgresql_password"... [32mpass[0m[0m
+  run "platform_workload_rbac"... [32mpass[0m[0m
+  run "reject_dns_outside_foundation"... [32mpass[0m[0m
+  run "reject_vault_outside_foundation"... [32mpass[0m[0m
+tests/security.tftest.hcl... [37mtearing down[0m
+[0mtests/security.tftest.hcl... [32mpass[0m[0m
+
+[32mSuccess![0m[0m 17 passed, 0 failed.
+[terraform-verify] PASS environment clean credential-free fmt/init/validate + mock security contract
+PYTHONDONTWRITEBYTECODE=1 python3 scripts/verify-azure-platform.py
+Pulled: code.forgejo.org/forgejo-helm/forgejo:17.1.7
+Digest: sha256:f5044e73361f5991978f1bc281a570bf893fd0f468e7d76274a7853eb27428cf
+Pulled: quay.io/jetstack/charts/cert-manager:v1.21.3
+Digest: sha256:e482675aec32862d323a9218293ff7de81192337998615e4378c56498473f240
+[azure-platform] PASS credential-free render/negative input/Forgejo chart/Argo RBAC/TLS/CSI order/cert-manager/preflight contract
