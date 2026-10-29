@@ -160,6 +160,11 @@ Configuration/image/hostname/owner 및 Pod/DB/node/admission/headroom은 매 pol
 `HorizontalPodAutoscaler/hpa-app-cpu`에 속한 `FailedGetContainerResourceMetric`/`FailedComputeMetricsReplicas`뿐이다.
 다른 warning/owner/미귀속 event는 즉시 실패한다. Runtime.since를 재설정하거나 warning 이력을 삭제하지 않는다.
 
+`Runtime.guard(cpu_preparation=True)`는 이미 수집한 owned Pod 중 CPU target의 namespace/name/UID,
+creationTimestamp/deletionTimestamp와 Ready status/lastTransitionTime만 별도 `cpu_preparation_pods`로 제공한다.
+CPUStartup은 이 opt-in lifecycle을 사용한다. `admission.pods`의 name/uid/containers 자원 요약을 원본 Pod로 취급하지 않으며
+P8 admission accounting·기본 guard 계약은 유지한다. Lifecycle 필드 누락/UID·Ready transition drift는 fail-closed다.
+
 준비 성공에는 고정 target UID의 실제 Ready/무재시작·변하지 않은 Ready transition, `app` CPU 양수 sample,
 sample window 전체가 Ready 이후이며 sample age≤30초인 관측을 요구한다. CPU HPA spec/UID/unowned CPU controller가
 일치하고 AbleToScale=True/ScalingActive=True 및 `ContainerResource/cpu/app`의 양수 currentMetrics averageValue/averageUtilization도 있어야 한다.

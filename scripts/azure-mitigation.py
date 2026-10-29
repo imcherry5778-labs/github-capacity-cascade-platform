@@ -753,6 +753,7 @@ class CPUStartup:
     def __init__(self, actual):
         require(len(actual['targets']) == 1, 'CPU startup requires one target')
         self.target = actual['targets'][0]['uid']
+        self.target_name = actual['targets'][0]['name']
         self.spec = copy.deepcopy(actual['hpa_spec'])
         self.hpa_uid = self.ready_at = None
         self.history, self.candidate, self.completed = {}, None, False
@@ -763,13 +764,20 @@ class CPUStartup:
         require(meta['name'] == 'hpa-app-cpu' and meta['namespace'] == NS and isinstance(meta.get('uid'), str) and
                 re.fullmatch(r'[A-Za-z0-9-]{1,64}', meta['uid']) and
                 not meta.get('ownerReferences') and not meta.get('deletionTimestamp') and hpa['spec'] == self.spec, 'CPU preparation owner/spec drift')
-        pods = [p for p in guard['admission']['pods'] if p['metadata']['uid'] == self.target]
-        require(len(pods) == 1, 'CPU preparation target UID drift')
+        lifecycle = guard.get('cpu_preparation_pods')
+        require(isinstance(lifecycle, list), 'CPU preparation lifecycle absent')
+        pods = [p for p in lifecycle if p.get('uid') == self.target]
+        require(len(lifecycle) == 1 and len(pods) == 1, 'CPU preparation target UID drift')
         pod = pods[0]
-        require(not pod['metadata'].get('deletionTimestamp'), 'CPU preparation terminating target')
-        ready = [c for c in pod['status']['conditions'] if c['type'] == 'Ready' and c['status'] == 'True']
+        require({'namespace', 'name', 'uid', 'creationTimestamp', 'deletionTimestamp', 'ready_conditions'} <= set(pod) and
+                pod['namespace'] == NS and pod['name'] == self.target_name and isinstance(pod['creationTimestamp'], str) and
+                isinstance(pod['ready_conditions'], list), 'CPU preparation lifecycle fields absent/drifted')
+        require(pod['deletionTimestamp'] is None, 'CPU preparation terminating/unknown target')
+        ready = [c for c in pod['ready_conditions'] if c.get('status') == 'True']
         require(len(ready) == 1, 'CPU preparation target not Ready')
+        require(isinstance(ready[0].get('lastTransitionTime'), str), 'CPU preparation Ready transition absent')
         ready_at = p8.p7.utc(ready[0]['lastTransitionTime']).timestamp()
+        require(p8.p7.utc(pod['creationTimestamp']).timestamp() <= ready_at, 'CPU preparation creation/Ready time invalid')
         if self.hpa_uid is None:
             self.hpa_uid, self.ready_at = meta['uid'], ready_at
         require((self.hpa_uid, self.ready_at) == (meta['uid'], ready_at), 'CPU preparation UID/Ready transition drift')
@@ -799,7 +807,7 @@ class CPUStartup:
             if self.completed:
                 require(self.history.get(e['uid']) == signature, 'CPU preparation warning recurred')
             else:
-                require(0 <= epoch - p8.p7.utc(pod['metadata']['creationTimestamp']).timestamp() <= self.seconds and
+                require(0 <= epoch - p8.p7.utc(pod['creationTimestamp']).timestamp() <= self.seconds and
                         0 <= epoch - p8.p7.utc(meta['creationTimestamp']).timestamp() <= self.seconds,
                         'CPU warning outside startup lifetime')
             events[e['uid']] = signature
@@ -807,7 +815,7 @@ class CPUStartup:
         if events != self.history:
             self.candidate = None
         self.history = events
-        samples = [p for p in guard['pod_metrics'] if p['metadata']['namespace'] == NS and p['metadata']['name'] == pod['metadata']['name']]
+        samples = [p for p in guard['pod_metrics'] if p['metadata']['namespace'] == NS and p['metadata']['name'] == pod['name']]
         require(len(samples) <= 1, 'ambiguous CPU preparation sample')
         metric, status, stamp, sample_evidence, current_evidence = False, False, None, None, None
         if samples:

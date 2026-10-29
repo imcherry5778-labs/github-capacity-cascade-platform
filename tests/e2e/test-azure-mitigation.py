@@ -299,8 +299,10 @@ class LiveFixture:
         self.baseline = r.configuration(self.config)
 
     def pod(self, uid, name, ready=True):
-        return {'metadata': {'uid': uid, 'name': name},
-                'spec': {'containers': [{'name': 'app', 'image': self.runtime.value['ext_authz_image']}]},
+        return {'metadata': {'uid': uid, 'name': name, 'namespace': m.NS,
+                             'labels': {'app': 'ext-authz-sim', 'p8.campaign': self.runtime.value['campaign']}},
+                'spec': {'containers': [{'name': 'app', 'image': self.runtime.value['ext_authz_image'],
+                    'resources': {'requests': {'cpu': '50m', 'memory': '64Mi'}, 'limits': {'cpu': '100m', 'memory': '128Mi'}}}]},
                 'status': {'phase': 'Running' if ready else 'Pending',
                            'conditions': [{'type': 'Ready', 'status': 'True' if ready else 'False'}],
                            'containerStatuses': [{'name': 'app', 'imageID': 'sha', 'ready': ready, 'restartCount': 0}] if ready else []}}
@@ -369,7 +371,7 @@ class LiveFixture:
         guard['runtime_images'] = {p['metadata']['uid']: {c['name']: c['imageID'] for c in p['status'].get('containerStatuses', [])} for p in self.pods}
         guard['pod_metrics'] = [copy.deepcopy(guard['pod_metrics'][0]) | {'metadata': {'name': p['metadata']['name'], 'namespace': m.NS}}
                                 for p in self.pods if m.p8.p4.pod_guard(p)['ready']]
-        guard['admission'] = {'pods': self.pods, 'conservative_sum': {'requests': {'cpu': .3, 'memory': 1}, 'limits': {'cpu': 1, 'memory': 1}}}
+        guard['admission'] = m.p8.admission(self.runtime.value, self.pods)
         guard['hpa'].update(currentReplicas=len(self.pods), desiredReplicas=len(self.pods))
         return guard
 
@@ -723,6 +725,10 @@ class MetricInitializationTests(unittest.TestCase):
             f.hpa['metadata'].update(uid='cpu-hpa', namespace=m.NS, generation=1, creationTimestamp=stamp(base[0] - 65))
             guard = f.guard()
             guard['timestamp_utc'] = stamp(epoch)
+            guard['cpu_preparation_pods'] = [{**{k: pod['metadata'].get(k) for k in
+                ('namespace', 'name', 'uid', 'creationTimestamp', 'deletionTimestamp')},
+                'ready_conditions': [{'status': c['status'], 'lastTransitionTime': c.get('lastTransitionTime')}
+                    for c in pod['status']['conditions'] if c['type'] == 'Ready']}]
             guard['cpu_hpa'] = copy.deepcopy(f.hpa) | {'status': copy.deepcopy(guard['hpa'])}
             guard['cpu_hpa']['status'].update(observedGeneration=1)
             for c in guard['cpu_hpa']['status']['conditions']:
@@ -784,51 +790,52 @@ class MetricInitializationTests(unittest.TestCase):
         return journey, path, logs
 
     def startup_archive(self):
-        """Replay archived fields at a synthetic guard time to isolate window validity.
+        """Real admission/guard projections; synthetic clock isolates Ready window.
 
         Actual stop export was later; this does not assert live freshness/recovery.
         """
-        with tarfile.open(ROOT / 'docs/evidence/p9-mitigation-third-20261029/raw-evidence.tar.gz') as t:
-            read = lambda name: json.load(t.extractfile(name))
-            pod = next(p for p in read('initial-pods.json')['items'] if p['metadata']['labels'].get('app') == 'ext-authz-sim')
-            hpa = next(p for p in read('experiment-terminal.json')['items'] if p['kind'] == 'HorizontalPodAutoscaler')
-            sample = next(p for p in read('pod-metrics-stop.json')['items'] if p['metadata']['name'] == pod['metadata']['name'])
-            events = [{
-                'uid': e['metadata']['uid'], 'type': e['type'], 'reason': e['reason'], 'count': e['count'],
-                'first_timestamp_utc': e['firstTimestamp'], 'timestamp_utc': e['lastTimestamp'],
-                'owner': {k: e['involvedObject'][k] for k in ('kind', 'name', 'namespace', 'uid')}}
-                for e in read('fixture-events-stop.json')['items'] if e.get('firstTimestamp') == '2026-10-29T05:55:53Z']
-        f = self.preparation(); g = f.runtime.guard()
-        g.update(timestamp_utc='2026-10-29T05:56:25Z', cpu_hpa=hpa, pod_metrics=[sample], events=events)
-        g['admission']['pods'] = [pod]; g['pods'] = [m.p8.p4.pod_guard(pod)]
-        actual = {'targets': [{'uid': pod['metadata']['uid']}], 'hpa_spec': hpa['spec']}
-        return f, actual, g
+        runtime, owned = self.archived_cpu_runtime()
+        events = runtime.j('get', 'events', '-A', '-o', 'json')
+        events['items'] = [e for e in events['items'] if e.get('firstTimestamp') == '2026-10-29T05:55:53Z']
+        guard = m.Runtime.guard(runtime)
+        target = next(p for p in owned['items'] if p['metadata']['labels'].get('app') == 'ext-authz-sim')
+        guard['timestamp_utc'] = '2026-10-29T05:56:25Z'
+        guard['pod_metrics'] = [p for p in guard['pod_metrics'] if p['metadata']['name'] == target['metadata']['name']]
+        guard['events'] = [e for e in guard['events'] if e['timestamp_utc'] == '2026-10-29T05:56:23Z']
+        actual = {'targets': [{'uid': target['metadata']['uid'], 'name': target['metadata']['name']}],
+                  'hpa_spec': guard['cpu_hpa']['spec']}
+        return runtime, actual, guard
 
-    def valid_cpu_recovery(self, g, seconds):
+    def valid_cpu_recovery(self, runtime, seconds):
         # Synthetic positive continuation, never historical/runtime recovery proof.
         stamp = f'2026-10-29T05:56:{seconds:02d}Z'
-        g['timestamp_utc'] = stamp
-        g['pod_metrics'][0].update(timestamp=stamp, window='15s')
-        g['pod_metrics'][0]['containers'][0]['usage']['cpu'] = '10m'
-        hpa = g['cpu_hpa']; hpa['metadata']['generation'] = 1
+        metrics = runtime.j('get', '--raw', '/apis/metrics.k8s.io/v1beta1/pods')
+        sample = next(p for p in metrics['items'] if p['metadata']['labels'].get('app') == 'ext-authz-sim')
+        sample.update(timestamp=stamp, window='15s')
+        next(c for c in sample['containers'] if c['name'] == 'app')['usage']['cpu'] = '10m'
+        hpa = runtime.j('-n', m.NS, 'get', 'hpa', 'hpa-app-cpu', '-o', 'json')
+        hpa['metadata']['generation'] = 1
         hpa['status'].update(observedGeneration=1,
             conditions=[{'type': 'AbleToScale', 'status': 'True'},
                         {'type': 'ScalingActive', 'status': 'True', 'lastTransitionTime': '2026-10-29T05:56:39Z'}],
             currentMetrics=[{'type': 'ContainerResource', 'containerResource': {'name': 'cpu', 'container': 'app',
                 'current': {'averageUtilization': 20, 'averageValue': '10m'}}}])
+        with patch.object(m.p8, 'utc', return_value=stamp):
+            return m.Runtime.guard(runtime)  # Positive payload also goes through real projections.
 
     def test_archived_cpu_window_is_pending_and_only_synthetic_recovery_passes(self):
-        _, actual, g = self.startup_archive(); rows = []
+        runtime, actual, g = self.startup_archive(); rows = []
         cpu = m.CPUStartup(actual)
-        self.assertEqual(g['admission']['pods'][0]['status']['conditions'][2]['lastTransitionTime'], '2026-10-29T05:55:54Z')
+        target = next(p for p in runtime.j('-n', m.NS, 'get', 'pods', '-o', 'json')['items'] if p['metadata']['uid'] == cpu.target)
+        self.assertEqual(next(c for c in target['status']['conditions'] if c['type'] == 'Ready')['lastTransitionTime'], '2026-10-29T05:55:54Z')
         self.assertEqual(g['pod_metrics'][0]['timestamp'], '2026-10-29T05:56:18Z')
         self.assertEqual(g['pod_metrics'][0]['window'], '38.03202016s')
         self.assertFalse(m.initialization_safety(g, cpu_startup=cpu, emit=rows.append, at=0))
         self.assertFalse(rows[-1]['valid_ready_window'])
         self.assertEqual(rows[-1]['sample']['window_seconds'], 38.03202016)
-        self.valid_cpu_recovery(g, 40)
+        g = self.valid_cpu_recovery(runtime, 40)
         self.assertFalse(m.initialization_safety(g, cpu_startup=cpu, emit=rows.append, at=15))
-        self.valid_cpu_recovery(g, 55)
+        g = self.valid_cpu_recovery(runtime, 55)
         self.assertTrue(m.initialization_safety(g, cpu_startup=cpu, emit=rows.append, at=30))
         self.assertEqual(rows[-1]['hpa_current_cpu']['container'], 'app')
         self.assertEqual(rows[-1]['sample']['app_cpu'], '10m')
@@ -839,7 +846,7 @@ class MetricInitializationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'warning recurred'):
             m.initialization_safety(g, cpu_startup=cpu, emit=rows.append, at=31)
 
-    def test_cpu_settling_collector_keeps_owner_time_count_without_p8_default_change(self):
+    def archived_cpu_runtime(self):
         with tarfile.open(ROOT / 'docs/evidence/p9-mitigation-third-20261029/raw-evidence.tar.gz') as t:
             read = lambda n: json.load(t.extractfile(n))
             r = m.Runtime.__new__(m.Runtime); r.value = read('identity.json'); r.preparation = True; r.hpa_name = 'hpa-app-cpu'
@@ -857,7 +864,22 @@ class MetricInitializationTests(unittest.TestCase):
             return next(v for key, v in objects.items() if key in args)
         r.j = j; r.pod = lambda *a: stable
         r.k = lambda *a: '{"query_ok":true,"connections":4,"max_connections":100,"reserved":5}'
+        return r, owned
+
+    def test_cpu_settling_collector_keeps_owner_time_count_without_p8_default_change(self):
+        r, owned = self.archived_cpu_runtime()
+        hpa = r.j('-n', m.NS, 'get', 'hpa', 'hpa-app-cpu', '-o', 'json')
         collected = m.Runtime.guard(r)
+        admitted = m.p8.admission(r.value, owned['items'])
+        self.assertEqual(collected['admission'], admitted)
+        self.assertTrue(all(set(p) == {'name', 'uid', 'containers'} for p in admitted['pods']))
+        target = next(p for p in owned['items'] if p['metadata']['labels'].get('app') == 'ext-authz-sim')
+        lifecycle = collected['cpu_preparation_pods']
+        self.assertEqual(len(lifecycle), 1)
+        self.assertEqual(set(lifecycle[0]), {'namespace', 'name', 'uid', 'creationTimestamp', 'deletionTimestamp', 'ready_conditions'})
+        self.assertEqual(lifecycle[0]['uid'], target['metadata']['uid'])
+        self.assertIsNone(lifecycle[0]['deletionTimestamp'])
+        self.assertEqual(lifecycle[0]['ready_conditions'], [{'status': 'True', 'lastTransitionTime': '2026-10-29T05:55:54Z'}])
         self.assertEqual(collected['cpu_hpa']['metadata']['uid'], hpa['metadata']['uid'])
         historic = [e for e in collected['events'] if e['timestamp_utc'] == '2026-10-29T05:56:23Z']
         self.assertEqual(len(historic), 2)
@@ -865,7 +887,42 @@ class MetricInitializationTests(unittest.TestCase):
         self.assertNotIn('message', json.dumps(collected['events']))
         strict = m.p8.Runtime.guard(r)
         self.assertNotIn('cpu_hpa', strict)
+        self.assertNotIn('cpu_preparation_pods', strict)
+        self.assertEqual(strict['admission'], admitted)
         self.assertTrue(all(set(e) == {'type', 'reason'} for e in strict['events']))
+
+    def test_real_guard_lifecycle_missing_fields_and_drift_fail_closed(self):
+        cases = ('creation-absent', 'ready-time-absent', 'not-ready', 'uid-drift', 'name-drift', 'ready-transition', 'terminating',
+                 'projection-absent', 'namespace-field', 'name-field', 'uid-field', 'creation-field', 'deletion-field', 'ready-field',
+                 'extra-uid', 'duplicate-uid', 'invalid-deletion')
+        for case in cases:
+            with self.subTest(case=case):
+                runtime, actual, baseline = self.startup_archive()
+                cpu = m.CPUStartup(actual)
+                self.assertFalse(cpu.observe(baseline, lambda _: None, 0))
+                owned = runtime.j('-n', m.NS, 'get', 'pods', '-o', 'json')['items']
+                target = next(p for p in owned if p['metadata']['uid'] == cpu.target)
+                ready = next(c for c in target['status']['conditions'] if c['type'] == 'Ready')
+                if case == 'creation-absent': target['metadata'].pop('creationTimestamp')
+                elif case == 'ready-time-absent': ready.pop('lastTransitionTime')
+                elif case == 'not-ready': ready['status'] = 'False'
+                elif case == 'uid-drift': target['metadata']['uid'] = 'different-uid'
+                elif case == 'name-drift': target['metadata']['name'] = 'different-name'
+                elif case == 'ready-transition': ready['lastTransitionTime'] = '2026-10-29T05:55:55Z'
+                elif case == 'terminating': target['metadata']['deletionTimestamp'] = '2026-10-29T05:56:24Z'
+                elif case == 'invalid-deletion': target['metadata']['deletionTimestamp'] = False
+                guard = m.Runtime.guard(runtime)  # Run real admission + opt-in projection again.
+                guard['timestamp_utc'] = baseline['timestamp_utc']
+                if case == 'projection-absent': guard.pop('cpu_preparation_pods')
+                elif case in {'extra-uid', 'duplicate-uid'}:
+                    extra = copy.deepcopy(guard['cpu_preparation_pods'][0])
+                    if case == 'extra-uid': extra['uid'] = 'unknown-uid'
+                    guard['cpu_preparation_pods'].append(extra)
+                elif case.endswith('-field'):
+                    key = {'namespace-field': 'namespace', 'name-field': 'name', 'uid-field': 'uid',
+                           'creation-field': 'creationTimestamp', 'deletion-field': 'deletionTimestamp', 'ready-field': 'ready_conditions'}[case]
+                    guard['cpu_preparation_pods'][0].pop(key)
+                with self.assertRaises(ValueError): cpu.observe(guard, lambda _: None, 1)
 
     def test_cpu_settling_timeout_other_warning_and_bad_metrics_never_start_journey(self):
         cases = ('persistent', 'pre-ready', 'missing', 'stale', 'zero', 'unknown', 'metric-container', 'metric-duplicate',
@@ -876,15 +933,15 @@ class MetricInitializationTests(unittest.TestCase):
             with self.subTest(case=case):
                 f = self.preparation(); guard = f.runtime.guard; rows, calls, clock = [], [], [0]
                 def snapshot():
-                    g = guard(); pod = g['admission']['pods'][0]; hpa = g['cpu_hpa']
+                    g = guard(); pod = g['cpu_preparation_pods'][0]; hpa = g['cpu_hpa']
                     e = {'type': 'Warning', 'reason': 'FailedComputeMetricsReplicas', 'uid': 'event', 'count': 1,
                          'first_timestamp_utc': hpa['metadata']['creationTimestamp'], 'timestamp_utc': hpa['metadata']['creationTimestamp'],
                          'owner': {'kind': 'HorizontalPodAutoscaler', 'name': 'hpa-app-cpu', 'namespace': m.NS, 'uid': hpa['metadata']['uid']}}
                     if case == 'persistent':
                         e.update(timestamp_utc=g['timestamp_utc'], count=1 + int(clock[0])); g['events'] = [e]
-                    elif case == 'pre-ready': g['pod_metrics'][0]['timestamp'] = pod['status']['conditions'][0]['lastTransitionTime']
+                    elif case == 'pre-ready': g['pod_metrics'][0]['timestamp'] = pod['ready_conditions'][0]['lastTransitionTime']
                     elif case == 'missing': g['pod_metrics'] = []
-                    elif case == 'stale': g['pod_metrics'][0]['timestamp'] = pod['metadata']['creationTimestamp']
+                    elif case == 'stale': g['pod_metrics'][0]['timestamp'] = pod['creationTimestamp']
                     elif case in {'zero', 'unknown'}: g['pod_metrics'][0]['containers'][0]['usage']['cpu'] = '0' if case == 'zero' else 'unknown'
                     elif case == 'metric-container': g['pod_metrics'][0]['containers'][0]['name'] = 'other'
                     elif case == 'metric-duplicate': g['pod_metrics'] *= 2
@@ -904,7 +961,7 @@ class MetricInitializationTests(unittest.TestCase):
                     elif case == 'resource': g['admission']['conservative_sum']['limits']['cpu'] = 2
                     elif case == 'ready-transition':
                         g['pod_metrics'] = []
-                        if clock[0]: pod['status']['conditions'][0]['lastTransitionTime'] = g['timestamp_utc']
+                        if clock[0]: pod['ready_conditions'][0]['lastTransitionTime'] = g['timestamp_utc']
                     elif case == 'generation': hpa['status']['observedGeneration'] = 2
                     elif case == 'hpa-replaced':
                         g['pod_metrics'] = []
@@ -935,8 +992,8 @@ class MetricInitializationTests(unittest.TestCase):
                 guard = f.runtime.guard; positive, _, _ = self.positive_journey(f)
                 stamp = lambda at: m.datetime.fromtimestamp(at, m.timezone.utc).isoformat()
                 def snapshot():
-                    g = guard(); g['admission']['pods'][0]['metadata']['creationTimestamp'] = stamp(970)
-                    g['admission']['pods'][0]['status']['conditions'][0]['lastTransitionTime'] = stamp(980)
+                    g = guard(); g['cpu_preparation_pods'][0]['creationTimestamp'] = stamp(970)
+                    g['cpu_preparation_pods'][0]['ready_conditions'][0]['lastTransitionTime'] = stamp(980)
                     g['cpu_hpa']['metadata']['creationTimestamp'] = stamp(970)
                     for c in g['cpu_hpa']['status']['conditions']: c['lastTransitionTime'] = stamp(995)
                     g['events'] = [{'type': 'Warning', 'reason': 'FailedGetContainerResourceMetric', 'uid': 'startup-warning',

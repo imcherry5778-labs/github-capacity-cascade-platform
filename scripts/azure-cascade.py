@@ -471,7 +471,12 @@ class Runtime:
         hpa = self.j('-n', NS, 'get', 'hpa', hpa_name, '-o', 'json')
         result = {'timestamp_utc': utc(), 'pods': sorted([p4.pod_guard(p) for p in pods], key=lambda p: p['uid']),
             **({'cpu_hpa': {**{k: hpa[k] for k in ('spec', 'status')}, 'metadata': {k: hpa['metadata'][k]
-                for k in ('name', 'namespace', 'uid', 'creationTimestamp', 'generation', 'ownerReferences', 'deletionTimestamp') if k in hpa['metadata']}}} if cpu_preparation else {}),
+                for k in ('name', 'namespace', 'uid', 'creationTimestamp', 'generation', 'ownerReferences', 'deletionTimestamp') if k in hpa['metadata']}},
+                'cpu_preparation_pods': [{**{k: p['metadata'].get(k) for k in
+                    ('namespace', 'name', 'uid', 'creationTimestamp', 'deletionTimestamp')},
+                    'ready_conditions': [{k: c.get(k) for k in ('status', 'lastTransitionTime')}
+                        for c in p['status'].get('conditions', []) if c['type'] == 'Ready']}
+                    for p in owned if p['metadata'].get('labels', {}).get('app') == 'ext-authz-sim']} if cpu_preparation else {}),
             'admission': admitted,
             'runtime_images': {p['metadata']['uid']: {s['name']: s['imageID'] for s in
                 p['status'].get('containerStatuses', []) + p['status'].get('initContainerStatuses', [])} for p in pods},

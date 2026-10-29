@@ -51,3 +51,19 @@ P9 positive shared path/correlation·C3 warmup·release invariant를 보존한�
 새 source gate 이후 별도 Azure 통합 재승인에는 read-only settling 순서와 fresh IAM/image/credential/shared configuration 재준비,
 필요한 KEDA 변경/원복·calibration/measured 범위 및 기존3회 준비/cleanup·비용 unknown을 함께 연결해야 한다.
 기존 승인 SHA/flags/삭제된 identity를 재사용하거나 비용·횟수·resource/retention·recovery acceptance를 확대하지 않는다.
+
+## Guard lifecycle 데이터 계약 정정 — source-only
+
+후속 review5693882155에서 `b5f3bca`의 실제 guard→CPUStartup 경계 결함을 확인했다.
+P8 admission은 Pod를 name/uid/containers 자원 요약으로 반환하지만 CPUStartup은 metadata/status를 가진 raw Pod로 취급했다.
+기존 synthetic fixture가 admission에 raw Pod를 넣어 앞선 회귀에서 이 불일치를 가렸다.
+제3차 initial-pods.json을 실제 admission()/Runtime.guard()에 통과시키는 통합 회귀를 연결하자
+수정 전 CPUStartup의 `KeyError: 'metadata'`가 재현됐다. 이는 source 결함이며 과거 Azure 실패 원인의 소급 변경이 아니다.
+
+이미 수집한 target Pod의 최소 lifecycle을 별도 opt-in `cpu_preparation_pods`로 projection하고 CPUStartup만 이를 소비하도록 수정했다.
+P8 admission 함수·자원 합산과 기본 guard 반환은 변경하지 않았다. Fixture도 실제 admission 요약을 사용한다.
+Archived pre-Ready sample은 pending, synthetic HPA/CPU 회복은 같은 실제 guard projection을 다시 거친 뒤 ready가 된다.
+누락된 lifecycle/Ready transition, UID/name drift·중복/추가 UID, terminating Pod는 fail-closed다.
+직접 P9 51개/P8 38개와 `make static`으로 이 경계 및 기존 회귀를 검증했다. Synthetic positive는 runtime evidence가 아니다.
+기존90초 settling/30초 snapshot/15초 command, warning history·quiet·advancing samples 및 P9/P8 strict 경계를 유지한다.
+Azure 접근·workload·mutation은 없으며 이전3회 집행·승인 source·비용 unknown과 raw/checksum은 그대로다.
