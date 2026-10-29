@@ -43,7 +43,7 @@ Public stage label은 반복 내부 configuration까지 포함하며 마지막 �
 외부840초 TERM/kill-after5초가 먼저 종료한 결과가 아니다. Snapshot30초/command15초를 확대하지 않았다.
 
 CPU HPA exact UID `574ff3ca-6624-4c7e-98e1-c4e66eb43a66`의 허용된 metric Warning2개는
-count1→7→8, 마지막 발생 `19:34:23`으로 증가했다. 마지막 발생은 **Pod/HPA 생성 후121초**였다.
+collector 첫 관측 count5(`19:33:38`)→7(`19:34:08`)→8(`19:34:23`)로 증가했다. 마지막 발생은 **Pod/HPA 생성 후121초**였다.
 새 source는 이를 보존·관측하며 pending을 유지했다. Warning90초 cutoff 오류는 재발하지 않았다.
 첫 fresh CPU/HPA 관측 이후 Warning UID/count/time은 변하지 않았다. 삭제·숨김·재발 허용은 없다.
 
