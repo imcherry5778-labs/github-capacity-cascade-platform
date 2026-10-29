@@ -226,6 +226,11 @@
       "sha256": "381f03f0f6d1beaf456740a7163e7855a64eda804d312bd501daf93569fe6f6c"
     },
     {
+      "path": "normal-context-review.json",
+      "bytes": 1332,
+      "sha256": "f04d4bb91d69d7b78a5c4159efced29a833a345d161b2408ebad8553d3f1ec4c"
+    },
+    {
       "path": "normal-context.json",
       "bytes": 2206,
       "sha256": "88384a83d1b290e99adf50f01ae235959ec0106e10a10dd2ceba7242c94e4900"
@@ -411,7 +416,7 @@
       "sha256": "528e48579bbcf0a72549a52912e334d6f8c4ffe13d62ee0aaa2c16be85f14771"
     }
   ],
-  "archive_sha256": "4ad683e43a4a277613442cc4e6a45f4c0bf4f1e8ef65699879f25d971307dbae",
+  "archive_sha256": "618ba1357800d547fbebe72fec215908f50a49b030ac438b298373016a4686b7",
   "publication_excluded": [
     "original account contact metadata",
     "all protected credential/auth/clone/kubeconfig/full diagnostic files"

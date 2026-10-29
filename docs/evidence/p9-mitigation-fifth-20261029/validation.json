@@ -5,8 +5,8 @@
   "normal_raw_phase": "baseline",
   "normal_raw_not_rewritten": true,
   "normal_create_replayed": false,
-  "archive_files": 82,
-  "archive_sha256": "4ad683e43a4a277613442cc4e6a45f4c0bf4f1e8ef65699879f25d971307dbae",
+  "archive_files": 83,
+  "archive_sha256": "618ba1357800d547fbebe72fec215908f50a49b030ac438b298373016a4686b7",
   "member_inventory_size_sha256_verified": true,
   "privacy_scan": "known credentials/private path patterns absent from intended publication",
   "protected_credential_directory_removed": true,
@@ -34,5 +34,6 @@
   "reason_no_source_tests_rerun": "docs/evidence-only change; approved implementation bytes unchanged; artifact/negative validator verification performed",
   "p9_acceptance_met": false,
   "final_exact_head_ci": "verify GitHub final evidence/docs HEAD; separate from approved execution source",
-  "temporary_operator_helpers_removed": true
+  "temporary_operator_helpers_removed": true,
+  "additional_normal_context_provenance_issue": "recorded kubectl v1.36.4 vs post-run observed v1.37.1; raw retained; normal invalid"
 }

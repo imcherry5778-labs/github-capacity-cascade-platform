@@ -27,6 +27,9 @@
 Raw의 `run_end.validity=valid`는 script의 자기 보고이며, 독립 validator의 `ValueError: invalid phase`를 대신하지 않는다.
 이는 **operator 설정 오류**이며 승인 source의 CPU/HPA 결함, Azure metric 지연 또는 native auth 실패로 돌리지 않는다.
 Normal gate flag를 승격하지 않았고 initialize/healthy/calibration/measured를 시작하지 않았다.
+추가 self-review에서 과거 template를 재사용한 normal context의 kubectl client 기록v1.36.4와
+실행 후 로컬 조회v1.37.1의 불일치도 확인했다. `normal-context-review.json`에 post-run 관측으로 남겼고
+raw context를 덮어쓰지 않았다. 실행 시 binary hash는 미기록이며 이 관측을 start-of-run attestation으로 승격하지 않는다.
 Raw phase를 고치거나 derivative를 성공 proof로 만들지 않았으며 normal create도 재실행하지 않았다.
 [실제 invocation 설정](execution.json), [incident/corrective action](../../incidents/p9-mitigation-fifth.md)을 연결한다.
 
@@ -72,9 +75,9 @@ Preparation/run/drain/rollback reserve 경계를 늘리지 않았고 retention �
 
 ## Evidence와 남은 gate
 
-[Execution](execution.json), [comparison](comparison.json), [raw82 archive](raw-evidence.tar.gz),
+[Execution](execution.json), [comparison](comparison.json), [raw83 archive](raw-evidence.tar.gz),
 [개별 size/SHA256 index](raw-index.json), [검증](validation.json)을 보존한다.
-Archive SHA256은 `4ad683e43a4a277613442cc4e6a45f4c0bf4f1e8ef65699879f25d971307dbae`다.
+Archive SHA256은 `618ba1357800d547fbebe72fec215908f50a49b030ac438b298373016a4686b7`다.
 모든 member의 size/SHA256, 실제 raw의 invalid phase 재현, cleanup 비교와 알려진 credential/private path 검사를 수행했다.
 원래 account contact metadata와 모든 보호 credential/traceback/helper 파일은 publication에서 제외했다.
 Git 내부 HTTP 등 전체 request 수를 operation/attempt9와1:1로 추정하지 않는다.

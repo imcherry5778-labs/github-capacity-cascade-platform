@@ -9,6 +9,9 @@ Create exit0 및 developer operation/attempt9개 성공과 별개로, structured
 `warmup`/`measured`이므로 `ValueError: invalid phase`를 반환했다. 직접 원인은 **operator 설정 오류**다.
 Raw의 script-reported `validity=valid`를 validator PASS로 사용하지 않았고 phase도 수정하지 않았다.
 Normal create를 반복하거나 승인 flag를 승격하지 않았다.
+추가 review에서 normal context의 과거 kubectl clientv1.36.4와 post-run 로컬 관측v1.37.1도 불일치했다.
+과거 template의 tool provenance를 실행 전에 완전히 재검증하지 않은 operator 오류이며 raw를 보존했다.
+실행 binary hash는 미기록이고 post-run 관측을 실행 전 attestation으로 사용하지 않는다.
 
 Initialize/CPU settling/healthy journey/fault/calibration/C0–C3 measured는 모두0이다.
 Namespace/CUSTOM/shared overlay/experiment Secret과 KEDA 변경 전 중단했으므로
@@ -21,7 +24,7 @@ Shared/KEDA/stable/Secret/storage/node baseline과 기존 Environment를 보존�
 P9 incremental actual은 unknown이며 same before/final cost를 비용0으로 바꾸지 않는다.
 
 Corrective action은 다음 별도 승인 실행의 operator 정상 경로 phase를 `warmup`으로 지정하고
-같은 validator의 허용 값과 invocation metadata를 HTTP side effect 전에 대조하는 것이다.
+같은 validator의 허용 값과 invocation metadata·actual tool context를 HTTP side effect 전에 대조하는 것이다.
 이번 실행에서 승인 implementation을 바꿀 source 근거는 없으며 별도 controller/service/Task를 만들지 않는다.
 이번 raw/negative를 유지하고 재승인 전 native create/healthy/calibration/measured를 자동 재실행하지 않는다.
 Environment 보존 기한과 resource/cost/rollback 상한은 그대로다. Draft 유지, merge/P10 없음.
