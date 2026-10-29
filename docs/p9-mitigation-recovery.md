@@ -1,5 +1,21 @@
 # P9-W1 Mitigation & Recovery
 
+현재 상태: **제9차 normal valid / initialize 전 operator 검사 오류로 중단 / P9-owned 원복 완료 / P9 acceptance 미충족**.
+승인·실제 preparation source는 `ee75e3a336326ec5567b5f399ec08028169b02f1`다.
+[제9차 통합 승인](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6510384906),
+[actual/negative/원복 evidence](evidence/p9-mitigation-ninth-20261030/README.md), [incident](incidents/p9-mitigation-ninth.md)를 연결한다.
+승인 source보다 넓은 전체 retained Warning 검사를 operator가 추가해 startup/readiness 이력에서 멈췄다.
+Source initialize/CPUStartup은 호출되지 않았으며 CPU 계약 실패로 분류하지 않는다. Shared mesh를 실제 admission 전에
+dry-run 근거로 적용한 순서 이탈도 별도 기록했다. Initial/post-stop Pod3 Ready/restart0과 actual 자원 상한은 확인했다.
+Normal1 valid/success/warmup 9operations/9attempts, initialize·CPU 관측·healthy·KEDA·calibration·각 measured arm0,
+freeze 없음, mitigation/recovery not measured다. CUSTOM/shared/namespace·PAT20/image/role·보호 사본을 정리하고 stable을 보존했다.
+준비/원복 누적9회·과거8회 archive와 비용은 유지한다. 최신 two-RG ActualCost KRW49,306.6929280465,
+P9 incremental actual unknown이다. 사용자는 기존 누계와 별도인 추가 세전 USD100 검토 한도를 기존 +72h 유지·제9차1회에
+승인했다. USD5 계획/USD10 검토 기준은 초기화하지 않으며 USD100도 billing hard cap이 아니다.
+기존 승인 retention 계약을 유지한다. 추가 Azure 실행/기한 연장/전체 teardown·merge/P10은 없다.
+
+## 제8차 historical 실행
+
 현재 상태: **제8차 normal valid·무재시작 Pod 준비 통과 / CPU 준비300초 경계 중단 / P9-owned 원복 완료 / P9 acceptance 미충족**.
 승인·실제 execution source는 `98e95e5850f2442e08a6306bf955aa12c0427b17`다.
 [제8차 통합 승인](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6505956066),

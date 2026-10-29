@@ -1,0 +1,80 @@
+{
+  "campaign": "ninth",
+  "source_sha": "ee75e3a336326ec5567b5f399ec08028169b02f1",
+  "main": "3f788a9c1d103f6c07bd403af269133fac287002",
+  "image_digest": "sha256:9be5dcba04e73b492048da58d4bdf141cd5ede160f5a4cffb10f60f46ce1133b",
+  "normal": {
+    "invocations": 1,
+    "validity": "valid",
+    "completion": "success",
+    "phase": "warmup",
+    "operation_count": 9,
+    "attempt_count": 9
+  },
+  "initialize": {
+    "invocations": 0,
+    "failure_record": null,
+    "operator_wrappers_stopped_before_public_call": 2
+  },
+  "stop": {
+    "classification": "operator_added_overbroad_pre_initialize_warning_check",
+    "source_runtime_failure": false,
+    "initial_raw_mandatory_gate_label_corrected_by": "operator-stop-interpretation.json"
+  },
+  "preparation_order_deviation": "shared mesh applied after dry-run admission/headroom but before actual target/live admission; approval ordering was not fully followed",
+  "strict_ready_restart_zero": true,
+  "backend_service_config_ready_endpoints_before_haproxy": true,
+  "admission": {
+    "pods": 3,
+    "requests_cpu_m": 400,
+    "requests_memory_mi": 512,
+    "limits_cpu_m": 900,
+    "limits_memory_mi": 1024
+  },
+  "cpu_preparation": {
+    "observations": 0,
+    "complete": false,
+    "source_contract_failure_demonstrated": false,
+    "settling_bound_seconds": 300
+  },
+  "synthetic_input_used": false,
+  "healthy_journey_invocations": 0,
+  "healthy_target_telemetry_verified": false,
+  "keda_mutations": 0,
+  "keda_restarts": {
+    "apply": 0,
+    "restore": 0
+  },
+  "calibration_runs": 0,
+  "frozen_plan": false,
+  "measured_runs": {
+    "C0": 0,
+    "C1": 0,
+    "C2": 0,
+    "C3": 0
+  },
+  "mitigation_recovery_result": "not measured",
+  "continuing_demand_recovery": "not measured",
+  "p9_acceptance_met": false,
+  "automatic_retry": false,
+  "pod_history_reset": false,
+  "cumulative_preparation_cleanup_campaigns": 9,
+  "historical_keda_restarts": {
+    "apply": 1,
+    "restore": 1
+  },
+  "actual_cost_two_rg_krw": "49306.6929280465",
+  "previous_eighth_aggregate_krw": "44295.3701043718",
+  "p9_incremental_actual": "unknown; shared delayed billing",
+  "cost_plan_reset": false,
+  "additional_approved_pre_tax_cost_review_usd": 100,
+  "billing_hard_cap": false,
+  "plus72h_major_fixed_retail_subtotal_usd": "69.65985369863013698630136986",
+  "environment_deadline": "2026-11-02T01:30:00Z",
+  "foundation_bootstrap_deadline": "2026-11-02T15:33:00Z",
+  "environment_teardown": false,
+  "additional_retention_extension_this_campaign": false,
+  "provider_ttl_update_claimed": false,
+  "cleanup_complete_for_owned_scope": true,
+  "native_final_read_only_verify_invocations": 1
+}
