@@ -13,5 +13,5 @@
   "prometheus": "https://amw-ccp-krc-p6-frh3gzbxdugmffa7.koreacentral.prometheus.monitor.azure.com",
   "prometheus_cluster": "aks-ccp-krc-p6",
   "identity_client_id": "00000000-0000-0000-0000-000000000000",
-  "keda_version": "2.18.0"
+  "keda_version": "2.19.0-25"
 }

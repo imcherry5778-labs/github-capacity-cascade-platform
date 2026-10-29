@@ -38,7 +38,7 @@ done
 status=200 body='{}'
 case "$url" in
   */admin/users) status=201 ;;
-  */users/*/tokens) status=201; body='{"sha1":"secret-test-token"}' ;;
+  */users/*/tokens) status=201; body='{"id":17,"sha1":"secret-test-token"}' ;;
   */api/v1/user) body="{\"login\":\"$DEV_USER\",\"is_admin\":false}" ;;
   */user/repos)
     if [[ "$TEST_MODE" == api_failure ]]; then status=503; body='{"secret":"credential-bearing-response"}'

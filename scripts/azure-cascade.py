@@ -213,7 +213,7 @@ def gateway_scope(value, policy, listeners):
             'policy_spec_sha256': digest(policy['spec']), 'effective_policy_id': policy_id, 'filter_chains': matches}
 
 
-def target_mapping(dump, stat_payload, capacity, listeners=None, *, allowed_capacities=None):
+def target_mapping(dump, stat_payload, capacity, listeners=None, *, allowed_capacities=None, allow_uninitialized=False):
     clusters = [v['cluster'] for v in walk(dump) if isinstance(v.get('cluster'), dict) and
                 v['cluster'].get('name', '').startswith('inbound|')]
     bindings = {v['route']['cluster'] for chain in walk(listeners) if chain.get('filter_chain_match', {}).get('destination_port') == 8080
@@ -231,9 +231,17 @@ def target_mapping(dump, stat_payload, capacity, listeners=None, *, allowed_capa
     prefixes = {'cluster.' + n + '.' for n in (c['name'], c.get('alt_stat_name')) if n}
     names = {s['name']: s['value'] for s in stat_payload['stats'] if any(s.get('name', '').startswith(p) and
              s['name'][len(p):] in p4.SUFFIXES for p in prefixes)}
-    require(len(names) == len(p4.SUFFIXES) and set(p4.by_suffix(names)) == set(p4.SUFFIXES), 'required actual target stats absent/ambiguous')
+    if allow_uninitialized:
+        # Only the caller's explicit new-UID/pre-traffic boundary may defer
+        # materialization. Structural names are never inferred from other clusters.
+        expected = {'cluster.' + (c.get('alt_stat_name') or c['name']) + '.' + key for key in p4.SUFFIXES}
+        require(set(names) <= expected and len(names) == sum(1 for row in stat_payload['stats'] if row.get('name') in names), 'ambiguous target stats')
+        stat_names = sorted(expected)
+    else:
+        require(len(names) == len(p4.SUFFIXES) and set(p4.by_suffix(names)) == set(p4.SUFFIXES), 'required actual target stats absent/ambiguous')
+        stat_names = sorted(names)
     return {'cluster_name': c['name'], 'alt_stat_name': c.get('alt_stat_name'), 'capacity': capacity,
-            'stat_names': sorted(names), 'endpoint_mapping': 'listener-port-8080-to-ORIGINAL_DST' if c.get('type') == 'ORIGINAL_DST' else 'load_assignment'}, names
+            'stat_names': stat_names, 'endpoint_mapping': 'listener-port-8080-to-ORIGINAL_DST' if c.get('type') == 'ORIGINAL_DST' else 'load_assignment'}, names
 
 
 def quantity(value):
@@ -332,17 +340,25 @@ class Runtime:
         return self.pods(NS, 'app=ext-authz-sim')
 
     def configuration(self, config, *, target_range=(1, 1), haproxy_config=None, hpa_name='hpa-app-cpu',
-                      target_pods=None, releasing=False):
+                      target_pods=None, releasing=False, stat_uids=None, stats_path='stats?format=json&filter=upstream_rq_'):
         measurement_transport(self.value)
         policy = self.j('-n', 'aks-istio-ingress', 'get', 'authorizationpolicy', 'p8-shared-gate', '-o', 'json')
         result = {'targets': [], 'scenario': config, 'ingress': [], 'forgejo_hostname': self.value['forgejo_hostname']}
         for pod in self.targets() if target_pods is None else target_pods:
             name = pod['metadata']['name']
             require(next(c['image'] for c in pod['spec']['containers'] if c['name'] == 'app') == self.value['ext_authz_image'], 'target source image drift')
-            mapping, _ = target_mapping(self.admin(NS, name, 'config_dump?resource=dynamic_active_clusters'),
-                self.admin(NS, name, 'stats?format=json&filter=upstream_rq_'), config['max_requests'],
+            cluster_dump = self.admin(NS, name, 'config_dump?resource=dynamic_active_clusters')
+            stat_payload = self.admin(NS, name, stats_path)
+            mapping, values = target_mapping(cluster_dump,
+                stat_payload, config['max_requests'],
                 self.admin(NS, name, 'config_dump?resource=dynamic_listeners'),
-                allowed_capacities=(2, 1024) if releasing else None)
+                allowed_capacities=(2, 1024) if releasing else None,
+                allow_uninitialized=stat_uids is not None and pod['metadata']['uid'] in stat_uids)
+            if stat_uids is not None:
+                require(len(values) == sum(row.get('name') in values for row in stat_payload['stats']), 'ambiguous target stats')
+                missing = sorted(set(mapping['stat_names']) - set(values))
+                result.setdefault('stat_observations', {})[pod['metadata']['uid']] = {
+                    'status': 'uninitialized' if missing else 'observed', 'values': values, 'missing': missing}
             hold = int(self.k('-n', NS, 'exec', name, '-c', 'app', '--', 'cat', '/config/hold-ms'))
             require(hold in (0, 1000) if releasing else hold == config['hold_ms'], 'hold convergence')
             if releasing:

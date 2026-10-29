@@ -7,6 +7,7 @@ from pathlib import Path
 import tempfile
 import threading
 import time
+import tarfile
 import unittest
 from unittest.mock import patch
 
@@ -81,7 +82,7 @@ class PlanTests(unittest.TestCase):
             with self.assertRaises(ValueError): m.plan(v | delta)
         calibration = {'source_sha': identity['source_sha'], 'plan_sha256': m.digest(v), 'reviewed': True,
                        'missing_required_signals': [], 'cadence_observed': True, 'all_pod_series_observed': True,
-                       'counter_semantics': 'per-pod-active-overflow-counter-rate-per-second', 'controller_ownership_verified': True,
+                       'counter_semantics': 'per-pod-active-overflow-counter-rate-per-second', 'controller_ownership_verified': True, 'metric_contract': m.metric_contract(),
                        'transport': m.p8.p7.operations.transport('https://forgejo.example.com', 'azure-aks', None), 'fixture_sha256': 'a' * 64}
         f = m.frozen(identity, v, [calibration])
         self.assertEqual(f['schedule_sha256'], m.digest(m.schedule(v)))
@@ -210,27 +211,20 @@ class PathEvidenceTests(unittest.TestCase):
 class CompleteEvidenceTests(unittest.TestCase):
     def fixture(self, directory):
         v, identity = plan(), t8.identity()
-        baseline = {'scenario': {'max_requests': 2, 'hold_ms': 1000},
-                    'targets': [{'uid': 'target', 'name': 'ext-authz-sim-abc', 'mapping': {'capacity': 2}}]}
-        manifest = {'source_sha': identity['source_sha'], 'identity': identity, 'plan': v,
+        with patch.dict(os.environ, {'FORGEJO_URL': 'https://forgejo.example.com'}, clear=True):
+            live = LiveFixture('C0')
+            baseline = live.baseline
+            snapshots = []
+            for at in range(-5, 366, 5):
+                if at >= 185:
+                    name = live.pods[0]['metadata']['name']
+                    live.holds[name], live.capacities[name] = 0, 1024
+                snapshots += [e for e in live.collect(at, released=at >= 185) if e['record'] == 'snapshot']
+        manifest = {'source_sha': identity['source_sha'], 'identity': identity, 'plan': v, 'metric_contract': m.metric_contract(),
                     'transport': m.p8.p7.operations.transport('https://forgejo.example.com', 'azure-aks', None), 'fixture_sha256': 'a' * 64, 'arm': 'C0', 'phase': 'measured',
                     'schedule_sha256': m.digest(m.schedule(v)), 'slo_sha256': m.hashlib.sha256(m.SLO.read_bytes()).hexdigest(),
                     'render_sha256': {a: m.digest(m.render(identity, v, a)) for a in m.ARMS}, 'baseline': baseline}
         rows = events(v)
-        snapshots = []
-        for at in range(-5, 366, 5):
-            guard = t8.metric_guard()
-            guard['admission'] = {'pods': [{}], 'conservative_sum': {'requests': {'cpu': .15, 'memory': 1}, 'limits': {'cpu': .5, 'memory': 1}}}
-            guard['runtime_images'] = {'target': {'app': 'sha'}}
-            actual = copy.deepcopy(baseline)
-            healthy = at >= 185
-            if healthy:
-                actual['scenario'].update(max_requests=1024, hold_ms=0);actual['targets'][0]['mapping']['capacity'] = 1024
-            snapshots.append({'record': 'snapshot', 'at': at, 'end': at + .1, 'epoch': at + 1000, 'healthy': healthy,
-                'timestamp_utc': '2026-10-29T00:00:00Z', 'configuration': actual, 'guard': guard,
-                'signal': {'status': 'observed', 'query': [{'value': [0, '0']}], 'query_sha256': m.digest(m.scale_query(v)),
-                           'pods': [{'pod_uid': 'target', 'pod': 'ext-authz-sim-abc', 'status': 'observed', 'rate': 0,
-                                     'active': 0, 'samples': 4, 'timestamp': at + 1000}]}})
         start = {'record': 'run_start', 'timestamp_utc': '2026-10-29T00:00:00Z', 'transport': m.p8.p7.operations.transport('https://forgejo.example.com', 'azure-aks', None)}
         sentinel = [{'record': 'sentinel', 'at': at, 'result': {'semantic_result': True}} for at in range(361)]
         rows = [start] + rows + snapshots + sentinel + [{'record': 'run_end', 'completed': True, 'timestamp_utc': '2026-10-29T00:06:05Z'}]
@@ -270,7 +264,7 @@ class CompleteEvidenceTests(unittest.TestCase):
 
 
 class LiveFixture:
-    """Mock external I/O; execute real P9/P8 config, signal and collection."""
+    """Synthetic positives only, never Azure evidence; real config/signal/collection."""
     def __init__(self, arm='C3'):
         self.runtime = r = m.Runtime.__new__(m.Runtime)
         r.value, r.v, r.arm = t8.identity(), plan(), arm
@@ -292,6 +286,7 @@ class LiveFixture:
         self.pods = [self.pod('target', 'ext-authz-sim-abc')]
         self.capacities, self.holds = {}, {}
         self.missing, self.stale, self.one_sample = set(), set(), set()
+        self.no_admin = set()
         self.extra_series = False
         self.epoch = None
         self.queries = []
@@ -327,21 +322,28 @@ class LiveFixture:
 
     def k(self, *args):
         if 'logs' in args: return ''
+        if 'stats/prometheus' in args:
+            uid = next(p['metadata']['uid'] for p in self.pods if p['metadata']['name'] == args[3])
+            if uid in self.no_admin: return ''
+            c = m.metric_contract()
+            return '# TYPE ' + c['overflow'] + ' counter\n# TYPE ' + c['active'] + ' gauge\n' + \
+                c['overflow'] + '{cluster_name="inbound|8080||"} 0\n' + c['active'] + '{cluster_name="inbound|8080||"} 0\n'
         if '/config/hold-ms' in args: return str(self.holds.get(args[3], 1000))
         if '/config/haproxy.cfg' in args: return self.runtime.hp_config.rstrip('\n')
         raise AssertionError(args)
 
     def admin(self, ns, name, path):
         if path.startswith('config_dump?resource=dynamic_active_clusters'):
-            return {'cluster': {'name': 'inbound|8080||', 'load_assignment': {'port_value': 8080},
+            return {'cluster': {'name': 'inbound|8080||', 'type': 'ORIGINAL_DST', 'alt_stat_name': 'inbound|8080||;',
                                 'circuit_breakers': {'thresholds': [{'max_requests': self.capacities.get(name, 2)}]}}}
         if path.startswith('stats?'):
-            return {'stats': [{'name': 'cluster.inbound|8080||.' + k, 'value': self.traffic if k == 'upstream_rq_total' else 0} for k in m.p8.p4.SUFFIXES]}
-        if path == 'config_dump?resource=dynamic_listeners': return self.listeners if ns == 'aks-istio-ingress' else {}
+            if next(p['metadata']['uid'] for p in self.pods if p['metadata']['name'] == name) in self.no_admin: return {'stats': []}
+            return {'stats': [{'name': 'cluster.inbound|8080||;.' + k, 'value': self.traffic if k == 'upstream_rq_total' else 0} for k in m.p8.p4.SUFFIXES]}
+        if path == 'config_dump?resource=dynamic_listeners': return self.listeners if ns == 'aks-istio-ingress' else {'filter_chain_match': {'destination_port': 8080}, 'route': {'cluster': 'inbound|8080||'}}
         if path == 'config_dump?resource=dynamic_route_configs': return {'route': {'cluster': 'forgejo-http.forgejo.svc'}}
         if path == 'server_info': return {'version': 'test'}
         if path == 'runtime?format=json': return {'entries': {m.p8.p4.GUARD: 'fixed'}}
-        if path == 'config_dump?mask=bootstrap.stats_config': return {'stats_matcher': 'fixed'}
+        if path == 'config_dump?mask=bootstrap.stats_config': return {'stats_matcher': 'fixed', 'stats_tags': [{'tag_name': 'cluster_name', 'regex': m.metric_contract()['tag_regex']}], 'use_all_default_tags': False}
         raise AssertionError((ns, name, path))
 
     def prom(self, query):
@@ -357,7 +359,7 @@ class LiveFixture:
             value = self.rate if query.startswith('rate(') else 0
             if query.startswith('timestamp('): value = (time.time() if self.epoch is None else self.epoch) - (1000 if uid in self.stale else 0)
             if query.startswith('count_over_time('): value = 1 if uid in self.one_sample else 4
-            values.append({'metric': {'pod': name}, 'value': [0, str(value)]})
+            values.append({'metric': {'pod': name, 'cluster': self.runtime.v['prometheus_cluster'], 'namespace': m.NS, 'job': 'p9-envoy', 'cluster_name': 'inbound|8080||'}, 'value': [0, str(value)]})
         if self.extra_series: values.append({'metric': {'pod': 'unknown-pod'}, 'value': [0, '0']})
         return values
 
@@ -401,11 +403,16 @@ class CollectionGateTests(unittest.TestCase):
         self.assertEqual(len(snapshot['configuration']['targets']), 1)
         # Pending time does not consume the separate Ready -> series budget.
         f.pods[1] = f.pod('new', 'ext-authz-sim-new')
-        f.missing = {'new'}
+        f.missing = {'new'}; f.no_admin = {'new'}
         f.traffic = 1  # Ready/traffic during warmup still cannot prove scaling.
         ready = f.collect(270)
         self.assertEqual(next(e for e in ready if e['record'] == 'snapshot')['signal']['status'], 'warming-new-pod')
-        f.missing.clear(); f.one_sample = {'new'}
+        no_admin = next(e for e in ready if e['record'] == 'snapshot')
+        self.assertNotIn('new', no_admin['stats'])
+        self.assertEqual(no_admin['admin_stats']['new']['values'], {})
+        self.assertEqual(no_admin['admin_stats']['new']['status'], 'uninitialized')
+        self.assertIn('new', no_admin['logs']['proxies']['target'])
+        f.no_admin.clear(); f.missing.clear(); f.one_sample = {'new'}
         sample = f.collect(275)
         self.assertEqual(next(e for e in sample if e['record'] == 'snapshot')['signal']['status'], 'warming-new-pod')
         f.one_sample.clear()
@@ -437,12 +444,22 @@ class CollectionGateTests(unittest.TestCase):
             with patch.object(m, 'path_accounting', return_value={'admitted_checks': [], 'checks': 1800}):
                 result = m.validate(directory)
                 self.assertEqual(result['recovery']['first_good_window'], 290)
-                self.assertEqual(result['scaling']['signal_to_desired_ready_traffic'][-1], 280.1)
+                self.assertEqual(result['scaling']['signal_to_desired_ready_traffic'][-1], 280)
                 self.assertFalse(any(w['good'] for w in result['recovery']['windows'] if w['start'] < 280))
-                for case in ('existing-missing', 'unknown-uid', 'startup-timeout', 'series-timeout', 'stale-existing'):
+                for case in ('existing-missing', 'unknown-uid', 'startup-timeout', 'series-timeout', 'stale-existing', 'existing-admin-loss', 'unknown-admin', 'fabricated-new-zero', 'saved-label', 'native-negative'):
                     changed = copy.deepcopy(rows)
                     warm = next(e for e in changed if e['record'] == 'snapshot' and e['at'] == 190)
-                    if case == 'existing-missing': warm['signal']['pods'] = []
+                    if case in {'existing-admin-loss', 'unknown-admin', 'fabricated-new-zero', 'saved-label', 'native-negative'}:
+                        warm = next(e for e in changed if e['record'] == 'snapshot' and e['at'] == 270)
+                    if case == 'existing-admin-loss':
+                        obs = warm['admin_stats']['target']
+                        obs.update(status='uninitialized', missing=list(obs['values']), values={})
+                        warm['stats'].pop('target')
+                    elif case == 'unknown-admin': warm['admin_stats']['unknown'] = copy.deepcopy(warm['admin_stats']['target'])
+                    elif case == 'fabricated-new-zero': warm['stats']['new'] = {k: 0 for k in warm['configuration']['targets'][1]['mapping']['stat_names']}
+                    elif case == 'saved-label': warm['signal']['pods'][0]['metric_contract']['cluster_label'] = 'envoy_cluster_name'
+                    elif case == 'native-negative': warm['admin_stats']['target']['native'][m.metric_contract()['active']] = -1
+                    elif case == 'existing-missing': warm['signal']['pods'] = []
                     elif case == 'unknown-uid': warm['signal']['missing_uids'] = ['unknown']
                     elif case == 'stale-existing': warm['signal']['pods'][0]['timestamp'] -= 1000
                     elif case == 'startup-timeout':
@@ -451,17 +468,21 @@ class CollectionGateTests(unittest.TestCase):
                                 at, end, epoch = e['at'], e['end'], e['epoch']
                                 e.update(copy.deepcopy(warm), at=at, end=end, epoch=epoch)
                                 e['signal']['pods'][0]['timestamp'] = epoch
-                    else:
+                    elif case == 'series-timeout':
                         # Ready at185 with no series through270 exceeds75s.
                         for e in changed:
                             if e['record'] == 'snapshot' and 185 <= e['at'] <= 275:
                                 e['target_inventory'][1] = copy.deepcopy(collected[270]['target_inventory'][1])
                                 e['guard'] = copy.deepcopy(collected[270]['guard'])
-                                e['configuration'] = copy.deepcopy(collected[270]['configuration'])
+                                e['configuration'] = copy.deepcopy(collected[275]['configuration'])
+                                e['admin_stats'] = copy.deepcopy(collected[275]['admin_stats'])
+                                e['stats'] = copy.deepcopy(collected[275]['stats'])
                     path.write_text(''.join(json.dumps(r) + '\n' for r in changed))
                     expected = {'existing-missing': 'missing telemetry', 'unknown-uid': 'missing telemetry',
                                 'startup-timeout': 'Pod lifecycle failure', 'series-timeout': 'series startup timeout',
-                                'stale-existing': 'stale/error'}[case]
+                                'stale-existing': 'stale/error', 'existing-admin-loss': 'unapproved missing admin',
+                                'unknown-admin': 'unknown admin UID', 'fabricated-new-zero': 'stats fabricated',
+                                'saved-label': 'metric contract drift', 'native-negative': 'invalid native metric'}[case]
                     with self.subTest(case=case), self.assertRaisesRegex(ValueError, expected): m.validate(directory)
 
     def test_collection_fails_existing_loss_unknown_series_and_timeouts(self):
@@ -582,6 +603,265 @@ class CollectionGateTests(unittest.TestCase):
                 self.assertTrue(any(e['record'] == 'run_failure' for e in rows))
                 self.assertFalse(any(e['record'] == 'snapshot_gap' and e['at'] >= drift_at[0] for e in rows))
                 self.assertEqual(next(e for e in rows if e['record'] == 'operation')['outcome'], 'not-issued')
+
+
+class MetricInitializationTests(unittest.TestCase):
+    """Archived negatives + explicitly synthetic positives; all I/O is mocked."""
+    def setUp(self):
+        env = patch.dict(os.environ, {'FORGEJO_URL': 'https://forgejo.example.com'}, clear=True)
+        env.start(); self.addCleanup(env.stop)
+
+    def archived(self, name):
+        with tarfile.open(ROOT / 'docs/evidence/p9-mitigation-preflight-20261029/raw-evidence.tar.gz') as archive:
+            return json.load(archive.extractfile(name))
+
+    def test_archived_bootstrap_samples_are_not_inbound_positive(self):
+        negative = self.archived('target-admin-initial-required-stat-negative.json')
+        self.assertEqual(m.native_samples('\n'.join(negative['prometheus_selected_lines'])), {})
+        # P8 remains strict on the original absent-stat payload.
+        f = LiveFixture()
+        dump = f.admin(m.NS, 'ext-authz-sim-abc', 'config_dump?resource=dynamic_active_clusters')
+        listeners = f.admin(m.NS, 'ext-authz-sim-abc', 'config_dump?resource=dynamic_listeners')
+        with self.assertRaisesRegex(ValueError, 'required actual target stats'):
+            m.p8.target_mapping(dump, negative['raw_stats'], 2, listeners)
+        mapping, values = m.p8.target_mapping(dump, negative['raw_stats'], 2, listeners, allow_uninitialized=True)
+        self.assertEqual(values, {})
+        self.assertEqual(m.metric_mapping(mapping, negative['bootstrap_stats_config'])['cluster_label'], 'cluster_name')
+        actual = self.archived('ingested-envoy-cluster-label.json')
+        self.assertNotIn('inbound|8080||', json.dumps(actual))
+        self.assertIn('cluster_name', json.dumps(actual))
+        self.assertNotIn('envoy_cluster_name', json.dumps(actual))
+
+    def test_all_queries_render_collection_and_freeze_share_selected_label(self):
+        v, f = plan(), LiveFixture()
+        queries = list(m.signal_queries(v).values()) + [m.scale_query(v)]
+        for query in queries:
+            self.assertIn('cluster_name="inbound|8080||"', query)
+            self.assertNotIn('envoy_cluster_name', query)
+            self.assertNotIn(' or ', query)
+        trigger = next(o for o in m.render(t8.identity(), v, 'C3')['fixtures.json']['items'] if o['kind'] == 'ScaledObject')['spec']['triggers'][0]
+        self.assertEqual(trigger['metadata']['query'], m.scale_query(v))
+        f.collect(0)
+        self.assertEqual(set(f.queries), set(queries) - {m.signal_queries(v)['raw']})
+        c = {'source_sha': t8.identity()['source_sha'], 'plan_sha256': m.digest(v), 'reviewed': True,
+             'missing_required_signals': [], 'cadence_observed': True, 'all_pod_series_observed': True,
+             'counter_semantics': 'per-pod-active-overflow-counter-rate-per-second', 'controller_ownership_verified': True,
+             'transport': m.p8.p7.operations.transport('https://forgejo.example.com', 'azure-aks', None),
+             'fixture_sha256': 'a' * 64, 'metric_contract': m.metric_contract()}
+        self.assertEqual(m.frozen(t8.identity(), v, [c])['metric_contract'], m.metric_contract())
+        c['metric_contract']['cluster_label'] = 'envoy_cluster_name'
+        with self.assertRaises(ValueError): m.frozen(t8.identity(), v, [c])
+        original = f.prom
+        def wrong_label(query):
+            rows = original(query)
+            for r in rows:
+                if 'cluster_name' in r['metric']: r['metric']['envoy_cluster_name'] = r['metric'].pop('cluster_name')
+            return rows
+        f.runtime.prom = wrong_label
+        with self.assertRaisesRegex(ValueError, 'metric label drift'): f.collect(1)
+
+    def test_mapping_tag_port_duplicate_and_native_drift_fail_before_warmup(self):
+        for case in ('cluster', 'alt', 'port', 'tag', 'duplicate', 'native-label'):
+            with self.subTest(case=case):
+                f = LiveFixture(); original_admin, original_k = f.admin, f.k
+                f.collect(0); f.pods.append(f.pod('new', 'ext-authz-sim-new')); f.no_admin = {'new'}
+                def admin(ns, name, path):
+                    data = copy.deepcopy(original_admin(ns, name, path))
+                    if name.endswith('-new'):
+                        if path.startswith('config_dump?resource=dynamic_active_clusters'):
+                            if case == 'cluster': data['cluster']['name'] = 'inbound|9090||'
+                            elif case == 'alt': data['cluster']['alt_stat_name'] = 'wrong'
+                            elif case == 'duplicate': data = {'clusters': [data['cluster'], copy.deepcopy(data['cluster'])]}
+                        if case == 'port' and path.endswith('dynamic_listeners'): data['filter_chain_match']['destination_port'] = 9090
+                        if case == 'tag' and path.endswith('bootstrap.stats_config'): data['stats_tags'][0]['tag_name'] = 'envoy_cluster_name'
+                    return data
+                def k(*args):
+                    if case == 'native-label' and 'stats/prometheus' in args and 'ext-authz-sim-new' in args:
+                        return '# TYPE envoy_cluster_upstream_rq_active gauge\nenvoy_cluster_upstream_rq_active{envoy_cluster_name="inbound|8080||"} 0\n'
+                    return original_k(*args)
+                f.runtime.admin, f.runtime.k = admin, k
+                with self.assertRaises(ValueError): f.collect(1)
+
+    def test_admin_numeric_zero_is_observed_absence_is_not_zero(self):
+        f = LiveFixture(); observed = next(e for e in f.collect(0) if e['record'] == 'snapshot')
+        self.assertTrue(observed['stats']['target'])
+        self.assertEqual(set(observed['stats']['target'].values()), {0})
+        paths, original = [], f.admin
+        def traced(ns, name, path):
+            paths.append(path); return original(ns, name, path)
+        f.runtime.admin = traced
+        f.pods.append(f.pod('new', 'ext-authz-sim-new')); f.no_admin = {'new'}
+        warming = next(e for e in f.collect(1) if e['record'] == 'snapshot')
+        self.assertNotIn('new', warming['stats'])
+        self.assertEqual(warming['admin_stats']['new']['native'], {})
+        self.assertIn('stats?format=json', paths)
+        self.assertFalse(any('usedonly' in p or 'filter=' in p for p in paths))
+
+    def test_existing_observed_admin_loss_and_new_startup_timeout_fail(self):
+        for case in ('existing', 'observed-new', 'timeout'):
+            with self.subTest(case=case):
+                f = LiveFixture(); f.collect(0)
+                f.pods.append(f.pod('new', 'ext-authz-sim-new'))
+                if case == 'existing': f.no_admin = {'target'}; at = 1
+                elif case == 'observed-new': f.collect(1); f.no_admin = {'new'}; at = 2
+                else: f.no_admin = {'new'}; f.collect(1); at = 77
+                with self.assertRaises(ValueError): f.collect(at)
+
+    def preparation(self):
+        f = LiveFixture('C0'); f.runtime.preparation = True
+        name = f.pods[0]['metadata']['name']; f.capacities[name], f.holds[name] = 1024, 0
+        f.no_admin = {'target'}
+        return f
+
+    def test_preparation_authority_does_not_claim_full_preflight_or_keda_auth(self):
+        v = plan() | {'identity_client_id': '00000000-0000-0000-0000-000000000000'}
+        a = approval() | {'healthy_gate_passed': False, 'runtime_preflight_passed': False, 'plan_sha256': m.digest(v)}
+        now = m.datetime(2026, 10, 29, tzinfo=m.timezone.utc)
+        with patch.dict(os.environ, {'P9_AZURE_APPROVED': t8.identity()['source_sha']}):
+            m.preparation_gate(t8.identity(), v, a, [], now)
+            with self.assertRaises(ValueError): m.execution_gate(t8.identity(), v, a, [], now)
+            with self.assertRaises(ValueError): m.preparation_gate(t8.identity(), v, a | {'normal_test_passed': False}, [], now)
+
+    def test_healthy_journey_once_then_readonly_admin_native_ingestion_rate_polling(self):
+        f, now, rows, journeys = self.preparation(), [0], [], []
+        f.missing = {'target'}
+        def journey(timeout):
+            self.assertEqual(rows[-1]['record'], 'healthy_journey_intent')
+            self.assertEqual(f.runtime.admin_observations['target']['status'], 'uninitialized')
+            journeys.append(timeout)
+        def wait(seconds):
+            now[0] += seconds
+            f.no_admin.clear(); f.missing.clear()
+            f.one_sample = {'target'} if now[0] == f.runtime.v['scrape_seconds'] else set()
+        with patch.object(m.time, 'monotonic', side_effect=lambda: now[0]), patch.object(m.time, 'time', side_effect=lambda: 1000 + now[0]):
+            result = m.healthy_initialize(f.runtime, plan(), journey, rows.append, clock=lambda: now[0], wait=wait)
+        self.assertEqual(journeys, [90])
+        self.assertEqual([r['signal']['status'] for r in rows if r['record'] == 'healthy_telemetry_poll'], ['uninitialized', 'uninitialized', 'observed'])
+        self.assertFalse(result['runtime_preflight_passed'])
+        self.assertTrue(result['ready_for_keda_authentication'])
+        self.assertEqual(result['ingress_http_records'], 0)  # Empty synthetic logs, no fabricated HTTP count.
+
+    def test_initialize_entrypoint_binds_once_ledger_and_existing_warmup_journey(self):
+        f, a, invoked = self.preparation(), approval(), []
+        a.update(healthy_gate_passed=False, runtime_preflight_passed=False)
+        def subprocess_run(command, **kwargs):
+            invoked.append((command, kwargs))
+            f.no_admin.clear()
+        with tempfile.TemporaryDirectory() as d:
+            private = Path(d, 'private'); private.mkdir(mode=0o700)
+            output, ledger = Path(d, 'output'), Path(d, 'initialization.jsonl')
+            with patch.object(m, 'Runtime', return_value=f.runtime) as constructor, patch.object(m.p8.subprocess, 'run', side_effect=subprocess_run):
+                m.initialize(t8.identity(), plan(), a, Path(d, 'context.json'), private, output, ledger)
+                self.assertEqual(constructor.call_args.kwargs, {'preparation': True})
+                with self.assertRaisesRegex(ValueError, 'already consumed'):
+                    m.initialize(t8.identity(), plan(), a, Path(d, 'context.json'), private, Path(d, 'retry'), ledger)
+            self.assertEqual(len(invoked), 1)
+            self.assertEqual(invoked[0][0], ['timeout', '--signal=TERM', '--kill-after=5s', '90s', 'bash', str(ROOT / 'tests/e2e/forgejo-developer-journey.sh'), 'create'])
+            self.assertEqual(invoked[0][1]['env']['RESULT_PHASE'], 'warmup')
+            self.assertEqual(invoked[0][1]['timeout'], 100)
+            self.assertFalse(a['runtime_preflight_passed']); self.assertFalse(a['healthy_gate_passed'])
+            rows = [json.loads(r) for r in ledger.read_text().splitlines()]
+            self.assertFalse(rows[0]['measured_denominator'])
+            self.assertEqual(rows[-1]['record'], 'healthy_initialization_complete')
+
+    def test_healthy_poll_timeout_and_invariant_failure_never_repeat_workload(self):
+        for case in ('timeout', 'hostname', 'image', 'controller', 'headroom'):
+            with self.subTest(case=case):
+                f, now, journeys, rows = self.preparation(), [0], [], []
+                def journey(_): journeys.append(1)
+                def wait(seconds):
+                    now[0] += seconds
+                    if case == 'hostname': f.policy['spec']['rules'][0]['to'][0]['operation']['hosts'] = ['other.example.com']
+                    if case == 'image': f.pods[0]['spec']['containers'][0]['image'] = 'wrong'
+                    if case == 'controller': f.hpa['metadata']['ownerReferences'] = [{'kind': 'Unknown'}]
+                    if case == 'headroom':
+                        old = f.guard; f.runtime.guard = lambda: old() | {'node_headroom': []}
+                with patch.object(m.time, 'monotonic', side_effect=lambda: now[0]), self.assertRaises(ValueError):
+                    m.healthy_initialize(f.runtime, plan(), journey, rows.append, clock=lambda: now[0], wait=wait)
+                self.assertEqual(journeys, [1])
+                self.assertLessEqual(now[0], plan()['ingestion_seconds'] + 3 * plan()['scrape_seconds'])
+                self.assertFalse(any(r['record'] == 'healthy_initialization_complete' for r in rows))
+
+    def test_failed_journey_preserves_request_logs_without_polling_or_retry(self):
+        f, rows, calls = self.preparation(), [], []
+        def failed(_):
+            calls.append(1)
+            raise RuntimeError('synthetic journey failure')
+        with self.assertRaisesRegex(RuntimeError, 'synthetic journey failure'):
+            m.healthy_initialize(f.runtime, plan(), failed, rows.append)
+        self.assertEqual(calls, [1])
+        self.assertEqual([r['record'] for r in rows], ['healthy_journey_intent', 'healthy_journey_accounting'])
+        self.assertFalse(rows[-1]['measured_denominator'])
+        self.assertIn('log_delta', rows[-1])
+
+    def test_unsafe_preparation_prevents_journey(self):
+        f = self.preparation(); f.pods[0]['spec']['containers'][0]['image'] = 'wrong'
+        with patch.object(m.p8.subprocess, 'run') as workload, self.assertRaises(ValueError):
+            m.healthy_initialize(f.runtime, plan(), workload, lambda _: None)
+        workload.assert_not_called()
+
+    def test_new_uid_lifetime_counters_include_pre_first_observation_traffic(self):
+        first, last = PathEvidenceTests().fixture()
+        # Move all lifetime evidence to a new UID, whose first stat snapshot is
+        # already nonzero after planned traffic. No synthetic zero snapshot.
+        last['stats']['new'] = last['stats'].pop('u1')
+        last['stats']['u1'] = copy.deepcopy(first['stats']['u1'])
+        last['logs']['proxies']['target']['new'] = last['logs']['proxies']['target'].pop('u1')
+        last['logs']['proxies']['target']['u1'] = []
+        missing = copy.deepcopy(first); missing['logs']['proxies']['target']['new'] = []
+        missing['target_inventory'] = [{'uid': 'u1'}, {'uid': 'new'}]
+        report = m.path_accounting('C3', [first, missing, last])
+        self.assertEqual((report['target_admitted'], report['target_rejected']), (4, 8))
+        self.assertNotIn('new', missing['stats'])
+        last['logs']['proxies']['target']['new'].pop()
+        with self.assertRaises(ValueError): m.path_accounting('C3', [first, missing, last])
+        with self.assertRaisesRegex(ValueError, 'final counters'): m.path_accounting('C3', [first, missing])
+
+    def test_query_http501_body_preserved_and_bearer_redacted(self):
+        import io
+        f, rows = LiveFixture(), []
+        f.runtime.emit, f.runtime.prom_token = rows.append, 'secret-test-bearer'
+        error = m.urllib.error.HTTPError('https://example.invalid', 501, 'unsupported', {}, io.BytesIO(b'{"error":"unsupported secret-test-bearer"}'))
+        with patch.object(m.p8.p7, 'http_json', side_effect=error), self.assertRaises(m.urllib.error.HTTPError):
+            m.Runtime.prom(f.runtime, m.scale_query(plan()))
+        self.assertEqual(rows[0]['record'], 'prometheus_query_intent')
+        self.assertEqual(rows[1]['http_status'], 501)
+        self.assertIn('unsupported', rows[1]['body']); self.assertNotIn('secret-test-bearer', json.dumps(rows))
+        error.close()
+        f.runtime.collection_deadline.at = 100
+        with patch.object(m.time, 'monotonic', return_value=100), patch.object(m.p8.p7, 'http_json') as request:
+            with self.assertRaisesRegex(ValueError, 'query budget exceeded'):
+                m.Runtime.prom(f.runtime, m.scale_query(plan()))
+            request.assert_not_called()
+
+    def test_existing_request_helper_records_delete_id_before_empty204(self):
+        import subprocess
+        script = (ROOT / 'tests/e2e/forgejo-developer-journey.sh').read_text()
+        request = script[script.index('request() {'):script.index('\nexpect_json()')]
+        with tempfile.TemporaryDirectory() as directory:
+            # Fake curl asserts intent already durable before touching response.
+            fake = '''
+set -euo pipefail
+utc() { echo timestamp; }
+mono() { echo 1; }
+fail() { exit 1; }
+curl() {
+  jq -e 'select(.record=="request_intent" and .path=="/users/dev/tokens/17" and .method=="DELETE")' "$JOURNEY_DIR/request-events.jsonl" >/dev/null
+  : >"$JOURNEY_DIR/response.json"
+  printf 204
+}
+CURL_TRANSPORT_ARGS=()
+API=https://example.invalid/api/v1
+'''
+            subprocess.run(['bash'], input=fake + request + '\nrequest \'header = "Authorization: token private-test"\' DELETE /users/dev/tokens/17 204\n',
+                           env=dict(os.environ, JOURNEY_DIR=directory), text=True, capture_output=True, check=True)
+            rows = [json.loads(r) for r in Path(directory, 'request-events.jsonl').read_text().splitlines()]
+            self.assertEqual(rows[-1]['http_status'], 204)
+            self.assertEqual(rows[-1]['response_bytes'], 0)
+            self.assertNotIn('private-test', json.dumps(rows))
+        token_id = script.index('TOKEN_ID="$(jq -er')
+        self.assertLess(token_id, script.index('user_json="$(request "$DEV_AUTH" GET /user'))
+        self.assertIn('TOKEN_ID=%q', script)
 
 
 class DemandRecoveryTests(unittest.TestCase):

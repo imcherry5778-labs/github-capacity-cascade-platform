@@ -17,6 +17,7 @@ import re
 import sys
 import threading
 import time
+import urllib.error
 import urllib.parse
 import uuid
 
@@ -32,6 +33,88 @@ ARMS = ('C0', 'C1', 'C2', 'C3')
 HPA = 'p9-proxy'
 SLO = ROOT / 'docs/evidence/p7-operations-20261028/initial-slo.json'
 DEADLINE = datetime(2026, 10, 30, 1, 30, tzinfo=timezone.utc)
+
+
+# Selected managed runtime contract, not an auto-discovery/fallback policy.
+TARGET_METRIC = {'cluster_label': 'cluster_name', 'cluster': 'inbound|8080||',
+                 'alt_stat_name': 'inbound|8080||;', 'port': 8080,
+                 'tag_regex': r'^cluster(\.(.+);)', 'job': 'p9-envoy',
+                 'overflow': 'envoy_cluster_upstream_rq_active_overflow',
+                 'active': 'envoy_cluster_upstream_rq_active',
+                 'admin_request': 'stats?format=json', 'exposition_request': 'stats/prometheus'}
+
+
+def metric_contract():
+    return copy.deepcopy(TARGET_METRIC)
+
+
+def signal_queries(v):
+    c = metric_contract()
+    base = 'cluster=' + json.dumps(v['prometheus_cluster']) + ',namespace=' + json.dumps(NS)
+    selector = base + ',job=' + json.dumps(c['job']) + ',' + c['cluster_label'] + '=' + json.dumps(c['cluster'])
+    raw = c['overflow'] + '{' + selector + '}'
+    return {'raw': raw, 'rate': 'rate(' + raw + '[1m])', 'active': c['active'] + '{' + selector + '}',
+            'timestamp': 'timestamp(' + raw + ')', 'samples': 'count_over_time(' + raw + '[1m])'}
+
+
+def selected_mapping(mapping):
+    c = metric_contract()
+    require(mapping['cluster_name'] == c['cluster'] and mapping['alt_stat_name'] == c['alt_stat_name'] and
+            mapping['endpoint_mapping'] == f'listener-port-{c["port"]}-to-ORIGINAL_DST' and
+            mapping['stat_names'] == sorted('cluster.' + c['alt_stat_name'] + '.' + key for key in p8.p4.SUFFIXES), 'selected inbound metric mapping drift')
+    return c
+
+
+def metric_mapping(mapping, bootstrap):
+    c = selected_mapping(mapping)
+    configs = [v for v in p8.walk(bootstrap) if 'stats_tags' in v]
+    require(len(configs) == 1 and configs[0].get('use_all_default_tags') is False, 'bootstrap stat tag contract')
+    tags = [t for t in configs[0]['stats_tags'] if t['tag_name'] in {c['cluster_label'], 'envoy_cluster_name'}]
+    require(tags == [{'tag_name': c['cluster_label'], 'regex': c['tag_regex']}], 'bootstrap cluster label drift')
+    return {'cluster_label': c['cluster_label'], 'tag_regex': c['tag_regex']}
+
+
+def native_samples(text):
+    """Only the two selected metric families; unrelated/bootstrap clusters never count."""
+    c = metric_contract()
+    found = {}
+    types = {row.split()[2]: row.split()[3] for row in text.splitlines() if row.startswith('# TYPE ')}
+    for name, kind in ((c['overflow'], 'counter'), (c['active'], 'gauge')):
+        require(name not in types or types[name] == kind, 'native metric type drift')
+    for line in text.splitlines():
+        if not line.startswith((c['overflow'] + '{', c['active'] + '{')):
+            continue
+        match = re.fullmatch(r'([^{}]+)\{(.*)\} ([^ ]+)', line)
+        require(match is not None, 'invalid selected native metric')
+        name, labels, value = match.groups()
+        pairs = re.findall(r'([a-zA-Z_][a-zA-Z_0-9]*)=("(?:[^"\\]|\\.)*")(?:,|$)', labels)
+        require(','.join(k + '=' + v for k, v in pairs) == labels and len({k for k, _ in pairs}) == len(pairs), 'ambiguous native labels')
+        labels = {k: json.loads(v) for k, v in pairs}
+        if c['cluster'] not in labels.values():
+            continue
+        require(labels.get(c['cluster_label']) == c['cluster'] and 'envoy_cluster_name' not in labels and name not in found, 'native inbound label drift/duplicate')
+        value = float(value)
+        require(bounded(value, 0, 1000000000000), 'invalid native metric value')
+        require(types.get(name) == ('counter' if name == c['overflow'] else 'gauge'), 'native metric type absent')
+        found[name] = value
+    return found
+
+
+def admin_observation(target, observation):
+    c = selected_mapping(target['mapping'])
+    require(target['metric_binding'] == {'cluster_label': c['cluster_label'], 'tag_regex': c['tag_regex']}, 'saved metric binding drift')
+    expected = set(target['mapping']['stat_names'])
+    values = observation['values']
+    require(set(values) <= expected and set(observation['missing']) == expected - set(values) and
+            all(bounded(v, 0, 1000000000000) for v in values.values()), 'invalid/mismapped admin stats')
+    full = set(values) == expected
+    require(observation['status'] == ('observed' if full else 'uninitialized'), 'admin stat state differs')
+    native = observation['native']
+    require(set(native) <= {c['overflow'], c['active']} and all(bounded(v, 0, 1000000000000) for v in native.values()), 'unknown/invalid native metric')
+    if full:
+        require(set(native) == {c['overflow'], c['active']} and
+                native[c['overflow']] >= values['cluster.' + c['alt_stat_name'] + '.upstream_rq_active_overflow'], 'missing/mismapped native target sample')
+    return full
 
 
 def bounded(value, low, high):
@@ -82,13 +165,12 @@ def scale_query(v):
     There is deliberately no empty -> 0 fallback.
     """
     base = 'cluster=' + json.dumps(v['prometheus_cluster']) + ',namespace=' + json.dumps(NS)
-    sel = base + ',job="p9-envoy",envoy_cluster_name="inbound|8080||"'
-    raw = 'envoy_cluster_upstream_rq_active_overflow{' + sel + '}'
+    raw = signal_queries(v)['raw']
     fresh = f'(time() - timestamp({raw}) <= {v["freshness_seconds"]})'
     rates = f'(rate({raw}[1m]) and {fresh})'
     inventory = 'count(kube_pod_info{' + base + ',pod=~"ext-authz-sim-.+"})'
     count = f'count({rates})'
-    up = 'up{' + base + ',job="p9-envoy"}'
+    up = 'up{' + base + ',job=' + json.dumps(metric_contract()['job']) + '}'
     return (f'sum({rates}) and on() ({count} == {inventory}) '
             f'and on() (min({up}) == 1) '
             f'and on() (count({up}) == {inventory}) '
@@ -151,19 +233,28 @@ def controller_guard(arm, hpas, scaled):
     return hp
 
 
-def execution_gate(identity, v, approval, ledger, now=None):
+def approval_gate(identity, v, approval, ledger, now=None):
     p8.identity(identity); plan(v)
     now = now or datetime.now(timezone.utc)
     require(os.environ.get('P9_AZURE_APPROVED') == identity['source_sha'] and
             approval['source_sha'] == identity['source_sha'] and approval['identity'] == identity and
             approval['plan_sha256'] == digest(v) and approval['approved'] is True and approval['approval_url'], 'explicit exact P9 approval required')
-    require(v['identity_client_id'] != '00000000-0000-0000-0000-000000000000', 'replace candidate identity with actual approved client ID')
-    require(approval['normal_test_passed'] is True and approval['healthy_gate_passed'] is True and
-            approval['runtime_preflight_passed'] is True, 'normal/healthy/live preflight required')
     require(approval['limits'] == {'calibration': 2, 'measured_per_arm': 1, 'pod': 4, 'cpu_m': 1500, 'memory_mi': 2048}, 'approval scope differs')
     require(now + timedelta(seconds=v['mitigation_seconds'] + v['recovery_seconds'] + 60 + 1800) < DEADLINE, 'insufficient retention time for run/drain/rollback')
     require(all(r['source_sha'] == identity['source_sha'] and (r['phase'] == 'calibration' or r['plan_sha256'] == digest(v)) for r in ledger), 'ledger source/plan drift')
     require(sum(r['phase'] == 'calibration' for r in ledger) <= 2 and all(sum(r['phase'] == 'measured' and r['arm'] == a for r in ledger) <= 1 for a in ARMS), 'campaign run budget exceeded')
+
+
+def execution_gate(identity, v, approval, ledger, now=None):
+    approval_gate(identity, v, approval, ledger, now)
+    require(v['identity_client_id'] != '00000000-0000-0000-0000-000000000000', 'replace candidate identity with actual approved client ID')
+    require(approval['normal_test_passed'] is True and approval['healthy_gate_passed'] is True and
+            approval['runtime_preflight_passed'] is True, 'normal/healthy/live preflight required')
+
+
+def preparation_gate(identity, v, approval, ledger, now=None):
+    approval_gate(identity, v, approval, ledger, now)
+    require(approval['normal_test_passed'] is True, 'normal/native-auth/TLS evidence required before healthy initialization')
 
 
 def telemetry(rows, pods, now, freshness):
@@ -179,7 +270,7 @@ class TargetLifecycle:
     """Shared live/saved boundary: admission -> Ready -> initialized series."""
     def __init__(self, arm, initial_uids, v):
         self.arm, self.initial, self.v = arm, set(initial_uids), v
-        self.first_seen, self.ready_since, self.observed = {}, {}, set()
+        self.first_seen, self.ready_since, self.observed, self.admin_seen = {}, {}, set(), set()
 
     def inventory(self, pods, at):
         names = {p['uid']: p['name'] for p in pods}
@@ -200,10 +291,28 @@ class TargetLifecycle:
                 self.ready_since.setdefault(uid, at)
         return names
 
+    def admin(self, targets, observations, stats, at):
+        require(set(observations) == {t['uid'] for t in targets} and
+                set(observations) <= set(self.first_seen), 'unknown admin UID/inventory')
+        complete = set()
+        for target in targets:
+            uid = target['uid']
+            if admin_observation(target, observations[uid]):
+                require(uid in stats and stats[uid] == observations[uid]['values'], 'admin snapshot differs')
+                complete.add(uid)
+            else:
+                require(self.arm == 'C3' and uid not in (self.initial | self.admin_seen) and uid in self.ready_since and
+                        at - self.ready_since[uid] <= self.v['ingestion_seconds'] + 3 * self.v['scrape_seconds'], 'unapproved missing admin stats/startup timeout')
+                require(uid not in stats, 'uninitialized stats fabricated')
+        require(set(stats) == complete, 'unknown/missing stat UID')
+        self.admin_seen |= complete
+
     def signal(self, signal, pods, at, epoch):
         names = self.inventory(pods, at)
         rows = signal['pods']
+        require(all(r['metric_contract'] == metric_contract() for r in rows), 'saved series metric contract drift')
         observed = {r['pod_uid']: r['pod'] for r in rows}
+        require(set(observed) <= self.admin_seen, 'series without initialized admin stats')
         missing = set(names) - set(observed)
         if missing:
             require(signal['status'] == 'warming-new-pod' and self.arm == 'C3' and
@@ -238,13 +347,13 @@ def frozen(identity, v, calibration):
     require(1 <= len(calibration) <= 2 and all(c['source_sha'] == identity['source_sha'] and c['plan_sha256'] == digest(v) and
             c['reviewed'] is True and c['missing_required_signals'] == [] and c['cadence_observed'] is True and
             c['all_pod_series_observed'] is True and c['counter_semantics'] == 'per-pod-active-overflow-counter-rate-per-second' and
-            c['controller_ownership_verified'] is True for c in calibration), 'reviewed bounded calibration required')
+            c['controller_ownership_verified'] is True and c['metric_contract'] == metric_contract() for c in calibration), 'reviewed bounded calibration required')
     transport = calibration[-1]['transport']
     require(transport == p8.p7.operations.transport(transport['endpoint'], 'azure-aks', transport.get('dns_client_override')) and
             urllib.parse.urlsplit(transport['endpoint']).hostname == identity['forgejo_hostname'] and
             all(c['transport'] == transport and c['fixture_sha256'] == calibration[-1]['fixture_sha256'] for c in calibration) and
             re.fullmatch('[0-9a-f]{64}', calibration[-1]['fixture_sha256']), 'calibration transport/fixture freeze')
-    return {'source_sha': identity['source_sha'], 'identity': identity, 'plan': v, 'transport': transport,
+    return {'source_sha': identity['source_sha'], 'identity': identity, 'plan': v, 'metric_contract': metric_contract(), 'transport': transport,
             'fixture_sha256': calibration[-1]['fixture_sha256'], 'schedule_sha256': digest(schedule(v)),
             'slo_sha256': hashlib.sha256(SLO.read_bytes()).hexdigest(),
             'render_sha256': {a: digest(render(identity, v, a)) for a in ARMS},
@@ -419,12 +528,14 @@ def config_guard(before, after, arm, healthy=False, releasing=False):
 
 
 class Runtime(p8.Runtime):
-    def __init__(self, identity, v, arm, approval, ledger):
-        execution_gate(identity, v, approval, ledger)
+    def __init__(self, identity, v, arm, approval, ledger, *, preparation=False):
+        require(not preparation or arm == 'C0', 'healthy preparation uses CPU owner only')
+        (preparation_gate if preparation else execution_gate)(identity, v, approval, ledger)
         super().__init__(identity, approval_key='P9_AZURE_APPROVED')
         self.v, self.arm = v, arm
         self.collection_deadline = threading.local()
         self.initial_uids = set()
+        self.preparation = preparation
         self.hpa_name = HPA if arm == 'C3' else 'hpa-app-cpu'
         self.hp_config = next(o['data']['haproxy.cfg'] for o in render(identity, v, arm)['fixtures.json']['items']
                               if o['kind'] == 'ConfigMap' and o['metadata']['name'] == 'haproxy')
@@ -444,7 +555,8 @@ class Runtime(p8.Runtime):
         require(remaining > 0, 'snapshot command budget exceeded')
         return p8.subprocess.run(['kubectl', '--request-timeout=10s', *args], check=True, capture_output=True, text=True, timeout=remaining).stdout.strip()
 
-    def configuration(self, config, *, inventory=None, releasing=False):
+    def configuration(self, config, *, inventory=None, releasing=False, initializing=False):
+        require(not initializing or getattr(self, 'preparation', False) and config['hold_ms'] == 0 and config['max_requests'] == 1024, 'healthy initialization boundary')
         inventory = self.targets() if inventory is None else inventory
         # Source image is an invariant even before a new Pod can be exec'd.
         require(all(next(c['image'] for c in p['spec']['containers'] if c['name'] == 'app') == self.value['ext_authz_image']
@@ -454,9 +566,24 @@ class Runtime(p8.Runtime):
         hpas = self.j('-n', NS, 'get', 'hpa', '-o', 'json')['items']
         scaled = [o for o in self.j('-n', NS, 'get', 'scaledobjects', '-o', 'json')['items'] if o['spec']['scaleTargetRef']['name'] == 'ext-authz-sim']
         controller_guard(self.arm, hpas, scaled)
+        deferred = set()
+        if initializing:
+            deferred = {p['metadata']['uid'] for p in ready} - getattr(self, 'initializing_stat_seen', set())
+        elif self.arm == 'C3' and hasattr(self, 'lifecycle'):
+            deferred = set(self.lifecycle.first_seen) - self.initial_uids - self.lifecycle.admin_seen
         result = super().configuration(config, target_range=(1, 2) if self.arm == 'C3' else (1, 1),
                                        haproxy_config=self.hp_config, hpa_name=self.hpa_name,
-                                       target_pods=ready, releasing=releasing)
+                                       target_pods=ready, releasing=releasing, stat_uids=deferred, stats_path=metric_contract()['admin_request'])
+        self.admin_observations = result.pop('stat_observations')
+        result['metric_contract'] = metric_contract()
+        for target in result['targets']:
+            bootstrap = self.admin(NS, target['name'], 'config_dump?mask=bootstrap.stats_config')
+            target['metric_binding'] = metric_mapping(target['mapping'], bootstrap)
+            observation = self.admin_observations[target['uid']]
+            observation['native'] = native_samples(self.k('-n', NS, 'exec', target['name'], '-c', 'istio-proxy', '--',
+                                                        'pilot-agent', 'request', 'GET', metric_contract()['exposition_request']))
+            if admin_observation(target, observation) and initializing:
+                self.initializing_stat_seen = getattr(self, 'initializing_stat_seen', set()) | {target['uid']}
         expected = render(self.value, self.v, self.arm)['fixtures.json']['items']
         if self.arm == 'C3':
             so = next(o for o in expected if o['kind'] == 'ScaledObject')
@@ -465,6 +592,10 @@ class Runtime(p8.Runtime):
         else:
             require(result['hpa_spec'] == next(o['spec'] for o in expected if o['kind'] == 'HorizontalPodAutoscaler'), 'CPU HPA drift')
         return result
+
+    def stats(self, actual):
+        require(set(self.admin_observations) == {t['uid'] for t in actual['targets']}, 'admin target inventory drift')
+        return {uid: o['values'] for uid, o in self.admin_observations.items() if o['status'] == 'observed'}
 
     def guard(self):
         return super().guard(hpa_name=self.hpa_name, event_timestamps=True)
@@ -482,26 +613,39 @@ class Runtime(p8.Runtime):
         return selected('app') | {'backend': selected('BACKEND')}
 
     def prom(self, query):
-        data = p8.p7.http_json(self.v['prometheus'] + '/api/v1/query?' + urllib.parse.urlencode({'query': query}), self.prom_token, timeout=5)
+        emit = getattr(self, 'emit', lambda _: None)
+        metadata = {'source_sha': self.value['source_sha'], 'query_sha256': digest(query), 'at': time.monotonic()}
+        deadline = getattr(self.collection_deadline, 'at', None)
+        timeout = 5 if deadline is None else min(5, deadline - time.monotonic())
+        require(timeout > 0, 'snapshot query budget exceeded')
+        emit({'record': 'prometheus_query_intent', **metadata})
+        try:
+            data = p8.p7.http_json(self.v['prometheus'] + '/api/v1/query?' + urllib.parse.urlencode({'query': query}), self.prom_token, timeout=timeout)
+        except urllib.error.HTTPError as error:
+            # Query response only, never credential requests. Preserve negative
+            # bodies in protected evidence, redact a server-echoed bearer token.
+            body = error.read(1024 * 1024).decode('utf-8', errors='replace').replace(self.prom_token, '[REDACTED]')
+            emit({'record': 'prometheus_query_error', **metadata, 'http_status': error.code, 'body': body})
+            raise
+        emit({'record': 'prometheus_query_response', **metadata, 'http_status': 200, 'payload': data})
         require(data.get('status') == 'success' and data['data']['resultType'] == 'vector', 'Prometheus query error')
         return data['data']['result']
 
-    def signal(self, pods, *, at=None):
-        base = 'cluster=' + json.dumps(self.v['prometheus_cluster']) + ',namespace=' + json.dumps(NS) + ',job="p9-envoy",envoy_cluster_name="inbound|8080||"'
-        raw = 'envoy_cluster_upstream_rq_active_overflow{' + base + '}'
-        rate = self.prom('rate(' + raw + '[1m])')
-        active = self.prom('envoy_cluster_upstream_rq_active{' + base + '}')
-        stamp = self.prom('timestamp(' + raw + ')')
-        count = self.prom('count_over_time(' + raw + '[1m])')
+    def signal(self, pods, *, at=None, initializing=False):
+        require(not initializing or getattr(self, 'preparation', False), 'initialization signal boundary')
+        queries = signal_queries(self.v)
+        rate, active, stamp, count = [self.prom(queries[key]) for key in ('rate', 'active', 'timestamp', 'samples')]
         rows = []
         names = {p['metadata']['name']: p['metadata']['uid'] for p in pods}
         for values in (rate, active, stamp, count):
-            require(all(r['metric'].get('pod') in names for r in values), 'unknown target series')
+            require(all(r['metric'].get('pod') in names and all(r['metric'].get(k) == val for k, val in
+                    {'cluster': self.v['prometheus_cluster'], 'namespace': NS, 'job': metric_contract()['job'],
+                     metric_contract()['cluster_label']: metric_contract()['cluster']}.items()) for r in values), 'unknown target series/metric label drift')
         for pod in pods:
             name, uid = pod['metadata']['name'], pod['metadata']['uid']
             selected = [[r for r in values if r['metric'].get('pod') == name] for values in (rate, active, stamp, count)]
             require(all(len(x) <= 1 for x in selected), 'duplicate per-Pod series')
-            if not p8.p4.pod_guard(pod)['ready'] or any(not x for x in selected):
+            if not p8.p4.pod_guard(pod)['ready'] or self.admin_observations.get(uid, {}).get('status') != 'observed' or any(not x for x in selected):
                 continue
             r, a, s, c = [float(x[0]['value'][1]) for x in selected]
             # One sample cannot initialize rate. Other invalid/stale values fail
@@ -509,13 +653,21 @@ class Runtime(p8.Runtime):
             if c < 2:
                 require(bounded(c, 0, 1), 'invalid sample count')
                 continue
-            rows.append({'pod': name, 'pod_uid': uid, 'status': 'observed', 'rate': r, 'active': a, 'timestamp': s, 'samples': c})
+            rows.append({'pod': name, 'pod_uid': uid, 'status': 'observed', 'rate': r, 'active': a, 'timestamp': s, 'samples': c, 'metric_contract': metric_contract()})
         missing = [uid for uid in names.values() if uid not in {r['pod_uid'] for r in rows}]
-        signal = {'status': 'warming-new-pod' if missing else 'observed', 'missing_uids': missing,
+        signal = {'status': ('uninitialized' if initializing else 'warming-new-pod') if missing else 'observed', 'missing_uids': missing,
                   'pods': rows, 'query': [], 'query_sha256': digest(scale_query(self.v))}
         if not missing:
             signal['query'] = self.prom(scale_query(self.v))
-        self.lifecycle.signal(signal, [p8.p4.pod_guard(p) for p in pods], time.monotonic() if at is None else at, time.time())
+        if initializing:
+            if rows:
+                telemetry(rows, {r['pod_uid']: r['pod'] for r in rows}, time.time(), self.v['freshness_seconds'])
+            if not missing and not signal['query']:
+                signal['status'] = 'uninitialized'
+            elif not missing:
+                require(len(signal['query']) == 1 and bounded(float(signal['query'][0]['value'][1]), 0, 1000000), 'invalid guarded initialization query')
+        else:
+            self.lifecycle.signal(signal, [p8.p4.pod_guard(p) for p in pods], time.monotonic() if at is None else at, time.time())
         return signal
 
     def release(self, emit):
@@ -527,6 +679,7 @@ class Runtime(p8.Runtime):
 
 def collect_snapshot(runtime, config, before, emit, release_started):
     """Live config + per-Pod stats/logs every cycle, not just first/last UID."""
+    runtime.emit = emit
     at = time.monotonic()
     runtime.collection_deadline.at = at + 30
     inventory = runtime.pods(NS, 'app=ext-authz-sim')
@@ -541,6 +694,7 @@ def collect_snapshot(runtime, config, before, emit, release_started):
     config_guard(before, actual, runtime.arm, healthy, releasing)
     guard = runtime.guard()
     stats = runtime.stats(actual)
+    runtime.lifecycle.admin(actual['targets'], runtime.admin_observations, stats, at)
     logs = runtime.logs(actual)
     # HAProxy's stdout log-format contains only timing/status/termination fields.
     hp = runtime.pod(NS, 'app=haproxy')
@@ -552,10 +706,113 @@ def collect_snapshot(runtime, config, before, emit, release_started):
     snap = {'record': 'snapshot', 'at': at, 'end': time.monotonic(), 'epoch': time.time(), 'timestamp_utc': p8.utc(),
             'configuration': actual, 'guard': guard, 'stats': stats, 'logs': logs, 'haproxy': runtime.haproxy(),
             'haproxy_logs': hp_logs, 'signal': signal, 'fault_healthy': healthy, 'healthy': all_converged,
-            'release_started': releasing, 'target_inventory': [p8.p4.pod_guard(p) for p in inventory]}
+            'release_started': releasing, 'admin_stats': runtime.admin_observations, 'target_inventory': [p8.p4.pod_guard(p) for p in inventory]}
     emit(snap)
     if all_converged:
         emit({'record': 'convergence', 'at': snap['end'], 'healthy': True, 'targets': [t['uid'] for t in actual['targets']]})
+
+
+def initialization_safety(guard):
+    admitted = guard['admission']
+    require(len(admitted['pods']) <= 4 and all(v['cpu'] <= 1.5 + 1e-9 and v['memory'] <= 2048 * 1024**2
+            for v in admitted['conservative_sum'].values()), 'initialization admitted cap')
+    require(guard['pods'] and all(p['ready'] and p['phase'] == 'Running' and not p['reason'] and
+            all(c['ready'] and c['restarts'] == 0 and c['last_termination'] not in {'OOMKilled', 'Error'} for c in p['containers'])
+            for p in guard['pods']), 'initialization readiness/restart')
+    require(guard['nodes'] and all(n['conditions'] == {'Ready': 'True', 'MemoryPressure': 'False', 'DiskPressure': 'False', 'PIDPressure': 'False'} for n in guard['nodes']), 'initialization node pressure')
+    require(any(n['schedulable'] and n['cpu_free'] >= .15 and n['memory_free'] >= 192 * 1024**2 for n in guard['node_headroom']), 'initialization headroom')
+    require(guard['postgres']['query_ok'] and guard['postgres']['connections'] < guard['postgres']['max_connections'] - guard['postgres']['reserved'], 'initialization DB health')
+    require(not guard['events'], 'initialization warning event')
+
+
+def healthy_initialize(runtime, v, journey, emit, *, clock=time.monotonic, wait=time.sleep):
+    """One existing healthy journey, then bounded read-only polling. No flags set.
+
+    Caller holds the append-only initialization ledger lock. Preparation authority
+    never grants the measure path or KEDA mutation/authentication success.
+    """
+    require(getattr(runtime, 'preparation', False) and runtime.arm == 'C0', 'preparation runtime required')
+    runtime.emit = emit
+    runtime.collection_deadline.at = clock() + 30
+    config = {'max_requests': 1024, 'hold_ms': 0, 'logical_operations': 24, 'concurrency': 12,
+              'waves': (v['mitigation_seconds'] + v['recovery_seconds']) // 5, 'wave_interval_seconds': 5}
+    before = runtime.configuration(config, initializing=True)
+    require(len(before['targets']) == 1, 'healthy initialization starts with one Ready target')
+    initial = {t['uid'] for t in before['targets']}
+    initialization_safety(runtime.guard())
+    logs_before = runtime.logs(before)
+    emit({'record': 'healthy_journey_intent', 'source_sha': runtime.value['source_sha'], 'at': clock(),
+          'target_uids': sorted(initial), 'measured_denominator': False, 'invocations': 1})
+    try:
+        journey(90)  # Existing journey only; never retry for telemetry.
+    finally:
+        # Keep actual request/check evidence on journey failure as well. The
+        # protected client audit separately retains every API intent/response.
+        deadline = clock() + v['ingestion_seconds'] + 3 * v['scrape_seconds']
+        runtime.collection_deadline.at = min(clock() + 30, deadline)
+        delta = p8.path_delta(logs_before, runtime.logs(before))
+        emit({'record': 'healthy_journey_accounting', 'at': clock(), 'measured_denominator': False,
+              'ingress_http_records': sum(not (int(r['status']) == 0 and r['detail'] == 'filter_chain_not_found') for r in delta['proxies']['ingress']),
+              'authorization_checks': len(delta['checks']), 'log_delta': delta})
+    while True:
+        require(clock() < deadline, 'healthy initialization polling timeout; do not repeat journey')
+        runtime.collection_deadline.at = min(clock() + 30, deadline)
+        actual = runtime.configuration(config, initializing=True)
+        require({t['uid'] for t in actual['targets']} == initial and actual == before, 'initialization config/UID drift')
+        initialization_safety(runtime.guard())
+        pods = runtime.targets()
+        require({p['metadata']['uid'] for p in pods} == initial, 'initialization live UID drift')
+        signal = runtime.signal(pods, initializing=True)
+        emit({'record': 'healthy_telemetry_poll', 'at': clock(), 'configuration': actual,
+              'admin_stats': runtime.admin_observations, 'signal': signal, 'deadline': deadline})
+        if signal['status'] == 'observed':
+            require(clock() <= deadline, 'healthy initialization polling timeout')
+            delta = p8.path_delta(logs_before, runtime.logs(actual))
+            ingress = delta['proxies']['ingress']
+            http = [r for r in ingress if not (int(r['status']) == 0 and r['detail'] == 'filter_chain_not_found')]
+            result = {'record': 'healthy_initialization_complete', 'source_sha': runtime.value['source_sha'],
+                      'at': clock(), 'metric_contract': metric_contract(), 'journey_invocations': 1,
+                      'ingress_http_records': len(http), 'authorization_checks': len(delta['checks']),
+                      'request_accounting': 'actual same-window server log deltas, not 1:1 operation/HTTP inference',
+                      'log_delta': delta, 'ready_for_keda_authentication': True, 'runtime_preflight_passed': False}
+            emit(result)
+            return result
+        require(clock() < deadline, 'healthy initialization polling timeout; do not repeat journey')
+        wait(min(v['scrape_seconds'], deadline - clock()))
+
+
+def initialize(identity, v, approval, context, private, output, ledger):
+    """Approved preparation entrypoint. Never provisions IAM/images or mutates KEDA."""
+    import fcntl
+    output, private, ledger = Path(output), Path(private), Path(ledger)
+    require(private.is_dir() and private.stat().st_mode & 0o777 == 0o700 and
+            not (private / 'healthy-journey').exists(), 'new protected healthy fixture directory required')
+    output.mkdir(mode=0o700)
+    with ledger.open('a+') as stream:
+        fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        stream.seek(0)
+        prior = [json.loads(line) for line in stream if line.strip()]
+        require(not any(e.get('record') == 'healthy_journey_intent' and e['source_sha'] == identity['source_sha'] for e in prior), 'healthy journey already consumed; new approval required')
+        runtime = Runtime(identity, v, 'C0', approval, [], preparation=True)
+        def emit(row):
+            line = json.dumps(row) + '\n'
+            with (output / 'events.jsonl').open('a') as events: events.write(line)
+            stream.seek(0, 2); stream.write(line); stream.flush(); os.fsync(stream.fileno())
+        def journey(timeout):
+            env = dict(os.environ, JOURNEY_ENVIRONMENT='azure-aks', RESULT_CONTEXT_FILE=str(Path(context).resolve()),
+                       RESULTS_ROOT=str((output / 'journey').resolve()), RESULT_PHASE='warmup',
+                       JOURNEY_DIR=str((private / 'healthy-journey').resolve()), JOURNEY_GATE_CORRELATION='1', RECOVERY_FIXTURE='1')
+            # Existing script retains TLS/native auth/private-repo checks and PAT ID.
+            p8.subprocess.run(['timeout', '--signal=TERM', '--kill-after=5s', str(timeout) + 's',
+                               'bash', str(ROOT / 'tests/e2e/forgejo-developer-journey.sh'), 'create'],
+                              env=env, check=True, timeout=timeout + 10)
+        try:
+            healthy_initialize(runtime, v, journey, emit)
+        except BaseException:
+            emit({'record': 'healthy_initialization_failure', 'source_sha': identity['source_sha'], 'at': time.monotonic()})
+            raise
+        finally:
+            runtime.prom_token = None
 
 
 def _measure(identity, v, arm, phase, output, approval_path, frozen_path, ledger_path):
@@ -573,7 +830,7 @@ def _measure(identity, v, arm, phase, output, approval_path, frozen_path, ledger
         # Count before any workload. Failed runs consume budget too.
         execution_gate(identity, v, approval, ledger + [entry])
         ledger_file.seek(0, 2); ledger_file.write(json.dumps(entry) + '\n'); ledger_file.flush(); os.fsync(ledger_file.fileno())
-        manifest = {'source_sha': identity['source_sha'], 'identity': identity, 'plan': v,
+        manifest = {'source_sha': identity['source_sha'], 'identity': identity, 'plan': v, 'metric_contract': metric_contract(),
                     'transport': p8.measurement_transport(identity),
                     'fixture_sha256': digest({k: os.environ[k] for k in ('DEV_USER', 'ISSUE_NUMBER', 'ISSUE_TITLE', 'EXPECTED_MAIN_SHA')}),
                     'schedule_sha256': digest(schedule(v)), 'slo_sha256': hashlib.sha256(SLO.read_bytes()).hexdigest(),
@@ -760,20 +1017,22 @@ def common_guards(snapshots, baseline, arm):
 def path_accounting(arm, snapshots):
     first, last = snapshots[0], snapshots[-1]
     target_uids = {uid for s in snapshots for uid in s['stats']}
+    inventory_uids = {p['uid'] for s in snapshots for p in s.get('target_inventory', [])}
+    require(set(last['stats']) == target_uids and inventory_uids <= target_uids, 'target lifetime lacks final counters')
     totals = {'target_admitted': 0, 'target_rejected': 0}
     checks, rejected, target_records = [], 0, 0
     for uid in target_uids:
         life = [s for s in snapshots if uid in s['stats']]
-        initial = p8.p4.by_suffix(first['stats'][uid]) if uid in first['stats'] else {key: 0 for key in p8.p4.SUFFIXES}
+        initial = p8.p4.by_suffix(first['stats'][uid]) if uid in first['stats'] else None
         previous = initial
         for s in life:
             current = p8.p4.by_suffix(s['stats'][uid])
-            require(set(current) == set(initial) and all(current[k] >= previous[k] for k in p8.p4.SUFFIXES if k not in {'upstream_rq_active', 'upstream_rq_pending_active'}), 'counter reset/missing series')
-            require(current['upstream_rq_pending_active'] == 0 and current['upstream_rq_pending_overflow'] == initial['upstream_rq_pending_overflow'], 'competing pending overflow')
+            require(set(current) == set(p8.p4.SUFFIXES) and (previous is None or all(current[k] >= previous[k] for k in p8.p4.SUFFIXES if k not in {'upstream_rq_active', 'upstream_rq_pending_active'})), 'counter reset/missing series')
+            require(current['upstream_rq_pending_active'] == 0 and current['upstream_rq_pending_overflow'] == (initial['upstream_rq_pending_overflow'] if initial is not None else 0), 'competing pending overflow')
             previous = current
-        require(previous['upstream_rq_active'] == 0 and initial['upstream_rq_active'] == 0, 'target boundary inflight')
-        totals['target_admitted'] += previous['upstream_rq_total'] - initial['upstream_rq_total']
-        totals['target_rejected'] += previous['upstream_rq_active_overflow'] - initial['upstream_rq_active_overflow']
+        require(previous['upstream_rq_active'] == 0 and (initial is None or initial['upstream_rq_active'] == 0), 'target boundary inflight')
+        totals['target_admitted'] += previous['upstream_rq_total'] - initial['upstream_rq_total'] if initial is not None else previous['upstream_rq_total']
+        totals['target_rejected'] += previous['upstream_rq_active_overflow'] - initial['upstream_rq_active_overflow'] if initial is not None else previous['upstream_rq_active_overflow']
         def target_log(s):
             return s['logs']['proxies']['target'].get(uid, [])
         before = target_log(first)
@@ -828,6 +1087,7 @@ def validate(directory):
     manifest = load(directory / 'configuration.json')
     v, arm, identity = manifest['plan'], manifest['arm'], manifest['identity']
     plan(v); p8.identity(identity); require(arm in ARMS, 'arm')
+    require(manifest['metric_contract'] == metric_contract() and manifest['baseline']['metric_contract'] == metric_contract(), 'saved metric contract drift')
     require(manifest['source_sha'] == identity['source_sha'] and manifest['schedule_sha256'] == digest(schedule(v)) and
             manifest['slo_sha256'] == hashlib.sha256(SLO.read_bytes()).hexdigest() and
             manifest['render_sha256'] == {a: digest(render(identity, v, a)) for a in ARMS}, 'manifest drift')
@@ -853,6 +1113,9 @@ def validate(directory):
                 {p['uid']: p['name'] for p in s['guard']['pods'] if p['name'].startswith('ext-authz-sim-')}, 'snapshot target inventory differs')
         require({t['uid']: t['name'] for t in s['configuration']['targets']} ==
                 {p['uid']: p['name'] for p in inventory if p['ready']}, 'Ready configuration inventory differs')
+        lifecycle.inventory(inventory, s['at'])
+        lifecycle.admin(s['configuration']['targets'], s['admin_stats'], s['stats'], s['at'])
+        require(s['configuration']['metric_contract'] == metric_contract(), 'snapshot metric contract drift')
         signals.append(lifecycle.signal(s['signal'], inventory, s['at'], s['epoch']))
         require(s['signal']['query_sha256'] == digest(scale_query(v)), 'scale query drift')
     require(signals[-1] is not None and all(b['end'] - a['end'] <= 35 for a, b in zip(snapshots, snapshots[1:])), 'final/missing observation gap')
@@ -927,7 +1190,7 @@ def compare(directories, freeze):
     require([r['arm'] for r in results] == list(ARMS), 'arm order/identity')
     reference = configs[0]['baseline']
     for config in configs:
-        require(config['phase'] == 'measured' and all(config[k] == freeze[k] for k in ('source_sha', 'identity', 'plan', 'transport', 'fixture_sha256', 'schedule_sha256', 'slo_sha256', 'render_sha256')), 'comparison freeze/source/schedule drift')
+        require(config['phase'] == 'measured' and all(config[k] == freeze[k] for k in ('source_sha', 'identity', 'plan', 'metric_contract', 'transport', 'fixture_sha256', 'schedule_sha256', 'slo_sha256', 'render_sha256')), 'comparison freeze/source/schedule drift')
         current = copy.deepcopy(config['baseline'])
         expected = copy.deepcopy(reference)
         # A HAProxy config rollout is the admission arm's allowed policy delta.
@@ -948,7 +1211,9 @@ def compare(directories, freeze):
 
 
 def main(args):
-    if len(args) == 5 and args[0] == 'render':
+    if len(args) == 8 and args[0] == 'initialize':
+        initialize(load(args[1]), load(args[2]), load(args[3]), args[4], args[5], args[6], args[7])
+    elif len(args) == 5 and args[0] == 'render':
         identity, v, arm = load(args[1]), load(args[2]), args[3]
         output = Path(args[4]); output.mkdir(mode=0o700)
         for name, obj in render(identity, v, arm).items():
@@ -969,7 +1234,7 @@ def main(args):
     elif len(args) == 7 and args[0] == 'compare':
         save(args[6], compare(args[1:5], load(args[5])))
     else:
-        raise ValueError('usage: render IDENTITY PLAN ARM DIR | transition IDENTITY PLAN C0|C3 OUTPUT APPROVAL | freeze IDENTITY PLAN CALIBRATION[,CALIBRATION] OUTPUT | measure IDENTITY PLAN ARM calibration|measured DIR APPROVAL FROZEN|- LEDGER | validate|review RUN OUTPUT | compare C0 C1 C2 C3 FROZEN OUTPUT')
+        raise ValueError('usage: initialize IDENTITY PLAN APPROVAL CONTEXT PRIVATE OUTPUT INIT_LEDGER | render IDENTITY PLAN ARM DIR | transition IDENTITY PLAN C0|C3 OUTPUT APPROVAL | freeze IDENTITY PLAN CALIBRATION[,CALIBRATION] OUTPUT | measure IDENTITY PLAN ARM calibration|measured DIR APPROVAL FROZEN|- LEDGER | validate|review RUN OUTPUT | compare C0 C1 C2 C3 FROZEN OUTPUT')
 
 
 if __name__ == '__main__':

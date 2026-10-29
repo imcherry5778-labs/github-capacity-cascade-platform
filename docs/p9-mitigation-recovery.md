@@ -26,14 +26,14 @@ Authorized fixture의 동일 Issue에 대한 direct native-auth sentinel과 exac
 최종 ingress log가 native denial(`via_upstream` 403 등)을 포함하면 비교를 거부한다.
 이는 일반 HTTP403 retry 권고가 아니며 unauthorized read를 실험 부하에 섞지 않는다.
 
-[후보 입력](../experiments/fixtures/shared-gate/mitigation-candidate.json)의 KEDA version과
-zero client ID는 **예시**다. Actual version·새 identity client ID·series·cadence로 교체해야 한다.
+[후보 입력](../experiments/fixtures/shared-gate/mitigation-candidate.json)의 KEDA `2.19.0-25`는 이전 실행에서 보존한 actual image tag다. 새 live 확인을 수행한 값이 아니다.
+Zero client ID는 미설정이며 재개 시 actual version·새 identity client ID·series·cadence를 다시 확인해 보호된 plan에 연결한다.
 ARM에서 managed KEDA enabled를 확인한 것만으로 version/CRD/인증을 확인했다고 보지 않는다.
 최종 source는 승인 대상 exact HEAD, published digest, verified HTTPS hostname/native PAT,
 process-local DNS override, source/render hashes, P7 SLO hash, fault/demand/schedule와 arm delta를 묶는다.
 `freeze`는 같은 최종 plan의 reviewed calibration report 1–2개를 요구한다. Report에는
 source/plan/fixture hash와 verified HTTPS transport(DNS override 포함), `reviewed`, `missing_required_signals=[]`, 실제 cadence, all-Pod series,
-`per-pod-active-overflow-counter-rate-per-second` 의미, controller ownership 검토를 기록한다.
+`per-pod-active-overflow-counter-rate-per-second` 의미, 아래 고정 `metric_contract`, controller ownership 검토를 기록한다.
 Boolean report는 actual calibration raw/동일 window 검토를 대신하지 않는다.
 
 C0/C1은 같은 runtime identity/UID/config를 사용한다. C2에는 config reload를 위한 HAProxy
@@ -80,15 +80,23 @@ Issue12/Git1 worker와 최대49 pending으로 client backlog를 제한한다. �
 
 기존 managed KEDA/Managed Prometheus를 재사용한다. [Microsoft managed KEDA 문서](https://learn.microsoft.com/en-us/azure/aks/keda-workload-identity)의
 version별 실제 image/CRD/operator/SA 상태를 먼저 보존한다. 읽을 수 없으면 필수 실행 gate다.
-승인 source 후보의 [2.18 scaler](https://keda.sh/docs/2.18/scalers/prometheus/)와
-[identity override](https://keda.sh/docs/2.18/authentication-providers/azure-ad-workload-identity/)는
-source candidate의 참조이며 actual version이 다르면 그 version의 공식 schema/동작으로 재검증한다.
+기록된 actual `2.19.0-25`에 맞춰 [2.19 scaler](https://keda.sh/docs/2.19/scalers/prometheus/)와
+[identity override](https://keda.sh/docs/2.19/authentication-providers/azure-ad-workload-identity/)를 참조한다.
+재개 시 actual version이 다르면 중단하고 matching contract를 확인한다. 이번 source correction은 새 runtime 조회나 upgrade를 수행하지 않는다.
 Managed controller의 Helm/resource/spec 임의 변경이나 self-managed 대체는 하지 않는다.
 
 실험 소유 `azmonitoring.coreos.com/v1 PodMonitor/p9-envoy`는 기존 scraper를 사용한다.
-선택 series 후보는 `envoy_cluster_upstream_rq_active_overflow`, labels
-`cluster/namespace/pod/job="p9-envoy"/envoy_cluster_name="inbound|8080||"`다.
-실제 이름·label·counter 의미·unit을 admin stat 및 Prometheus exposition과 대조한다.
+선택 series는 `envoy_cluster_upstream_rq_active_overflow`, labels
+`cluster/namespace/pod/job="p9-envoy"/cluster_name="inbound|8080||"`로 제한한다.
+Adapter의 단일 `metric_contract`를 raw/rate/active/timestamp/sample-count/guarded query,
+KEDA render, collector, saved validator와 freeze가 공유한다. Label fallback/OR selector는 없다.
+Actual ORIGINAL_DST inbound cluster `inbound|8080||`, listener destination port8080과 route,
+`alt_stat_name="inbound|8080||;"` 및 suffix5 admin stat 이름을 연결한다. Bootstrap은
+`use_all_default_tags=false`, `cluster_name` tag regex `^cluster(\.(.+);)`를 확인한다.
+Native exposition의 overflow counter/active gauge type과 label, 같은 Pod의 ingested sample을 대조한다.
+Mapping/tag/label ambiguity나 drift는 신규 Pod warmup 중에도 실패한다.
+보존 archive의 positive sample은 bootstrap cluster뿐이며 **target inbound positive sample은 없다**.
+이를 inbound 초기화 또는 query 성공으로 재해석하지 않는다.
 `sum(rate(...[1m]))`의 unit은 rejected checks/s이며 raw cumulative counter를 threshold에
 연결하지 않는다. 후보 threshold0.5, calibration 허용0.25–1.0이다. 이는 rejection을 낮추려는
 반응 후보이며 capacity2가 SLO를 복원한다는 가정이 아니다. Gauge의 짧은 peak는 scrape가
@@ -103,7 +111,12 @@ HPA metric·desired·Ready·각 target의 traffic timeline과 함께 기록한�
 전체 live target UID/inventory에는 Pending도 포함하고, runtime config/counter/log는 Ready target에서 수집한다.
 Collector와 saved-run validator는 같은 lifecycle 경계를 적용한다. 신규 C3 UID의 Pending→Ready는
 첫 관측부터 최대90초, Ready 이후 series 초기화는 `ingestion+3×scrape` 이내만 허용한다.
-첫 rate에는 최소2 samples가 필요하며 이 구간을 `warming-new-pod` not-ready/no-data로 보존한다.
+Ready 직후 admin stat가 아직 materialize되지 않은 상태도 같은 Ready budget 안에서만 허용한다.
+구조/config invariant는 stat 유무와 독립적으로 검사한다. `Pending → Ready/no-admin-stat → 첫 계획된 traffic →
+admin/native stat → rate 최소2 samples`를 `admin_stats`의 실제 값/누락과 `warming-new-pod` not-ready/no-data로 보존한다.
+누락 UID는 `stats`에 추가하지 않는다. 이미 admin stat를 관측한 UID의 재누락도 실패한다.
+신규 Pod를 위한 추가 load는 없으며 최초 stat snapshot이 nonzero여도 해당 UID의 누적 counter와 lifetime 전체 log를
+나중에 확보하여 계획된 traffic을 모두 accounting한다. 누락 snapshot을0으로 합성하지 않으며 final counter/log가 없으면 invalid다.
 Idle/recovery/scaling 성공 proof로 세지 않는다. 기존 또는 이미 관측된 Pod의 누락/stale/error,
 unknown series/UID, startup timeout은 중단 사유이며 inventory query guard는 유지한다. 첫/마지막만 빼는
 방식 없이 각 Pod lifetime의 counter/log를 수집하고 reset/restart·수집 누락을 구분한다.
@@ -117,6 +130,32 @@ unknown series/UID, startup timeout은 중단 사유이며 inventory query guard
 2. 복귀: ScaledObject foreground 삭제·부재 → generated HPA 부재 → owner0 확인 → 기존 CPU HPA 적용 → owner1 확인.
 3. 전환 중 controller 중복/unknown owner 또는 삭제 지연이면 CUSTOM policy를 우선 제거하고 중단한다.
    Stable Deployment는 scale/mutate하지 않는다. Experiment controller manifest만 원복한다.
+
+## 최초 healthy 초기화 순서
+
+준비용 gate는 fault/측정용 full telemetry gate와 분리한다. `initialize`도 새 exact-source Azure 승인과
+normal/native-auth/TLS evidence, 같은 actual identity/plan hash/limits/retention을 요구한다.
+`healthy_gate_passed`/`runtime_preflight_passed`를 초기화 시작을 위해 true로 만들지 않는다.
+
+1. 전용 kubeconfig/ownership/stable delta, exact CUSTOM hostname/provider/selector와 fail-closed/native auth/TLS,
+   pinned image/controller, hold0/capacity1024/readiness, 실제 sidecar/init/overhead 포함 resource/headroom을 확인한다.
+2. 이미 계획한 bounded healthy journey **1회**를 재사용한다. Intent를 append-only initialization ledger에 먼저 기록하고
+   90초에 process group에 TERM을 보내고 kill-after5초로 자식 명령도 제한한다. Journey raw는 기존 schema의 `phase=warmup`, 외부 initialization record는 `measured_denominator=false`로
+   측정 schedule/분모에 섞지 않되 API request intent/status/bytes와 실제 같은-window ingress/check log delta를 보존한다.
+   Git operation을 HTTP1회로 추정하지 않는다. Journey 실패·timeout도 사용된 행동이며 telemetry 때문에 재시도하지 않는다.
+3. Journey 이후 최대 `ingestion+3×scrape` 동안 scrape 간격의 **read-only** polling으로 동일 UID/config,
+   admin/native stat, ingested target series, freshness와 rate2 samples, guarded query를 확인한다.
+   성공하면 `ready_for_keda_authentication=true`이며 **`runtime_preflight_passed=false`는 유지**한다.
+   필수 query/stat 부재가 지속되면 timeout으로 중단한다. Invariant/unknown/query 오류는 즉시 전파한다.
+4. 위 target mapping/telemetry gate 뒤에만 KEDA UAMI/FIC/workspace role 및 필요한 SA annotation/rollout을 준비한다.
+   다른 ScaledObject 영향·원본 상태와 승인된 restart 횟수를 먼저 확인하고 실제 scaler 인증을 검증한다.
+   Operator identity의 query 성공은 KEDA scaler 인증 성공이 아니다. 이후 full runtime gate → fault/calibration/freeze/measured 순서다.
+
+P9 admin 요청은 `stats?format=json`, native 요청은 `stats/prometheus`이며 `usedonly`/filter를 추가하지 않는다.
+[Envoy admin](https://www.envoyproxy.io/docs/envoy/v1.38.0/operations/admin)의 JSON과 사용 여부/filter에 따른 누락을
+실제 numeric0과 구분한다. 관측 payload에 없는 counter는 deferred/unused일 수 있어도0으로 만들지 않고,
+인위적 counter 증가나 임의 traffic으로 보완하지 않는다. Archive의 filtered negative만으로 deferred option이
+실제 설정됐다고 주장하지 않는다. 기존 Pod 및 P8의 기본 strict stat 검사는 유지한다.
 
 ## Recovery와 accounting
 
@@ -231,6 +270,31 @@ IAM/FIC/UAMI, PAT/fixture login/보호 local 사본/port-forward 순으로 exact
 KEDA annotation/rollout 원복은 FIC 삭제 전에 수행한다. 정상 HTTPS/native auth, Argo revision/spec,
 원래 PVC/PV/Disk/Secret 보존을 확인한다. P9-owned cleanup과 전체 environment finalization은 다르다.
 
+## 재개 승인 delta — source gate 이후 한 번의 통합 승인 필요
+
+이번 source correction은 cost-free local 검증뿐이며 Azure 재개 승인은 없다. 새 exact HEAD의 source gate/CI/독립 review 뒤,
+앞선 승인 URL·`c06ce67b2d438c7affde6b6934368b43afa4c1f4` 실행·negative/cleanup evidence를 연결하여 다음 delta를 함께 승인받는다.
+기존 승인 SHA를 새 SHA로 치환하거나 삭제된 identity/client ID·과거 true flags를 재사용하지 않는다.
+
+- 새 source/image digest의 재build/publish·cleanup, fixture/PAT 재준비와 version2 admin credential의 명시적 재사용,
+  전용 AKS 임시 권한/보호 kubeconfig, experiment Secret/fixture/shared overlay 재준비·원복.
+- 위 healthy 초기화 순서와 실제 request accounting, 그 뒤 새 UAMI/FIC/workspace RBAC 및 **실제 필요할 때만**
+  KEDA annotation/restart·원복. 이전 operator apply restart1/restore restart1은 이미 사용한 행동이며
+  추가 필요한 apply/restore 각1회의 delta와 다른 workload 영향을 새 승인에 명시한다. 자동 반복 한도 확대는 없다.
+- 이전 normal create1(구조화된 developer attempts9)/final verify1, image publish/delete1, IAM/fixture 준비·원복은 사용된 행동이다.
+  Healthy/CUSTOM/fault/calibration/measured는 각각0, freeze·non-recovery 결과는 없다. 기존 ledger/raw/negative/checksum을 보존하고
+  새 preparation ledger와 연결한다. Calibration 총≤2와 measured 각 arm1회, resource/cost/retention 상한은 유지한다.
+- 이전 비용 관측 before/final **KRW18,845.545320581**, P9 증가분 unknown을 이어간다. USD5 예상/USD10 검토 예산을
+  0으로 초기화하지 않는다. 재개 전 기존 준비·원복을 포함한 누적 비용/사용량 근거를 다시 확인한다.
+- 과거 PAT numeric ID/DELETE status와 HTTP501 body 미보존은 historical limitation이다. 과거 credential 작업을 재실행하지 않는다.
+  다음 PAT 발급 시 numeric ID를 후속 mutation 전에 보호된 credential/audit에 기록한다. 기존 request helper는 method/path/expected status를
+  호출 전에 append하고 status와 response bytes를 body와 별도로 보존하여 빈204를 처리한다. 다음 exact-ID revoke에서도
+  동일한 기록 순서와 분리된 HTTP status/body 처리를 사용하며 401·login 차단 결과를 보존한다. 별도 cleanup harness는 없다.
+  Prometheus query는 intent/hash와 응답, HTTP failure status/body를 보호된 evidence에 보존한다(서버가 echo한 bearer는 redact).
+
+Environment/Foundation 기한 연장, 새 compute/Disk/PVC, node autoscaling/DNS 변경, P6/P7 drill/P8 전체 실험, P10은 요청하지 않는다.
+필수 gate 실패나 승인 초과이면 새 workload를 멈추고 기존 승인 문서의 안전 원복 순서를 따른다.
+
 ## 실행 entrypoint와 남은 gate
 
 Source gate는 직접 회귀, P8 historical replay, `make static`, exact-head PR CI와 독립 review다.
@@ -240,7 +304,9 @@ Source gate는 직접 회귀, P8 historical replay, `make static`, exact-head PR
 ```bash
 python3 scripts/azure-mitigation.py render "$IDENTITY" "$PLAN" C0 "$NEW_RENDER_DIR"
 python3 scripts/azure-mitigation.py transition "$IDENTITY" "$PLAN" C3 "$NEW_TRANSITION" "$APPROVAL"
-# normal/healthy gate → actual version/series/cadence/identity/resource gate → fault 수렴 뒤:
+# 새 통합 승인 뒤 구조/normal/native auth/TLS/resource gate → 기존 healthy journey + read-only 초기화:
+python3 scripts/azure-mitigation.py initialize "$IDENTITY" "$PLAN" "$APPROVAL" "$CONTEXT" "$PRIVATE_DIR" "$NEW_INIT" "$INIT_LEDGER"
+# 위 target telemetry gate 뒤 필요한 KEDA IAM/SA → 실제 scaler auth/cadence/full gate → fault 수렴 뒤:
 python3 scripts/azure-mitigation.py measure "$IDENTITY" "$PLAN" C3 calibration "$NEW_RUN" "$APPROVAL" - "$LEDGER"
 python3 scripts/azure-mitigation.py queries "$NEW_RUN" "$QUERY_IDENTITY" "$NEW_QUERY_PLAN"
 python3 scripts/azure-operations.py collect "$NEW_QUERY_PLAN" "$NEW_COLLECTION"

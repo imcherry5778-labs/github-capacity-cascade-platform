@@ -176,7 +176,7 @@ result_finish() {
 # request CURL_CONFIG_LINE METHOD PATH EXPECTED_STATUS [JSON_BODY]
 # Credential과 body는 mode 0600 파일로 준비해 process argv에 남기지 않는다.
 request() {
-  local auth="$1" method="$2" path="$3" expected="$4" body="${5-}" status rc command_end
+  local auth="$1" method="$2" path="$3" expected="$4" body="${5-}" status rc command_end bytes=0
   local response="$JOURNEY_DIR/response.json" auth_file="$JOURNEY_DIR/request-auth" body_file="$JOURNEY_DIR/request-body"
   local -a args=(-s --retry 0 --max-time 60 -o "$response" -w '%{http_code}' -X "$method" -H 'Accept: application/json')
   if [[ "${JOURNEY_GATE_CORRELATION:-0}" == 1 && "${OP_ACTIVE:-0}" == 1 && "${ATTEMPT_ACTIVE:-0}" == 1 ]]; then
@@ -188,6 +188,10 @@ request() {
     args+=(-H 'Content-Type: application/json' --data-binary "@$body_file")
   fi
   args+=(-K "$auth_file" "$API$path")
+  rm -f "$response"
+  # Append intent before the side effect; no credential/body values in metadata.
+  jq -nc --arg method "$method" --arg path "$path" --arg expected "$expected" --arg ts "$(utc)" \
+    '{record:"request_intent",method:$method,path:$path,expected_status:($expected|tonumber),timestamp_utc:$ts}' >>"$JOURNEY_DIR/request-events.jsonl"
   if [[ -n "${RESULT_FILE:-}" && "${OP_ACTIVE:-0}" == 1 && "${ATTEMPT_ACTIVE:-0}" == 1 ]]; then
     printf '%s' "$(utc)" >"$RESULT_DIR/command_timestamp"
     printf '%s' "$(mono)" >"$RESULT_DIR/command_start"
@@ -198,6 +202,10 @@ request() {
     rc=$?
   fi
   command_end="$(mono)"
+  [[ ! -f "$response" ]] || bytes="$(wc -c <"$response")"
+  jq -nc --arg method "$method" --arg path "$path" --arg status "$status" --argjson rc "$rc" \
+    --argjson bytes "$bytes" \
+    '{record:"request_response",method:$method,path:$path,http_status:(if $status=="000" or $status=="" then null else ($status|tonumber) end),exit_code:$rc,response_bytes:$bytes}' >>"$JOURNEY_DIR/request-events.jsonl"
   if [[ -n "${RESULT_FILE:-}" && "${OP_ACTIVE:-0}" == 1 && "${ATTEMPT_ACTIVE:-0}" == 1 ]]; then
     printf '%s' "$command_end" >"$RESULT_DIR/command_end"
     printf '%s' "$rc" >"$RESULT_DIR/command_exit"
@@ -338,9 +346,13 @@ create() {
       password: env.DEV_PASSWORD, must_change_password: false}')" >/dev/null
   token_json="$(request "user = \"$DEV_USER:$dev_password\"" POST "/users/$DEV_USER/tokens" 201 \
     '{"name":"journey","scopes":["write:repository","write:issue","write:user"]}')"
-  DEV_TOKEN="$(jq -r .sha1 <<<"$token_json")"
+  # Retain numeric ID before using this PAT for any following mutation.
+  TOKEN_ID="$(jq -er '.id | select(type=="number" and .>0 and floor==.)' <<<"$token_json")"
+  DEV_TOKEN="$(jq -er '.sha1 | select(type=="string" and length>0)' <<<"$token_json")"
+  jq -nc --arg user "$DEV_USER" --argjson id "$TOKEN_ID" \
+    '{record:"credential_created",user:$user,token_id:$id}' >>"$JOURNEY_DIR/request-events.jsonl"
   DEV_AUTH="header = \"Authorization: token $DEV_TOKEN\""
-  printf 'DEV_USER=%q\nDEV_TOKEN=%q\n' "$DEV_USER" "$DEV_TOKEN" >"$JOURNEY_DIR/credentials.env"
+  printf 'DEV_USER=%q\nDEV_TOKEN=%q\nTOKEN_ID=%q\n' "$DEV_USER" "$DEV_TOKEN" "$TOKEN_ID" >"$JOURNEY_DIR/credentials.env"
   if [[ "${RECOVERY_FIXTURE:-0}" == 1 ]]; then
     printf 'DEV_PASSWORD=%q\n' "$dev_password" >>"$JOURNEY_DIR/credentials.env"
   fi
