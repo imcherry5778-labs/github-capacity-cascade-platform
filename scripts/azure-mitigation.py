@@ -899,7 +899,6 @@ class CPUStartup:
         positive = positive and epoch - last >= self.quiet_seconds
         stale = (hpa_positive and ready_window and age > 30 and epoch - last >= self.quiet_seconds and
                  transition == self.validated_transition)
-        stale_duplicate = stale and sample_evidence == self.validated_sample
         if self.completed:
             # Telemetry may wait for a structurally valid stale export under its
             # existing deadline. This poll never grants current CPU readiness.
@@ -911,9 +910,9 @@ class CPUStartup:
                 self.completed = True
             elif self.candidate is None:
                 self.candidate = (at, stamp)
-        elif not stale_duplicate:
-            # A stale duplicate preserves the earlier fresh candidate without
-            # counting as another sample. Other gaps still invalidate it.
+        elif not stale:
+            # Structurally valid stale samples preserve the fresh candidate
+            # without counting as another sample. Other gaps invalidate it.
             self.candidate = None
         if positive:
             self.validated_sample = sample_evidence.copy()

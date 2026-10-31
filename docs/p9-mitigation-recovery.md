@@ -14,6 +14,22 @@ CUSTOM/shared mesh/namespace/PAT23/image/임시 IAM/보호 사본을 정리하�
 승인된 합산 세전 USD115 범위의 단일 비용 검토 예측은 USD112.5645943였으며 hard cap/확정 잔액 주장이 아니다.
 Retention·resource·source acceptance를 변경하지 않았고 제12차 자동 실행·source 수정·merge/P10은 없다.
 
+## 제11차 후속 candidate source 계약
+
+[제11차 독립 review](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#pullrequestreview-5725463943)에 따라
+`CPUStartup.observe`의 candidate 보존 조건만 `stale_duplicate`에서 기존 structurally valid `stale`로 확장한다.
+이전 fresh sample과 동일하거나 timestamp가 새로워진 stale 모두 pending/false이며, candidate·검증된 fresh sample을 advancing시키지 않는다.
+실제 준비 완료와 최종 healthy telemetry 성공에는 그 시점의 fresh positive가 필요하다. Warning/HPA/lifecycle/sample history 및
+DB/node/resource guard, freshness30초/window90초/quiet15초/settling300초와 전체 timeout은 그대로다.
+
+제11차 actual8poll을 기존 P8 guard adapter로 cost-free replay하면 poll2 candidate → poll3·4 stale pending/후보 보존
+→ **poll5 두 번째 advancing fresh에서 offline ready** → poll6·7 stale pending → poll8 fresh positive다.
+Full per-poll guard/UTC는 미기록이므로 archived command-end UTC/failure monotonic anchor와 actual sample/HPA/Warning/Pod projection을 재사용한다.
+DB 응답 등 기존 adapter I/O는 synthetic이며 새로운 Azure 성공 proof가 아니다. 제10차 actual-positive8poll과 제8차 duplicate9poll 경로도 함께 검증한다.
+제11차 실제 timeout·준비/원복11회·비용·raw/checksum과 measured0은 변경하지 않는다.
+직접 CPU 초기화 회귀41개, P9 전체72개, P8 전체38개와 `make static`을 통과했다.
+제12차 유료 실행은 새 exact-source 독립 검토와 별도 비용 승인 대상이며 이번 변경은 source-only다.
+
 ## 제10차 historical 실행
 
 상태: **실제 CPU/HPA·healthy telemetry·KEDA 인증/ownership positive / calibration1 invalid / C0–C3 measured0 / 원복 완료**.
@@ -318,9 +334,10 @@ ObservedGeneration이 있으면 actual generation과 대조한다. 필드가 없
 Startup 실패의 실제 placeholder `currentMetrics=[{type:""}]`는 알려진 ScalingActive=False 상태에서만 pending이며 정상 metric이 아니다.
 누락/stale/pre-Ready sample 또는 HPA 회복 미확인은 준비를 통과하지 못하고 bounded timeout에서 실패한다.
 Zero/unknown을 positive metric으로 승격하지 않는다. Pod/HPA UID·Ready transition/owner drift는 기다리지 않고 실패한다.
-첫 후보 이후 **직전 검증 sample과 timestamp/window/app CPU가 같은 stale duplicate**이며 positive HPA와 ScalingActive transition,
-Warning history·Pod/UID·DB/node/resource invariant가 유지되면 후보를 보존한다. 이 poll은 pending/false이며 sample 수를 늘리지 않는다.
-다른 metric 누락/새 stale timestamp/HPA 미회복은 기존대로 후보를 취소한다. 새 fresh advancing sample은 매번 기존 window/freshness/quiet/HPA 조건을 만족해야 한다.
+첫 후보 이후 **기존 `stale` 조건을 만족하는 구조적으로 유효한 sample**이며 positive HPA와 ScalingActive transition,
+Warning history·Pod/UID·DB/node/resource invariant가 유지되면 timestamp가 같거나 새로워져도 후보를 보존한다.
+이 poll은 pending/false이며 sample 수나 마지막 검증 fresh sample을 advancing시키지 않는다.
+다른 metric 누락/invalid sample/HPA 미회복은 기존대로 후보를 취소하거나 실패한다. 새 fresh advancing sample은 매번 기존 window/freshness/quiet/HPA 조건을 만족해야 한다.
 마지막 검증 sample보다 timestamp가 역행하거나 같은 timestamp의 window/app CPU가 바뀌면 실패한다.
 
 Warning의 safe reason/time/owner·event UID/count를 append-only `cpu_preparation_warning`으로 보존한다.

@@ -1005,18 +1005,26 @@ class MetricInitializationTests(unittest.TestCase):
             m.initialization_safety(g, cpu_startup=cpu, emit=rows.append, at=31)
 
     def archived_cpu_runtime(self, attempt="third"):
-        date = '20261030' if attempt == 'eighth' else '20261029'
+        later = attempt in {'tenth', 'eleventh'}
+        date = '20261101' if later else '20261030' if attempt == 'eighth' else '20261029'
         with tarfile.open(ROOT / f'docs/evidence/p9-mitigation-{attempt}-{date}/raw-evidence.tar.gz') as t:
             read = lambda n: json.load(t.extractfile(n))
             r = m.Runtime.__new__(m.Runtime); r.value = read('identity.json'); r.preparation = True; r.hpa_name = 'hpa-app-cpu'
-            r.since = {'third': '2026-10-29T05:56:40Z', 'fourth': '2026-10-29T07:39:27Z',
-                       'seventh': '2026-10-29T12:26:59Z', 'eighth': '2026-10-29T19:33:14Z'}[attempt]
-            terminal = read('experiment-terminal.json')
-            hpa = terminal['hpa']['items'][0] if attempt in {'seventh', 'eighth'} else next(x for x in terminal['items'] if x['kind'] == 'HorizontalPodAutoscaler')
-            objects = {'nodes': read('nodes-before.json'), 'events': terminal['events'] if attempt in {'seventh', 'eighth'} else read('fixture-events-stop.json'),
+            r.since = read('initialize-intent.json')['at_utc'] if later else {
+                'third': '2026-10-29T05:56:40Z', 'fourth': '2026-10-29T07:39:27Z',
+                'seventh': '2026-10-29T12:26:59Z', 'eighth': '2026-10-29T19:33:14Z'}[attempt]
+            terminal = read('experiment-terminal.json') if not later else None
+            if later:
+                hpa = read('cpu-hpa-before-transition.json') if attempt == 'tenth' else read('post-stop-hpas.json')['items'][0]
+                events = read('post-stop-events.json')
+            else:
+                hpa = terminal['hpa']['items'][0] if attempt in {'seventh', 'eighth'} else next(x for x in terminal['items'] if x['kind'] == 'HorizontalPodAutoscaler')
+                events = terminal['events'] if attempt in {'seventh', 'eighth'} else read('fixture-events-stop.json')
+            objects = {'nodes': read('nodes-before.json'), 'events': events,
                        'application': read('argo-before.json'), 'hpa': hpa}
-            owned, all_pods = read('initial-pods.json'), read('all-pods-before.json')
-            metrics = read('pod-metrics-stop.json')
+            owned = {'items': read('pods-ready-before-initialize.json')} if attempt == 'eleventh' else read('initial-pods.json')
+            all_pods = read('all-pods-before.json')
+            metrics = read('post-stop-cpu-metrics.json' if attempt == 'eleventh' else 'pod-metrics-stop.json')
             stable = read('forgejo-pods-before.json')['items'][0]
         def j(*args):
             if '/apis/metrics.k8s.io/v1beta1/pods' in args: return metrics
@@ -1027,28 +1035,31 @@ class MetricInitializationTests(unittest.TestCase):
         r.k = lambda *a: '{"query_ok":true,"connections":4,"max_connections":100,"reserved":5}'
         return r, owned
 
-    def eighth_cpu_timeline(self):
-        """Actual nine poll projections through P8 guard, not live recovery.
+    def archived_cpu_timeline(self, attempt='eighth'):
+        """Actual poll projections through P8 guard, not live recovery.
 
         Full guards/UTC poll times were not emitted. Reconstruct the wall clock
-        from the command-end UTC/failure monotonic anchor; retain the actual
+        from the command-end UTC/final event monotonic anchor; retain the actual
         poll intervals, CPU/HPA/Warning fields and archived lifecycle. The
         existing adapter supplies DB/node checks; these are not new live proof.
         """
-        runtime, owned = self.archived_cpu_runtime('eighth')
-        with tarfile.open(ROOT / 'docs/evidence/p9-mitigation-eighth-20261030/raw-evidence.tar.gz') as t:
-            rows = [json.loads(line) for line in t.extractfile('healthy-initialization/events.jsonl')]
+        runtime, owned = self.archived_cpu_runtime(attempt)
+        date = '20261030' if attempt == 'eighth' else '20261101'
+        with tarfile.open(ROOT / f'docs/evidence/p9-mitigation-{attempt}-{date}/raw-evidence.tar.gz') as t:
+            path = 'initialize/events.jsonl' if attempt == 'eleventh' else 'healthy-initialization/events.jsonl'
+            rows = [json.loads(line) for line in t.extractfile(path)]
             end = json.load(t.extractfile('initialize-command.json'))
         polls = [r for r in rows if r['record'] == 'cpu_preparation_poll']
-        failure = rows[-1]
-        origin = failure['at'] - failure['elapsed_seconds']
-        wall_offset = m.p8.p7.utc(end['at_utc']).timestamp() - failure['at']
+        final = rows[-1]
+        origin = final['at'] - final.get('elapsed_seconds', end['elapsed_seconds'])
+        wall_offset = m.p8.p7.utc(end['at_utc']).timestamp() - final['at']
         stamp = lambda epoch: m.datetime.fromtimestamp(epoch, m.timezone.utc).isoformat()
         hpa = runtime.j('-n', m.NS, 'get', 'hpa', 'hpa-app-cpu', '-o', 'json')
         target = next(p for p in owned['items'] if p['metadata']['uid'] == polls[0]['target_uid'])
         sample = next(p for p in runtime.j('get', '--raw', '/apis/metrics.k8s.io/v1beta1/pods')['items']
                       if p['metadata']['name'] == target['metadata']['name'])
-        events = runtime.j('get', 'events', '-A', '-o', 'json')['items']
+        events = runtime.j('get', 'events', '-A', '-o', 'json')
+        recorded_events = copy.deepcopy(events['items'])
         frames = []
         for poll in polls:
             sample.update(timestamp=stamp(poll['sample_epoch']), window=str(poll['sample']['window_seconds']) + 's')
@@ -1061,11 +1072,10 @@ class MetricInitializationTests(unittest.TestCase):
             hpa['status']['currentMetrics'] = ([{'type': 'ContainerResource', 'containerResource':
                 {'container': current['container'], 'name': current['name'], 'current':
                     {k: current[k] for k in ('averageValue', 'averageUtilization')}}}] if current else [{'type': ''}])
-            for e in events:
-                history = poll['warning_history'].get(e['metadata']['uid'])
-                if history is None:
-                    continue
-                last, count, first, reason = history
+            # Do not import later post-stop warnings into earlier observations.
+            events['items'] = [copy.deepcopy(e) for e in recorded_events if e['metadata']['uid'] in poll['warning_history']]
+            for e in events['items']:
+                last, count, first, reason = poll['warning_history'][e['metadata']['uid']]
                 e.update(lastTimestamp=last, count=count, firstTimestamp=first, reason=reason)
             with patch.object(m.p8, 'utc', return_value=stamp(wall_offset + poll['at'])):
                 frames.append((poll['at'] - origin, copy.deepcopy(m.Runtime.guard(runtime))))
@@ -1074,7 +1084,7 @@ class MetricInitializationTests(unittest.TestCase):
         return actual, frames, polls
 
     def test_eighth_actual_fresh_stale_fresh_preserves_candidate_without_counting_stale(self):
-        actual, frames, polls = self.eighth_cpu_timeline()
+        actual, frames, polls = self.archived_cpu_timeline()
         cpu, rows, ready = m.CPUStartup(actual), [], []
         for i, (at, guard) in enumerate(frames):
             ready.append(m.initialization_safety(guard, cpu_startup=cpu, emit=rows.append, at=at))
@@ -1095,11 +1105,45 @@ class MetricInitializationTests(unittest.TestCase):
         self.assertEqual([r['status'] for r in rows if r['record'] == 'cpu_preparation_poll'],
                          ['pending'] * 4 + ['ready'] + ['pending'] * 4)
 
-    def test_eighth_candidate_retention_is_only_for_the_validated_stale_duplicate(self):
-        for case in ('missing', 'missing-app', 'new-stale', 'no-current', 'no-active', 'hpa-regressed', 'hpa-transition', 'future'):
+    def test_eleventh_projection_completes_at_fresh_poll5_and_tenth_positive_is_unchanged(self):
+        for attempt, expected, first_candidate, stale_before_ready in (
+                ('eleventh', [False] * 4 + [True, False, False, True], 2, {3, 4}),
+                ('tenth', [False] * 5 + [True, False, True], 4, {5})):
+            with self.subTest(attempt=attempt):
+                actual, frames, polls = self.archived_cpu_timeline(attempt)
+                self.assertEqual(len(polls), 8)
+                cpu, rows, ready = m.CPUStartup(actual), [], []
+                for number, (at, guard) in enumerate(frames, 1):
+                    validated = copy.deepcopy(cpu.validated_sample)
+                    ready.append(m.initialization_safety(guard, cpu_startup=cpu, emit=rows.append, at=at))
+                    emitted, recorded = rows[-1], polls[number - 1]
+                    for key in ('sample', 'valid_ready_window', 'hpa_current_cpu', 'hpa_metric_recovered',
+                                'hpa_spec', 'hpa_uid', 'target_uid', 'hpa_transition_epoch'):
+                        self.assertEqual(emitted[key], recorded[key])
+                    self.assertEqual({k: list(v) for k, v in emitted['warning_history'].items()}, recorded['warning_history'])
+                    if number == first_candidate:
+                        candidate = cpu.candidate
+                        self.assertIsNotNone(candidate); self.assertFalse(cpu.completed)
+                    if number in stale_before_ready:
+                        self.assertEqual(cpu.candidate, candidate); self.assertFalse(cpu.completed)
+                    if not recorded['valid_ready_window']:
+                        self.assertFalse(ready[-1]); self.assertEqual(emitted['status'], 'pending')
+                        self.assertEqual(cpu.validated_sample, validated)
+                    self.assertEqual(emitted['status'], 'ready' if expected[number - 1] else 'pending')
+                self.assertEqual(ready, expected)
+                self.assertTrue(cpu.completed)
+                if attempt == 'tenth':
+                    self.assertEqual([r['status'] for r in rows if r['record'] == 'cpu_preparation_poll'],
+                                     [r['status'] for r in polls])
+                else:
+                    self.assertTrue(all(r['status'] == 'pending' for r in polls))  # Actual timeout stays negative.
+
+    def test_candidate_retention_requires_structurally_valid_stale(self):
+        for case in ('same-stale', 'new-stale', 'missing', 'missing-app', 'no-current', 'no-active', 'hpa-regressed', 'hpa-transition', 'future'):
             with self.subTest(case=case):
-                actual, frames, _ = self.eighth_cpu_timeline(); cpu = m.CPUStartup(actual)
+                actual, frames, _ = self.archived_cpu_timeline(); cpu = m.CPUStartup(actual)
                 for at, guard in frames[:3]: cpu.observe(guard, lambda _: None, at)
+                candidate, validated = cpu.candidate, copy.deepcopy(cpu.validated_sample)
                 at, guard = copy.deepcopy(frames[3])
                 sample = next(p for p in guard['pod_metrics'] if p['metadata']['name'] == cpu.target_name)
                 if case == 'missing': guard['pod_metrics'] = []
@@ -1114,22 +1158,27 @@ class MetricInitializationTests(unittest.TestCase):
                 elif case == 'hpa-transition':
                     next(c for c in guard['cpu_hpa']['status']['conditions'] if c['type'] == 'ScalingActive')['lastTransitionTime'] = guard['timestamp_utc']
                 self.assertFalse(m.initialization_safety(guard, cpu_startup=cpu, emit=lambda _: None, at=at))
-                self.assertIsNone(cpu.candidate)
+                valid_stale = case in {'same-stale', 'new-stale'}
+                self.assertEqual(cpu.candidate, candidate if valid_stale else None)
+                self.assertEqual(cpu.validated_sample, validated)  # Stale never advances the validated fresh sample.
                 at, guard = frames[4]
-                self.assertFalse(cpu.observe(guard, lambda _: None, at))  # Only one fresh sample after invalidation.
-                self.assertFalse(cpu.completed)
+                self.assertEqual(cpu.observe(guard, lambda _: None, at), valid_stale)
+                self.assertEqual(cpu.completed, valid_stale)  # Invalid gaps still need two new fresh samples.
 
     def test_eighth_stale_poll_never_masks_safety_or_sample_history_failure(self):
         cases = ('warning', 'warning-lost', 'warning-owner', 'warning-reason', 'hpa-uid', 'hpa-owner', 'pod-uid',
                  'ready-time', 'restart', 'db', 'node', 'resource', 'zero', 'missing-cpu', 'window', 'cpu-drift', 'sample-regression')
-        for completed in (False, True):
+        for completed, newer in ((False, False), (False, True), (True, False), (True, True)):
             for case in cases:
-                with self.subTest(completed=completed, case=case):
-                    actual, frames, _ = self.eighth_cpu_timeline(); cpu = m.CPUStartup(actual)
+                with self.subTest(completed=completed, newer=newer, case=case):
+                    actual, frames, _ = self.archived_cpu_timeline(); cpu = m.CPUStartup(actual)
                     for at, guard in frames[:5 if completed else 3]: cpu.observe(guard, lambda _: None, at)
                     at, guard = copy.deepcopy(frames[5 if completed else 3])
                     sample = next(p for p in guard['pod_metrics'] if p['metadata']['name'] == cpu.target_name)
                     app = next(c for c in sample['containers'] if c['name'] == 'app')
+                    if newer and case not in {'cpu-drift', 'sample-regression'}:
+                        sample['timestamp'] = (m.p8.p7.utc(sample['timestamp']) + m.timedelta(seconds=1)).isoformat()
+                        self.assertGreater((m.p8.p7.utc(guard['timestamp_utc']) - m.p8.p7.utc(sample['timestamp'])).total_seconds(), 30)
                     if case == 'warning': guard['events'][0]['count'] += 1
                     elif case == 'warning-lost': guard['events'].pop()
                     elif case == 'warning-owner': guard['events'][0]['owner']['uid'] = 'other'
@@ -1152,33 +1201,39 @@ class MetricInitializationTests(unittest.TestCase):
                         m.initialization_safety(guard, cpu_startup=cpu, emit=lambda _: None, at=at)
 
     def test_eighth_stale_only_candidate_cannot_complete_before_settling_timeout(self):
-        actual, frames, _ = self.eighth_cpu_timeline(); f, now, rows, calls = self.preparation(), [0], [], []
-        epoch = m.p8.p7.utc(frames[0][1]['timestamp_utc']).timestamp() - frames[0][0]
-        count = [0]
-        def guard():
-            i = count[0]; count[0] += 1
-            if i < 3:
-                now[0] = frames[i][0]
-                return copy.deepcopy(frames[i][1])
-            now[0] += min(17, f.runtime.collection_deadline.at - now[0])
-            g = copy.deepcopy(frames[3][1])
-            g['timestamp_utc'] = m.datetime.fromtimestamp(epoch + now[0], m.timezone.utc).isoformat()
-            return g
-        f.runtime.configuration = lambda *a, **kw: copy.deepcopy(actual)
-        f.runtime.guard = guard
-        with self.assertRaisesRegex(ValueError, 'settling timeout'):
-            m.healthy_initialize(f.runtime, plan(), lambda _: calls.append(1), rows.append, clock=lambda: now[0],
-                                 wait=lambda seconds: now.__setitem__(0, now[0] + seconds))
-        self.assertEqual(now[0], 300); self.assertEqual(calls, [])
-        self.assertFalse(any(r['record'] in {'healthy_journey_intent', 'healthy_initialization_complete'} for r in rows))
-        self.assertTrue(all(r['status'] == 'pending' for r in rows if r['record'] == 'cpu_preparation_poll'))
+        for newer in (False, True):
+            with self.subTest(newer=newer):
+                actual, frames, _ = self.archived_cpu_timeline(); f, now, rows, calls = self.preparation(), [0], [], []
+                epoch = m.p8.p7.utc(frames[0][1]['timestamp_utc']).timestamp() - frames[0][0]
+                count = [0]
+                def guard():
+                    i = count[0]; count[0] += 1
+                    if i < 3:
+                        now[0] = frames[i][0]
+                        return copy.deepcopy(frames[i][1])
+                    now[0] += min(17, f.runtime.collection_deadline.at - now[0])
+                    g = copy.deepcopy(frames[3][1])
+                    g['timestamp_utc'] = m.datetime.fromtimestamp(epoch + now[0], m.timezone.utc).isoformat()
+                    if newer:
+                        sample = next(p for p in g['pod_metrics'] if p['metadata']['name'] == actual['targets'][0]['name'])
+                        stamp = max(m.p8.p7.utc(sample['timestamp']).timestamp(), epoch + now[0] - 40)
+                        sample['timestamp'] = m.datetime.fromtimestamp(stamp, m.timezone.utc).isoformat()
+                    return g
+                f.runtime.configuration = lambda *a, **kw: copy.deepcopy(actual)
+                f.runtime.guard = guard
+                with self.assertRaisesRegex(ValueError, 'settling timeout'):
+                    m.healthy_initialize(f.runtime, plan(), lambda _: calls.append(1), rows.append, clock=lambda: now[0],
+                                         wait=lambda seconds: now.__setitem__(0, now[0] + seconds))
+                self.assertEqual(now[0], 300); self.assertEqual(calls, [])
+                self.assertFalse(any(r['record'] in {'healthy_journey_intent', 'healthy_initialization_complete'} for r in rows))
+                self.assertTrue(all(r['status'] == 'pending' for r in rows if r['record'] == 'cpu_preparation_poll'))
 
     def test_eighth_healthy_initialize_requires_fresh_cpu_and_positive_target_telemetry(self):
         # Actual archived preparation + stale telemetry poll6. Client/server,
         # Prometheus and the later fresh CPU continuation are synthetic only.
         for case in ('success', 'stale-only', 'target-missing', 'no-checks', 'hpa-regressed', 'warning', 'missing-cpu', 'uid'):
             with self.subTest(case=case):
-                actual, frames, _ = self.eighth_cpu_timeline(); f, now, rows, calls = self.preparation(), [0], [], []
+                actual, frames, _ = self.archived_cpu_timeline(); f, now, rows, calls = self.preparation(), [0], [], []
                 uid, name = actual['targets'][0]['uid'], actual['targets'][0]['name']
                 f.pods[0]['metadata'].update(uid=uid, name=name)
                 f.runtime.initial_uids = {uid}; f.no_admin = {uid}
