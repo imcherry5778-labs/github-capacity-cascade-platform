@@ -1,6 +1,22 @@
 # P9-W1 Mitigation & Recovery
 
-현재 상태: **제10차 실제 CPU/HPA·healthy telemetry·KEDA 인증/ownership positive / calibration1 invalid / C0–C3 measured0 / 원복 완료 / P9 acceptance 미충족**.
+현재 상태: **제11차 normal valid / CPU settling300초 timeout / healthy·KEDA·calibration·C0–C3 measured0 / P9-owned 원복 완료 / P9 acceptance 미충족**.
+
+승인·실제 source `94deb6d7b51ab61091f90ee9ad281c4a9afb56cb`의
+[제11차 actual raw·비용·cleanup](evidence/p9-mitigation-eleventh-20261101/README.md)을 연결한다.
+Normal1 valid/success/warmup9 뒤 public initialize1회/exit1, 내부300.000103초에
+`ValueError: CPU preparation settling timeout`으로 중단했다. Actual8poll 중 fresh CPU/HPA positive는 poll2·5·8이다.
+동일 stale sample poll3·6은 candidate를 보존했지만 새 timestamp의 stale poll4·7은 실행 source 분기상 candidate를 지운다.
+첫 positive 이후 Warning history는 count4로 유지됐고 outer840초 timeout은 발생하지 않았다.
+Healthy/KEDA/C3 normalized configuration/calibration/freeze/measured/recovery는 미도달이다.
+CUSTOM/shared mesh/namespace/PAT23/image/임시 IAM/보호 사본을 정리하고 stable 보존24항목과 final native verify1/exit0을 확인했다.
+준비·원복 누적11회, final two-RG posted ActualCost KRW107,878.1372733931, P9 incremental unknown이다.
+승인된 합산 세전 USD115 범위의 단일 비용 검토 예측은 USD112.5645943였으며 hard cap/확정 잔액 주장이 아니다.
+Retention·resource·source acceptance를 변경하지 않았고 제12차 자동 실행·source 수정·merge/P10은 없다.
+
+## 제10차 historical 실행
+
+상태: **실제 CPU/HPA·healthy telemetry·KEDA 인증/ownership positive / calibration1 invalid / C0–C3 measured0 / 원복 완료**.
 승인·실제 execution source는 `d23e1629d0206db914088a54c6378d17237b67c8`다.
 [제10차 통합 승인](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6513440879),
 [actual/negative/원복 evidence](evidence/p9-mitigation-tenth-20261101/README.md), [incident](incidents/p9-mitigation-tenth.md)를 연결한다.

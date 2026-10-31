@@ -1,0 +1,15 @@
+{
+  "execution_source_sha": "94deb6d7b51ab61091f90ee9ad281c4a9afb56cb",
+  "validity": "not measured; mandatory initialization gate failed",
+  "C0_C1_C2_C3": {
+    "C0": "not run",
+    "C1": "not run",
+    "C2": "not run",
+    "C3": "not run"
+  },
+  "mitigation": "not measured",
+  "continuing_demand_recovery": "not measured",
+  "hypothesis_support": "unknown; no measured comparison",
+  "p9_acceptance_met": false,
+  "cleanup": "P9-owned cleanup complete; stable Environment preserved"
+}

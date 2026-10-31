@@ -1,0 +1,94 @@
+{
+  "campaign": "eleventh",
+  "source_sha": "94deb6d7b51ab61091f90ee9ad281c4a9afb56cb",
+  "main": "3f788a9c1d103f6c07bd403af269133fac287002",
+  "approval_url": "https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6548514900",
+  "image_digest": "sha256:e932b4725b472de71d0433284a73fad5358d82a9b67b558e99f19010a3f7ba3e",
+  "normal": {
+    "validity": "valid",
+    "completion": "success",
+    "phase": "warmup",
+    "operation_count": 9,
+    "attempt_count": 9,
+    "invocations": 1
+  },
+  "initialize": {
+    "at_utc": "2026-10-31T20:20:50.339839+00:00",
+    "exit_code": 1,
+    "elapsed_seconds": 308.52109386899974,
+    "invocations": 1
+  },
+  "cpu_preparation": {
+    "actual": true,
+    "complete": false,
+    "poll_count": 8,
+    "fresh_hpa_positive_polls": [
+      2,
+      5,
+      8
+    ],
+    "stale_duplicate_pending_polls": [
+      3,
+      6
+    ],
+    "new_stale_timestamp_pending_polls": [
+      4,
+      7
+    ],
+    "internal_settling_seconds": 300,
+    "observed_internal_elapsed_seconds": 300.00010296000255,
+    "direct_exception": "ValueError: CPU preparation settling timeout"
+  },
+  "healthy_journey_invocations": 0,
+  "healthy_actual_target_telemetry_verified": false,
+  "keda": {
+    "mutations": 0,
+    "apply_restarts": 0,
+    "restore_restarts": 0,
+    "cumulative_apply_restore_restarts": [
+      2,
+      2
+    ]
+  },
+  "c3_scalingModifiers_normalization_actual_runtime_gate": "not reached",
+  "calibration": {
+    "invocations": 0,
+    "ledger_consumed": 0
+  },
+  "frozen_plan": false,
+  "measured_runs": {
+    "C0": 0,
+    "C1": 0,
+    "C2": 0,
+    "C3": 0
+  },
+  "mitigation_recovery_result": "not measured",
+  "continuing_demand_recovery": "not measured",
+  "p9_acceptance_met": false,
+  "automatic_retry": false,
+  "pod_history_reset": false,
+  "manual_replica_scaling": false,
+  "cumulative_preparation_cleanup_campaigns": 11,
+  "previous_tenth_actual_two_rg_krw": "104099.2492616492",
+  "before_actual_two_rg_krw": "107878.1372733930917249",
+  "final_actual_two_rg_krw": "107878.1372733931",
+  "p9_incremental_actual": "unknown; shared/delayed",
+  "combined_pre_tax_review_envelope_usd": 115,
+  "additional_review_allowance_usd": 15,
+  "new_usd100_added": false,
+  "planning_stress_projection_usd": "112.5645943068720263033888889",
+  "billing_hard_cap": false,
+  "cost_plan_reset": false,
+  "environment_deadline": "2026-11-02T01:30:00Z",
+  "foundation_bootstrap_deadline": "2026-11-02T15:33:00Z",
+  "environment_teardown": false,
+  "additional_retention_extension": false,
+  "provider_ttl_update_claimed": false,
+  "owned_cleanup_complete": true,
+  "final_native_verify": {
+    "at_utc": "2026-10-31T20:22:17.450417+00:00",
+    "exit_code": 0,
+    "invocations": 1,
+    "elapsed_seconds": 0.9433980799949495
+  }
+}
