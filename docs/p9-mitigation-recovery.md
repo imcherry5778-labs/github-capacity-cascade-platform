@@ -14,6 +14,23 @@ Calibration1 invalid/후속0, freeze 없음, mitigation/recovery not measured다
 P9 incremental unknown이다. 기존 세전 USD100 검토 총액 안에서만 검토했고 신규 USD100·retention 연장/전체 teardown은 없다.
 추가 paid retry/source 변경·merge/P10 없이 같은 Draft PR에 결과를 보존한다.
 
+## C3 ScaledObject 후속 source 계약
+
+[제10차 독립 리뷰](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#pullrequestreview-5724382088)에 따라
+`Runtime.configuration`의 C3 비교 한 곳에서 source가 `advanced.scalingModifiers`를 정의하지 않았고
+actual 값이 빈 dict `{}`인 경우에만 absent와 동등하게 처리한다. 비교용 spec 복사본만 정규화하며 나머지 spec 전체는 exact equality다.
+Nonempty/null/list/scalar modifiers, unknown field·trigger·threshold·controller/owner drift의 실패 경계는 유지한다.
+[KEDA2.19 specification](https://keda.sh/docs/2.19/reference/scaledobject-spec/#scalingmodifiers)은 이 field를 선택 사항으로 설명하며
+설정할 때 formula/target을 요구한다. 이번 허용 범위는 archived generation1→generation2의 빈 field 차이에 한정한다.
+
+반환된 `scaledobject_spec`은 canonical 형태라 같은 run의 후속 configuration 비교에서 불필요한 drift를 만들지 않는다.
+관측한 원본 metadata/UID/generation/resourceVersion/spec은 기존 emitter의 `scaledobject_configuration` event에 별도로 보존한다.
+Emitter가 없는 baseline 관측은 첫 collection 때 함께 기록하며 원본 Kubernetes 응답이나 archive를 수정하지 않는다.
+Cost-free regression은 actual 제10차 identity/plan/spec과 기존 runtime fixture를 사용한다. Auxiliary I/O와 calibration 경계의
+의도적 pre-workload stop은 synthetic이며 실제 calibration 성공으로 해석하지 않는다.
+제10차 calibration1 invalid·measured0과 직접 exception unknown을 유지한다. 제11차 유료 실행은 별도 exact-source/비용 승인 대상이다.
+Cost-free 검증: archived 직접 회귀5개, P9 전체71개·P8 전체38개와 `make static`을 통과했다. Azure 호출/변경은 없다.
+
 ## 제9차 historical 실행
 
 현재 상태: **제9차 normal valid / initialize 전 operator 검사 오류로 중단 / P9-owned 원복 완료 / P9 acceptance 미충족**.

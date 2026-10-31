@@ -407,6 +407,140 @@ class LiveFixture:
         return rows
 
 
+class ArchivedScaledObjectTests(unittest.TestCase):
+    """Actual tenth identity/plan/specs; existing adapter I/O stays cost-free."""
+    @classmethod
+    def setUpClass(cls):
+        with tarfile.open(ROOT / 'docs/evidence/p9-mitigation-tenth-20261101/raw-evidence.tar.gz') as archive:
+            cls.raw = {name: json.load(archive.extractfile(name)) for name in (
+                'identity.json', 'plan.json', 'created-scaledobject-p9-proxy.json',
+                'post-stop-scaledobjects.json', 'post-stop-hpas.json', 'post-stop-pods.json',
+                'fault-calibration1-converged.json', 'full-runtime-preflight.json')}
+
+    def setUp(self):
+        env = patch.dict(os.environ, {'FORGEJO_URL': 'https://forgejo.example.com'}, clear=True)
+        env.start(); self.addCleanup(env.stop)
+
+    def fixture(self):
+        if hasattr(self, 'parent_patch'): self.parent_patch.stop()
+        with patch.dict(os.environ, {'FORGEJO_URL': 'https://forgejo.example.com'}):
+            f = LiveFixture('C3')
+        r = f.runtime
+        r.value, r.v = copy.deepcopy(self.raw['identity.json']), copy.deepcopy(self.raw['plan.json'])
+        os.environ['FORGEJO_URL'] = 'https://' + r.value['forgejo_hostname']
+        f.pods = [copy.deepcopy(p) for p in self.raw['post-stop-pods.json']['items']
+                  if p['metadata'].get('labels', {}).get('app') == 'ext-authz-sim']
+        f.hpa = copy.deepcopy(self.raw['post-stop-hpas.json']['items'][0])
+        f.scaled = [copy.deepcopy(self.raw['created-scaledobject-p9-proxy.json'])]
+        r.scaledobject_provenance = []
+        # Replay the actual parent configuration at the same C3 calibration boundary.
+        # Auxiliary native/bootstrap I/O still uses the existing synthetic LiveFixture.
+        base = copy.deepcopy(self.raw['fault-calibration1-converged.json']['configuration'])
+        base.pop('fault_state')
+        base['stat_observations'] = copy.deepcopy(self.raw['full-runtime-preflight.json']['admin_observations'])
+        self.parent_patch = patch.object(m.p8.Runtime, 'configuration', side_effect=lambda *a, **kw: copy.deepcopy(base))
+        self.parent_patch.start(); self.addCleanup(self.parent_patch.stop)
+        return f
+
+    def test_creation_and_later_empty_are_stable_without_rewriting_observed_spec(self):
+        f = self.fixture(); r = f.runtime
+        created = copy.deepcopy(f.scaled[0])
+        later = copy.deepcopy(self.raw['post-stop-scaledobjects.json']['items'][0])
+        expected = next(o['spec'] for o in m.render(r.value, r.v, 'C3')['fixtures.json']['items'] if o['kind'] == 'ScaledObject')
+        self.assertEqual(created['metadata']['generation'], 1)
+        self.assertEqual(later['metadata']['generation'], 2)
+        self.assertEqual(created['metadata']['uid'], later['metadata']['uid'])
+        self.assertEqual(created['spec'], expected)
+        self.assertNotEqual(later['spec'], expected)
+        self.assertEqual(later['spec']['advanced']['scalingModifiers'], {})
+        before = r.configuration(f.config)
+        emitted = []; r.emit = emitted.append
+        f.scaled = [later]
+        after = r.configuration(f.config)
+        self.assertEqual(before['scaledobject_spec'], expected)
+        self.assertEqual(after['scaledobject_spec'], expected)
+        m.config_guard(before, after, 'C3')
+        m.config_guard(after, before, 'C3')
+        self.assertEqual([row['metadata']['generation'] for row in emitted], [1, 2])
+        self.assertEqual([row['spec'] for row in emitted], [created['spec'], later['spec']])
+        self.assertEqual([row['metadata']['uid'] for row in emitted], [created['metadata']['uid']] * 2)
+        self.assertTrue(all(row['record'] == 'scaledobject_configuration' and row['source_sha'] == r.value['source_sha'] for row in emitted))
+        self.assertFalse(r.scaledobject_provenance)
+        after['scaledobject_spec']['maxReplicaCount'] = 99
+        self.assertEqual(f.scaled[0], self.raw['post-stop-scaledobjects.json']['items'][0])
+        self.assertEqual(self.raw['created-scaledobject-p9-proxy.json'], created)
+
+    def test_nonempty_or_non_dict_modifiers_and_other_spec_drift_fail(self):
+        f = self.fixture(); original = copy.deepcopy(self.raw['post-stop-scaledobjects.json']['items'][0])
+        variants = []
+        for value in ({'formula': 'metric', 'target': '1'}, {'unexpected': None}, None, [], False, 0, ''):
+            obj = copy.deepcopy(original); obj['spec']['advanced']['scalingModifiers'] = value
+            variants.append(('modifiers-' + repr(value), obj))
+        for label, path, value in (
+            ('unknown-advanced', ('advanced', 'unexpected'), {}),
+            ('other-default', ('cooldownPeriod',), 300),
+            ('hpa-behavior', ('advanced', 'horizontalPodAutoscalerConfig', 'behavior', 'scaleDown', 'stabilizationWindowSeconds'), 301),
+            ('threshold', ('triggers', 0, 'metadata', 'threshold'), '1.0'),
+            ('query', ('triggers', 0, 'metadata', 'query'), 'vector(0)'),
+            ('auth', ('triggers', 0, 'authenticationRef', 'name'), 'other'),
+            ('metric-type', ('triggers', 0, 'metricType'), 'Value'),
+            ('extra-trigger', ('triggers',), original['spec']['triggers'] * 2),
+            ('max-replicas', ('maxReplicaCount',), 3)):
+            obj = copy.deepcopy(original); node = obj['spec']
+            for key in path[:-1]: node = node[key]
+            node[path[-1]] = value; variants.append((label, obj))
+        for label, obj in variants:
+            with self.subTest(case=label):
+                f.scaled = [obj]
+                with self.assertRaisesRegex(ValueError, 'ScaledObject policy drift'):
+                    f.runtime.configuration(f.config)
+
+    def test_controller_owner_and_uid_drift_stay_fail_closed(self):
+        f = self.fixture(); so, hp = copy.deepcopy(f.scaled), copy.deepcopy(f.hpa)
+        for case in ('so-uid', 'owner-uid', 'owner-controller', 'hpa-name', 'hpa-bound'):
+            with self.subTest(case=case):
+                f.scaled, f.hpa = copy.deepcopy(so), copy.deepcopy(hp)
+                if case == 'so-uid': f.scaled[0]['metadata']['uid'] = 'wrong'
+                elif case == 'owner-uid': f.hpa['metadata']['ownerReferences'][0]['uid'] = 'wrong'
+                elif case == 'owner-controller': f.hpa['metadata']['ownerReferences'][0]['controller'] = False
+                elif case == 'hpa-name': f.hpa['metadata']['name'] = 'other'
+                else: f.hpa['spec']['maxReplicas'] = 3
+                with self.assertRaises(ValueError): f.runtime.configuration(f.config)
+
+    def test_source_defined_modifiers_are_not_normalized(self):
+        f = self.fixture(); rendered = m.render(f.runtime.value, f.runtime.v, 'C3')
+        spec = next(o['spec'] for o in rendered['fixtures.json']['items'] if o['kind'] == 'ScaledObject')
+        spec['advanced']['scalingModifiers'] = {}
+        with patch.object(m, 'render', return_value=rendered):
+            with self.assertRaisesRegex(ValueError, 'ScaledObject policy drift'):
+                f.runtime.configuration(f.config)  # Source defines {}, actual creation omits it.
+            f.scaled = copy.deepcopy(self.raw['post-stop-scaledobjects.json']['items'])
+            self.assertIn('scalingModifiers', f.runtime.configuration(f.config)['scaledobject_spec']['advanced'])
+            spec['advanced']['scalingModifiers'] = {'formula': 'metric', 'target': '1'}
+            with self.assertRaisesRegex(ValueError, 'ScaledObject policy drift'):
+                f.runtime.configuration(f.config)
+
+    def test_calibration_configuration_replay_stops_before_any_synthetic_workload(self):
+        for name in ('creation', 'later', 'nonempty'):
+            with self.subTest(case=name), tempfile.TemporaryDirectory() as directory:
+                f = self.fixture()
+                if name != 'creation': f.scaled = copy.deepcopy(self.raw['post-stop-scaledobjects.json']['items'])
+                if name == 'nonempty': f.scaled[0]['spec']['advanced']['scalingModifiers'] = {'formula': 'metric', 'target': '1'}
+                output = Path(directory, 'run'); approved = Path(directory, 'approval.json')
+                m.save(approved, approval())
+                with patch.dict(os.environ, {'DEV_USER': 'offline-replay', 'DEV_TOKEN': 'not-a-credential', 'ISSUE_NUMBER': '1',
+                                             'ISSUE_TITLE': 'synthetic fixture only', 'EXPECTED_MAIN_SHA': 'a' * 40}), \
+                     patch.object(m, 'execution_gate'), patch.object(m, 'Runtime', return_value=f.runtime), \
+                     patch.object(m, 'collect_snapshot', side_effect=RuntimeError('offline stop before workload')) as collect, \
+                     patch.object(m, 'drive') as drive, patch.object(m.p8, 'request') as request:
+                    error, message = (ValueError, 'ScaledObject policy drift') if name == 'nonempty' else (RuntimeError, 'offline stop before workload')
+                    with self.assertRaisesRegex(error, message):
+                        m._measure(f.runtime.value, f.runtime.v, 'C3', 'calibration', output, approved, '-', Path(directory, 'ledger'))
+                    drive.assert_not_called(); request.assert_not_called()
+                    self.assertEqual(collect.call_count, 0 if name == 'nonempty' else 1)
+                self.assertEqual((output / 'configuration.json').exists(), name != 'nonempty')
+
+
 class CollectionGateTests(unittest.TestCase):
     def setUp(self):
         env = patch.dict(os.environ, {'FORGEJO_URL': 'https://forgejo.example.com'}, clear=True)

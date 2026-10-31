@@ -73,9 +73,10 @@ Fault maxRequests2/hold1000의 실제 수렴을 확인한 뒤 C3 calibration1을
 `configuration.json`, `run_start`, snapshot, offered-arrival event가 없고 `invocation-failure.json`만 남았다.
 실패도 calibration 사용1회에 포함한다. CLI는 generic failure만 출력해 직접 exception class/message·stack은 **unknown**이다.
 
-종료 시 보존한 실제 ScaledObject와 source render의 확인된 차이는 **`spec.advanced.scalingModifiers: {}`**뿐이다.
-이 빈 object는 생성 응답에도 이미 있었고 이 field만 제외하면 spec은 일치한다.
-현재 `Runtime.configuration`의 exact-spec equality predicate는 이 admitted object에 대해 false다.
+Creation snapshot generation1은 source render와 정확히 일치하며 `scalingModifiers`가 없다.
+같은 UID의 later generation2에서 확인된 차이는 **`spec.advanced.scalingModifiers: {}`**뿐이며, 이 field만 제외하면 spec은 일치한다.
+이전 README의 "생성 응답에도 이미 있었다"는 표현을 archived creation snapshot에 맞게 바로잡는다. Raw/archive/checksum은 변경하지 않는다.
+당시 execution source의 `Runtime.configuration` exact-spec equality predicate는 generation2에 대해 false다. Mutation actor와 정확한 변경 시점은 unknown이다.
 이는 확인된 source/runtime 계약 충돌이며, 기록되지 않은 직접 exception을 소급 입증한 것으로 표현하지 않는다.
 Operator preflight의 일부 positive와 실패한 public C3 configuration을 구분한다.
 추가 calibration/자동 재시도/acceptance 완화/배포 source 변경은 없다.

@@ -17,9 +17,10 @@ Healthy completion 뒤 전용 UAMI/FIC/AMW 단일 scope role·SA annotation과 o
 Operator preflight assertion은 전체 P9 C3 configuration proof와 구분한다. 이 preflight는 C3 ScaledObject exact-spec equality를 실행하지 않았다.
 
 C3 calibration1은 ledger 계수 뒤22.081829초/exit1로 중단했다. Configuration/run_start/snapshot/offered-arrival artifact가 없다.
-Generic CLI failure만 있어 직접 exception은 unknown이다. Actual admitted spec에는 source render에 없는
-`advanced.scalingModifiers: {}`가 있고 이 field를 제외하면 나머지는 일치한다. 생성 응답에도 같은 빈 object가 있다.
-Source exact-spec equality가 false라는 계약 충돌은 확인했으나 이것을 직접 exception trace로 주장하지 않는다.
+Generic CLI failure만 있어 직접 exception은 unknown이다. Later generation2 spec에는 source render에 없는
+`advanced.scalingModifiers: {}`가 있고 이 field를 제외하면 나머지는 일치한다.
+Creation generation1은 field 없이 source와 정확히 일치한다. 이전 creation 설명을 바로잡으며 raw/archive는 보존한다.
+당시 source exact-spec equality가 generation2에서 false라는 계약 충돌은 확인했으나 직접 exception trace로 주장하지 않는다. Mutation actor/정확한 변경 시점도 unknown이다.
 Calibration1 invalid를 사용 횟수에 포함하고 후속 workload를 중단했다. Freeze 없음, C0–C3 각각0, recovery not measured다.
 
 CUSTOM 우선 제거/shared guarded restore, scaler/HPA 제거, KEDA SA/template 복구와 restore rollout1/Ready2,

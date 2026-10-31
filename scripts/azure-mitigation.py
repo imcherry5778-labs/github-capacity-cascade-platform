@@ -622,8 +622,22 @@ class Runtime(p8.Runtime):
         expected = render(self.value, self.v, self.arm)['fixtures.json']['items']
         if self.arm == 'C3':
             so = next(o for o in expected if o['kind'] == 'ScaledObject')
-            require(scaled[0]['spec'] == so['spec'], 'ScaledObject policy drift')
-            result['scaledobject_spec'] = scaled[0]['spec']
+            observed = copy.deepcopy(scaled[0]['spec'])
+            if 'scalingModifiers' not in so['spec'].get('advanced', {}) and observed.get('advanced', {}).get('scalingModifiers') == {}:
+                del observed['advanced']['scalingModifiers']
+            require(observed == so['spec'], 'ScaledObject policy drift')
+            # Keep raw provenance outside the canonical configuration comparison.
+            # Baseline runs before collect_snapshot installs the existing emitter.
+            provenance = getattr(self, 'scaledobject_provenance', [])
+            provenance.append({'record': 'scaledobject_configuration', 'source_sha': self.value['source_sha'],
+                'at': time.monotonic(), 'metadata': {k: scaled[0]['metadata'][k] for k in
+                    ('name', 'namespace', 'uid', 'generation', 'resourceVersion') if k in scaled[0]['metadata']},
+                'spec': copy.deepcopy(scaled[0]['spec'])})
+            if hasattr(self, 'emit'):
+                for row in provenance: self.emit(row)
+                provenance.clear()
+            self.scaledobject_provenance = provenance
+            result['scaledobject_spec'] = observed
         else:
             require(result['hpa_spec'] == next(o['spec'] for o in expected if o['kind'] == 'HorizontalPodAutoscaler'), 'CPU HPA drift')
         return result
