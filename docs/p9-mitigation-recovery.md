@@ -1,5 +1,21 @@
 # P9-W1 Mitigation & Recovery
 
+현재 상태: **제10차 실제 CPU/HPA·healthy telemetry·KEDA 인증/ownership positive / calibration1 invalid / C0–C3 measured0 / 원복 완료 / P9 acceptance 미충족**.
+승인·실제 execution source는 `d23e1629d0206db914088a54c6378d17237b67c8`다.
+[제10차 통합 승인](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6513440879),
+[actual/negative/원복 evidence](evidence/p9-mitigation-tenth-20261101/README.md), [incident](incidents/p9-mitigation-tenth.md)를 연결한다.
+승인된 mesh/admission 준비 순서를 따르고 Warning 판단을 source에 맡겼다. Normal1 valid/warmup9와 public initialize1/exit0,
+실제 fresh→stale pending→advancing fresh, journey 이후 최종 fresh CPU/HPA+target telemetry를 확인했다. Healthy journey1,
+ingress/check/target30과 실제 KEDA scaler Ready/currentMetrics/owner UID를 관측했다. Healthy completion은 실제 source event이며 synthetic 입력은 없다.
+Operator preflight assertion과 full P9 C3 configuration은 구분한다. Calibration1은 ledger 계수 뒤 configuration/run_start 전에
+22.081829초/exit1로 중단됐다. 직접 exception은 unknown이며 admitted `advanced.scalingModifiers: {}`와 source exact-spec 계약 충돌을 보존했다.
+Calibration1 invalid/후속0, freeze 없음, mitigation/recovery not measured다. P9-owned 원복과 stable 보존22항목을 확인했다.
+준비/원복 누적10회, KEDA apply/restore 누적 각2회, 과거9개 archive/비용을 보존한다. 최신 two-RG ActualCost KRW104,099.2492616492,
+P9 incremental unknown이다. 기존 세전 USD100 검토 총액 안에서만 검토했고 신규 USD100·retention 연장/전체 teardown은 없다.
+추가 paid retry/source 변경·merge/P10 없이 같은 Draft PR에 결과를 보존한다.
+
+## 제9차 historical 실행
+
 현재 상태: **제9차 normal valid / initialize 전 operator 검사 오류로 중단 / P9-owned 원복 완료 / P9 acceptance 미충족**.
 승인·실제 preparation source는 `ee75e3a336326ec5567b5f399ec08028169b02f1`다.
 [제9차 통합 승인](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6510384906),
@@ -31,7 +47,7 @@ Source CI 성공과 actual positive preparation/mitigation/recovery 미완료를
 
 ## CPU preparation source 계약
 
-현재 source 계약: **제8차 freshness/candidate source-only 교정 / 실제 Azure positive gate 미통과 / P9 acceptance 미충족**.
+현재 source 계약: **제8차 freshness/candidate 교정 후 제10차 실제 CPU/healthy positive 관측 / measured·recovery 미완료 / P9 acceptance 미충족**.
 [제8차 독립 리뷰](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#pullrequestreview-5704588146)에 따라
 검증한 동일 CPU sample의 stale duplicate는 positive로 세지 않고 후보를 보존한다. 준비 완료 뒤 telemetry에서도
 구조가 유효한 stale export는 기존 bounded polling 안에서 pending이며, 최종 완료에는 현재 fresh CPU/HPA와 target telemetry 모두 필요하다.
@@ -511,7 +527,7 @@ Environment/Foundation 기한 연장, 새 compute/Disk/PVC, node autoscaling/DNS
 ## 실행 entrypoint와 남은 gate
 
 Source gate는 직접 회귀, P8 historical replay, `make static`, exact-head PR CI와 독립 review다.
-제7차 actual CPU preparation 실패 뒤 Warning 시간 계약을 source-only 교정했다. 실제 positive/telemetry gate는 미통과다.
+제7차 이후 Warning/freshness 계약을 교정했고 제10차에 실제 CPU/healthy·KEDA positive를 관측했다. C3 calibration configuration 이후 measured/recovery gate는 미완료다.
 아래는 entrypoint 사용 형식이며 성공한 campaign 기록이 아니다. 재개 전 새 source gate와 필요한 승인을 확인한다.
 
 ```bash

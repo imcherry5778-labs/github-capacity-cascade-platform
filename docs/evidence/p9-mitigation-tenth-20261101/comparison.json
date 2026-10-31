@@ -1,0 +1,40 @@
+{
+  "source_sha": "d23e1629d0206db914088a54c6378d17237b67c8",
+  "validity": "not measured",
+  "frozen_plan": null,
+  "calibration_invocations": 1,
+  "calibration_ledger_consumed": 1,
+  "calibration_result": "invalid before run_start/configuration; zero arrivals emitted",
+  "arms": [
+    {
+      "arm": "C0",
+      "runs": 0,
+      "mitigation": "not measured",
+      "recovery": "not measured",
+      "recovery_time_seconds": null
+    },
+    {
+      "arm": "C1",
+      "runs": 0,
+      "mitigation": "not measured",
+      "recovery": "not measured",
+      "recovery_time_seconds": null
+    },
+    {
+      "arm": "C2",
+      "runs": 0,
+      "mitigation": "not measured",
+      "recovery": "not measured",
+      "recovery_time_seconds": null
+    },
+    {
+      "arm": "C3",
+      "runs": 0,
+      "mitigation": "not measured",
+      "recovery": "not measured",
+      "recovery_time_seconds": null
+    }
+  ],
+  "reason": "mandatory source calibration invocation failed; no follow-up workload",
+  "p9_acceptance_met": false
+}

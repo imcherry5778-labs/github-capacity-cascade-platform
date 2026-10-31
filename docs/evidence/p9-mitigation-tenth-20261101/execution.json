@@ -1,0 +1,85 @@
+{
+  "campaign": "tenth",
+  "source_sha": "d23e1629d0206db914088a54c6378d17237b67c8",
+  "main": "3f788a9c1d103f6c07bd403af269133fac287002",
+  "image_digest": "sha256:7a54088ec034b7f7ee4a17758d870cb39100b4e8d1f3b3e0576f36839812d7e6",
+  "normal": {
+    "invocations": 1,
+    "validity": "valid",
+    "completion": "success",
+    "phase": "warmup",
+    "operation_count": 9,
+    "attempt_count": 9
+  },
+  "initialize": {
+    "at_utc": "2026-10-31T17:49:50.217556+00:00",
+    "invocations": 1,
+    "exit_code": 0,
+    "elapsed_seconds": 240.24450770500334
+  },
+  "cpu_preparation": {
+    "actual": true,
+    "complete": true,
+    "cpu_poll_count": 8,
+    "preparation_ready_poll": 6,
+    "fresh_advancing_polls": [
+      4,
+      6
+    ],
+    "stale_duplicate_pending_poll": 5,
+    "final_telemetry_fresh_poll": 8,
+    "settling_bound_seconds": 300
+  },
+  "healthy_journey_invocations": 1,
+  "healthy_actual_target_telemetry_verified": true,
+  "authorization_checks": 30,
+  "target_requests": 30,
+  "synthetic_input_used": false,
+  "keda": {
+    "actual_scaler_ready_and_hpa_current_metrics": true,
+    "actual_single_owner_uid_verified": true,
+    "apply_restarts": 1,
+    "restore_restarts": 1,
+    "cumulative_apply_restarts": 2,
+    "cumulative_restore_restarts": 2
+  },
+  "calibration": {
+    "invocations": 1,
+    "arm": "C3",
+    "ledger_consumed": 1,
+    "public_exit_code": 1,
+    "elapsed_seconds": 22.08182876200226,
+    "validity": "invalid; invocation failure before configuration/run_start",
+    "experiment_arrivals_emitted": 0,
+    "direct_causal_exception": "unknown; generic CLI output",
+    "observed_spec_conflict": "server-admitted spec.advanced.scalingModifiers={} absent from source render; remaining spec equal; exact source predicate false"
+  },
+  "frozen_plan": false,
+  "measured_runs": {
+    "C0": 0,
+    "C1": 0,
+    "C2": 0,
+    "C3": 0
+  },
+  "mitigation_recovery_result": "not measured",
+  "continuing_demand_recovery": "not measured",
+  "p9_acceptance_met": false,
+  "automatic_retry": false,
+  "pod_history_reset": false,
+  "manual_replica_scaling": false,
+  "cumulative_preparation_cleanup_campaigns": 10,
+  "previous_ninth_actual_two_rg_krw": "49306.6929280465",
+  "actual_cost_two_rg_krw": "104099.2492616492",
+  "p9_incremental_actual": "unknown; shared/delayed billing",
+  "same_existing_pre_tax_review_envelope_usd": 100,
+  "new_review_allowance_usd": 0,
+  "planning_stress_projection_usd": "97.86450949326877777777777775",
+  "billing_hard_cap": false,
+  "cost_plan_reset": false,
+  "environment_deadline": "2026-11-02T01:30:00Z",
+  "foundation_bootstrap_deadline": "2026-11-02T15:33:00Z",
+  "environment_teardown": false,
+  "additional_retention_extension": false,
+  "provider_ttl_update_claimed": false,
+  "owned_cleanup_complete": true
+}
