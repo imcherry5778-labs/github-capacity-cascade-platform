@@ -1,6 +1,22 @@
 # P9-W1 Mitigation & Recovery
 
-현재 상태: **제11차 normal valid / CPU settling300초 timeout / healthy·KEDA·calibration·C0–C3 measured0 / P9-owned 원복 완료 / P9 acceptance 미충족**.
+현재 상태: **제12차 normal valid / 첫 guard collection30초 command timeout / CPU poll·healthy·KEDA·calibration·C0–C3 measured0 / P9-owned 원복 완료 / P9 acceptance 미충족**.
+
+승인·실제 source `dfdfaabe03d56a5ec9f1dd6f8cffc6627c621d6f`의
+[제12차 actual raw·비용·cleanup](evidence/p9-mitigation-twelfth-20261101/README.md)을 연결한다.
+Ordered live preparation과 normal1 valid/success/warmup9 뒤 public initialize1회/exit1이었다.
+내부 elapsed30.006590초, `readiness_resource_guard`의 `TimeoutExpired / command_timeout`이다.
+Source의 마지막 `kubectl … get events -A -o json`은 첫 configuration/guard 공유30초 budget의 잔여0.452934343초에서 timeout했다.
+Source guard가 반환하지 않아 CPU poll/Warning 내용 판정은0회이며 valid-stale candidate 수정의 실제 결과는 미도달이다.
+Settling300초/outer840초 timeout이나 operator-only Warning 검사로 분류하지 않는다. Healthy/KEDA/C3 canonical configuration/calibration/freeze/measured/recovery도 미도달이다.
+CUSTOM/shared mesh/namespace/PAT24/image/임시 IAM/보호 사본을 정리하고 stable 보존24항목과 final native verify1/exit0을 확인했다.
+준비/원복 누적12회, before/final posted two-RG ActualCost KRW112,982.43859335 → KRW115,421.7153009966, P9 incremental unknown이다.
+첫 단일 비용 검토 예측USD121.8181787은 승인된 합산 세전 USD140 안이었으며 hard cap/확정 잔액이 아니다.
+Source·timeout·acceptance·retention은 변경하지 않았다. 제13차 자동 실행·새 source 수정·merge/P10은 없다.
+
+## 제11차 historical 실행
+
+상태: **normal valid / CPU settling300초 timeout / 후속 measured0 / 원복 완료**.
 
 승인·실제 source `94deb6d7b51ab61091f90ee9ad281c4a9afb56cb`의
 [제11차 actual raw·비용·cleanup](evidence/p9-mitigation-eleventh-20261101/README.md)을 연결한다.
