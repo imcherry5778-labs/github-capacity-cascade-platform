@@ -28,6 +28,16 @@ KEDA apply/restore 각1회·historical 누적 각3회, 이전13개 raw archive b
 기존 retention과 stable Azure Environment를 P11 재사용을 위해 보존한다. 후속 docs/evidence HEAD는 실행 source가 아니다.
 P9 acceptance 미충족이며 merge/P10은 수행하지 않는다.
 
+## 제15차 승인 전 최소 재개 준비
+
+[현재 준비 evidence와 단일 통합 승인안](evidence/p9-resume-preparation-20261102/README.md)에
+bounded Azure GET의 actual cost/resource/management RBAC/quota 관측, 기존 operator의
+`owned_forward()` 연결과 local process/mock 검증, 누적 횟수·비용·retention 계산을 정리했다.
+이번 TARGET의 read-only 승인을 사용했으며 아래 과거 문서 작업의 “Azure 조회/변경 없음”은 당시 이력이다.
+이번에도 cloud mutation/load/실제 port-forward는 없으며 제15차는 **미실행·미승인**이다.
+실행 source/실제 image·plan binding과 새 delta의 독립 review는 별도 gate다.
+기존 Environment 기한 내 전체8045초 reserve를 요구하며 준비 결과는 P9 acceptance가 아니다.
+
 ## 제14차 후속 cost-free 원인 검토
 
 시작 HEAD `caee78d986582771dafdf19fc5a6d4c277060d2c`의 기존 archive240개 member를 index의

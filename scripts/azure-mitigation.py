@@ -6,6 +6,7 @@ exact-source approval manifest; offline commands never construct Runtime.
 """
 import concurrent.futures
 import copy
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
@@ -243,6 +244,83 @@ def approval_gate(identity, v, approval, ledger, now=None):
     require(now + timedelta(seconds=v['mitigation_seconds'] + v['recovery_seconds'] + 60 + 1800) < DEADLINE, 'insufficient retention time for run/drain/rollback')
     require(all(r['source_sha'] == identity['source_sha'] and (r['phase'] == 'calibration' or r['plan_sha256'] == digest(v)) for r in ledger), 'ledger source/plan drift')
     require(sum(r['phase'] == 'calibration' for r in ledger) <= 2 and all(sum(r['phase'] == 'measured' and r['arm'] == a for r in ledger) <= 1 for a in ARMS), 'campaign run budget exceeded')
+
+
+@contextmanager
+def owned_forward(identity, v, approval, ledger, pod, private_log, emit):
+    """Existing campaign operator owns this handle across preparation and all runs.
+
+    No readiness/semantic success inference and no automatic restart. The caller
+    rechecks the actual Pod UID and native/signal gates before each measure.
+    """
+    approval_gate(identity, v, approval, ledger)
+    meta = pod['metadata']
+    require(meta['namespace'] == 'forgejo' and
+            re.fullmatch(r'[a-z0-9][a-z0-9.-]{0,252}', meta['name']) and
+            re.fullmatch(r'[0-9a-f-]{36}', meta['uid']), 'exact forwarding Pod required')
+    # Do not overwrite an earlier process log or inherit the campaign's stdin.
+    log = open(private_log, 'xb', opener=lambda path, flags: os.open(path, flags, 0o600))
+    process, watcher = None, None
+    stopped, observation_failed = threading.Event(), threading.Event()
+    lock = threading.Lock()
+    started_at = p8.utc()
+    def record(kind, stage, **extra):
+        emit({'record': kind, 'timestamp_utc': p8.utc(), 'source_sha': identity['source_sha'],
+              'pid': process.pid, 'started_at_utc': started_at, 'pod_uid': meta['uid'],
+              'port': 13000, 'stage': stage, **extra})
+    def checkpoint(stage):
+        require(re.fullmatch(r'[a-z0-9_-]{1,48}', stage) is not None, 'fixed forwarding stage required')
+        with lock:
+            code = process.poll()
+            record('forward_poll', stage, alive=code is None, returncode=code)
+            require(code is None and not observation_failed.is_set(), 'owned forwarding unavailable')
+    def observe():
+        while not stopped.wait(1):
+            try:
+                checkpoint('running')
+            except BaseException:
+                observation_failed.set()
+                return
+    try:
+        process = p8.subprocess.Popen(
+            ['kubectl', '--request-timeout=15s', '-n', 'forgejo', 'port-forward',
+             '--address=127.0.0.1', 'pod/' + meta['name'], '13000:3000'],
+            stdin=p8.subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True)
+        record('forward_start', 'start', intentional_stop_requested=False)
+        checkpoint('start')
+        watcher = threading.Thread(target=observe, name='p9-forward-poll', daemon=True)
+        watcher.start()
+        yield checkpoint
+        checkpoint('campaign_end')
+    finally:
+        stopped.set()
+        if watcher is not None:
+            watcher.join()
+        if process is not None:
+            # Always reap the exact child handle, including an unexpected exit.
+            exited_before_stop = process.poll() is not None
+            stop_requested, kill_requested = False, False
+            try:
+                if not exited_before_stop:
+                    try:
+                        process.terminate()
+                        stop_requested = True
+                    except ProcessLookupError:
+                        pass
+                try:
+                    code = process.wait(timeout=5)
+                except p8.subprocess.TimeoutExpired:
+                    process.kill()
+                    kill_requested = True
+                    code = process.wait(timeout=5)
+            finally:
+                log.close()
+            record('forward_wait', 'stop', returncode=code,
+                   exited_before_stop=exited_before_stop,
+                   intentional_stop_requested=stop_requested, kill_requested=kill_requested,
+                   observation_failed=observation_failed.is_set())
+        else:
+            log.close()
 
 
 def execution_gate(identity, v, approval, ledger, now=None):

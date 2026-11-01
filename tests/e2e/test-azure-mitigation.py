@@ -46,6 +46,98 @@ def events(v=None):
     return e
 
 
+class ForwardOwnershipTests(unittest.TestCase):
+    def pod(self):
+        return {'metadata': {'namespace': 'forgejo', 'name': 'forgejo-0',
+                             'uid': 'a' * 8 + '-aaaa-aaaa-aaaa-' + 'a' * 12}}
+
+    def test_real_child_detached_stdin_poll_and_intentional_reap(self):
+        # A local child proves OS session/stdin behavior; no kubectl or live gate.
+        real_popen = m.p8.subprocess.Popen
+        rows, children = [], []
+        def spawn(argv, **kw):
+            self.assertIn('pod/forgejo-0', argv)
+            child = real_popen([m.sys.executable, '-c',
+                               "import sys,time; assert sys.stdin.read() == ''; time.sleep(30)"], **kw)
+            children.append(child)
+            return child
+        with tempfile.TemporaryDirectory() as directory, patch.object(m, 'approval_gate'), \
+                patch.object(m.p8.subprocess, 'Popen', side_effect=spawn):
+            log = Path(directory) / 'private.log'
+            with m.owned_forward(t8.identity(), plan(), approval(), [], self.pod(), log, rows.append) as check:
+                child = children[0]
+                self.assertEqual(os.getsid(child.pid), child.pid)
+                check('fault_converged')
+                check('before_measure')
+                deadline = time.monotonic() + 3
+                while not any(r['stage'] == 'running' for r in rows) and time.monotonic() < deadline:
+                    time.sleep(.01)
+                self.assertTrue(any(r['stage'] == 'running' and r['alive'] for r in rows))
+                self.assertEqual(log.stat().st_mode & 0o777, 0o600)
+            self.assertIsNotNone(child.returncode)
+            self.assertTrue(rows[-1]['intentional_stop_requested'])
+            self.assertFalse(rows[-1]['exited_before_stop'])
+            self.assertEqual(rows[-1]['returncode'], child.returncode)
+            self.assertTrue(all(r['pid'] == child.pid and r['pod_uid'] == self.pod()['metadata']['uid'] for r in rows))
+            self.assertNotIn(directory, json.dumps(rows))
+            self.assertNotIn('argv', json.dumps(rows))
+
+    def test_unexpected_exit_blocks_next_phase_and_preserves_returncode(self):
+        real_popen = m.p8.subprocess.Popen
+        rows = []
+        def spawn(argv, **kw):
+            return real_popen([m.sys.executable, '-c', 'import time; time.sleep(.05); raise SystemExit(7)'], **kw)
+        with tempfile.TemporaryDirectory() as directory, patch.object(m, 'approval_gate'), \
+                patch.object(m.p8.subprocess, 'Popen', side_effect=spawn):
+            with self.assertRaisesRegex(ValueError, 'owned forwarding unavailable'):
+                with m.owned_forward(t8.identity(), plan(), approval(), [], self.pod(), Path(directory) / 'pf', rows.append) as check:
+                    deadline = time.monotonic() + 3
+                    while not any(r.get('returncode') == 7 for r in rows) and time.monotonic() < deadline:
+                        time.sleep(.01)
+                    check('before_measure')
+            self.assertEqual(rows[-1]['returncode'], 7)
+            self.assertTrue(rows[-1]['exited_before_stop'])
+            self.assertFalse(rows[-1]['intentional_stop_requested'])
+
+    def test_bounded_termination_escalates_and_records_wait(self):
+        from unittest.mock import Mock
+        process = Mock(pid=12345)
+        process.poll.return_value = None
+        process.wait.side_effect = [m.p8.subprocess.TimeoutExpired('private command', 5), -9]
+        rows = []
+        with tempfile.TemporaryDirectory() as directory, patch.object(m, 'approval_gate'), \
+                patch.object(m.p8.subprocess, 'Popen', return_value=process):
+            with m.owned_forward(t8.identity(), plan(), approval(), [], self.pod(), Path(directory) / 'pf', rows.append): pass
+        process.terminate.assert_called_once()
+        process.kill.assert_called_once()
+        self.assertEqual(process.wait.call_count, 2)
+        self.assertTrue(rows[-1]['kill_requested'])
+        self.assertEqual(rows[-1]['returncode'], -9)
+        self.assertNotIn('private command', json.dumps(rows))
+
+    def test_exception_cleanup_and_no_overwrite_or_unapproved_spawn(self):
+        real_popen = m.p8.subprocess.Popen
+        children, rows = [], []
+        def spawn(argv, **kw):
+            child = real_popen([m.sys.executable, '-c', 'import time; time.sleep(30)'], **kw)
+            children.append(child)
+            return child
+        with tempfile.TemporaryDirectory() as directory, patch.object(m, 'approval_gate') as gate, \
+                patch.object(m.p8.subprocess, 'Popen', side_effect=spawn) as popen:
+            log = Path(directory) / 'pf'
+            with self.assertRaisesRegex(RuntimeError, 'operator gate'):
+                with m.owned_forward(t8.identity(), plan(), approval(), [], self.pod(), log, rows.append):
+                    raise RuntimeError('operator gate')
+            self.assertIsNotNone(children[0].returncode)
+            with self.assertRaises(FileExistsError):
+                with m.owned_forward(t8.identity(), plan(), approval(), [], self.pod(), log, rows.append): pass
+            self.assertEqual(popen.call_count, 1)
+            gate.side_effect = ValueError('explicit exact P9 approval required')
+            with self.assertRaisesRegex(ValueError, 'explicit exact'):
+                with m.owned_forward(t8.identity(), plan(), approval(), [], self.pod(), Path(directory) / 'new', rows.append): pass
+            self.assertEqual(popen.call_count, 1)
+
+
 class PlanTests(unittest.TestCase):
     def test_four_arms_only_allowed_delta_and_same_demand(self):
         identity, v = t8.identity(), plan()
