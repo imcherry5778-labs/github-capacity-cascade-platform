@@ -739,10 +739,19 @@ def collect_snapshot(runtime, config, before, emit, release_started):
         runtime.lifecycle = TargetLifecycle(runtime.arm, runtime.initial_uids, runtime.v)
     runtime.lifecycle.inventory([p8.p4.pod_guard(p) for p in inventory], at)
     releasing = release_started.is_set()
-    actual = runtime.configuration(config, inventory=inventory, releasing=releasing)
+    def collect_guard():
+        # guard reads no configuration/admin/lifecycle state. Give its sole
+        # worker the SAME deadline (collection_deadline is thread-local).
+        runtime.collection_deadline.at = at + 30
+        return runtime.guard()
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as worker:
+        guard_result = worker.submit(collect_guard)
+        actual = runtime.configuration(config, inventory=inventory, releasing=releasing)
+        guard = guard_result.result(timeout=max(0, at + 30 - time.monotonic()))
+    require({p['uid']: p['name'] for p in guard['pods'] if p['name'].startswith('ext-authz-sim-')} ==
+            {p['metadata']['uid']: p['metadata']['name'] for p in inventory}, 'snapshot target inventory differs')
     healthy = releasing and all(f == {'hold_ms': 0, 'max_requests': 1024} for f in actual['fault_state'].values())
     config_guard(before, actual, runtime.arm, healthy, releasing)
-    guard = runtime.guard()
     stats = runtime.stats(actual)
     runtime.lifecycle.admin(actual['targets'], runtime.admin_observations, stats, at)
     logs = runtime.logs(actual)
@@ -753,8 +762,12 @@ def collect_snapshot(runtime, config, before, emit, release_started):
     all_converged = healthy and signal['status'] == 'observed' and {p['metadata']['uid'] for p in inventory} == {t['uid'] for t in actual['targets']}
     if releasing and not healthy:
         emit({'record': 'snapshot_gap', 'at': at, 'reason': 'release-not-converged', 'fault_state': actual['fault_state']})
-    snap = {'record': 'snapshot', 'at': at, 'end': time.monotonic(), 'epoch': time.time(), 'timestamp_utc': p8.utc(),
-            'configuration': actual, 'guard': guard, 'stats': stats, 'logs': logs, 'haproxy': runtime.haproxy(),
+    haproxy = runtime.haproxy()
+    end = time.monotonic()
+    if end > at + 30:
+        raise SnapshotBudgetExceeded('snapshot collection budget exceeded')
+    snap = {'record': 'snapshot', 'at': at, 'end': end, 'epoch': time.time(), 'timestamp_utc': p8.utc(),
+            'configuration': actual, 'guard': guard, 'stats': stats, 'logs': logs, 'haproxy': haproxy,
             'haproxy_logs': hp_logs, 'signal': signal, 'fault_healthy': healthy, 'healthy': all_converged,
             'release_started': releasing, 'admin_stats': runtime.admin_observations, 'target_inventory': [p8.p4.pod_guard(p) for p in inventory]}
     emit(snap)

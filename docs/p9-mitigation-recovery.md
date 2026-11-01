@@ -1,6 +1,6 @@
 # P9-W1 Mitigation & Recovery
 
-현재 상태: **제12차 actual negative·원복 evidence 보존 / initialization collection budget source 교정 / measured snapshot latency 위험 미해결 / P9 acceptance 미충족**.
+현재 상태: **제12차 actual negative·원복 evidence 보존 / initialization·measured snapshot bounded source 교정·cost-free 회귀 / 실제 measured 미검증 / P9 acceptance 미충족**.
 
 제12차 실행 결과는 normal valid / 첫 guard collection30초 command timeout / CPU poll·healthy·KEDA·calibration·C0–C3 measured0이다.
 
@@ -33,15 +33,35 @@ Warning/UID/resource safety, valid-stale pending, C3 canonical spec, outer840초
 Cost-free replay는 초기 pending → 반복 fresh positive → 단일 synthetic journey → 후속 fresh CPU/target positive를 완료하며,
 미회복은 settling300초, target telemetry 미확보는 기존 telemetry deadline에서 실패한다.
 
-**측정 snapshot latency 위험은 미해결이다.** `collect_snapshot`은 inventory/configuration/guard/stats/logs/HAProxy/signal에
-단일30초 budget을 유지한다. 기존 C0/C3 fixture에 같은 phase latency를 주입하면 마지막 guard events 명령에서 실패하여
+Initialization 교정 시점에는 측정 snapshot latency 위험이 미해결이었다. 기존 `collect_snapshot`의 순차
+configuration/guard에 같은 phase latency를 주입하면 마지막 guard events 명령에서 실패하여
 snapshot/convergence를 내보내지 못한다. Configuration 전후와 실패 guard의 합계만 이미30.006590초이며 이후 collector latency는 unknown이다.
 이는 실제 measured 관측이 아닌 bounded synthetic latency 회귀다. Guard 뒤 모든 수집에 budget을 새로 주거나 30초를 늘리는 방법은
-gap≤35초 증거를 보장하지 못하므로 적용하지 않았다. Saved validator의 gap35초 허용/35.001초 거부도 회귀로 고정한다.
-현재 자료만으로 모든 safety·provenance·sampling 조건과 실제 cadence를 보존하는 최소 snapshot 수정은 명확하지 않다.
-Initialization 교정은 다음 유료 실행 준비 완료나 P9 acceptance 충족을 의미하지 않으며, snapshot 수집 비용/명령 중복을 줄이는
-안전한 설계의 별도 exact-source 검토 전에는 이 위험이 남는다. Azure 재실행·추가 retention/비용 승인은 이 변경에 포함하지 않는다.
-직접 P9 regression75개·P8 regression38개와 `make static`을 통과했다. 과거12개 P9 raw archive의 byte/SHA256는 시작 HEAD와 동일하다.
+gap≤35초 증거를 보장하지 못하므로 적용하지 않았다. 당시 직접 P9 regression75개·P8 regression38개와 `make static`을 통과했다.
+
+## Measured snapshot 시간·관측 계약
+
+[독립 review](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#pullrequestreview-5726349799)에서 확인한
+`snapshot.end` 선기록을 교정한다. 모든 필수 조회, 마지막 HAProxy stats 조회까지 끝난 뒤 `end`/`epoch`를 기록한다.
+전체 `end-at≤30초`를 검사한 후에만 snapshot/convergence를 발행한다. 마지막 조회4.5초의 합성 지연에서 실제 완료9.5를 기록하며,
+30초 경계는 허용하고30.001초 overrun 또는 마지막 조회 실패는 발행을 차단한다. Saved gap35초 허용/35.001초 거부는 그대로다.
+
+최소 최적화는 독립적인 configuration과 guard를 겹치는 것이다. 추가 worker는1개로 한정하고 둘 다 동일한 절대 `at+30`을 사용한다.
+`collection_deadline`이 thread-local이므로 guard worker에도 같은 deadline을 직접 지정한다. Guard는 configuration의
+admin observations/lifecycle을 사용하거나 변경하지 않는다. 두 결과를 모두 기다린 뒤 config/target UID 정합성을 검사하고,
+admin stats → logs → Prometheus signal → HAProxy stats는 기존 의존 순서를 유지한다. 실패 시 worker 종료를 기다리며 snapshot을 발행하지 않는다.
+HPA/Pod/bootstrap 중복 read는 provenance·drift 관측을 줄일 수 있어 생략하거나 cycle 밖 cache로 대체하지 않았다.
+모든 mandatory guard/UID/HPA/log/counter/native metric/Prometheus query 및 C3 raw spec provenance를 보존한다.
+명령15초·query5초·전체 collection30초·관측 gap35초·측정 acceptance·run600초는 늘리지 않는다.
+
+기존 C0/C3 fixture의 각1 Ready target에서 configuration21.972324808초/guard8.034264953초를 겹쳐 replay한다.
+나머지 inventory0.5초, logs1.5초, Prometheus5query 합계1초, 마지막 HAProxy4.5초는 **명시적 synthetic latency**다.
+각 arm의 연속3개 snapshot은 전체29.472324808초, 실제 end 간격30.472324808초(기존 poll wait1초 포함)다.
+기존 순차 경로의0.452934343초 allocation timeout도 negative replay로 보존한다. Configuration/guard/query 실패,
+guard worker의 잔여0.25초 command timeout, UID drift, missing signal, 마지막 조회 overrun은 snapshot을 차단한다.
+실제 Azure의 각 명령 latency·동시 조회 시 지연·C3 두 Ready target의 전체 latency는 아직 측정하지 않았다.
+이 결과는 bounded source 회귀이며 Azure measured 성공이나 제13차 실행 승인이 아니다. 실제 cadence/scale-out은 후속 runtime gate로 남는다.
+직접 P9 regression77개·P8 regression38개와 `make static`을 통과했다. 과거12개 P9 raw archive의 byte/SHA256는 시작 HEAD와 동일하다.
 
 ## 제11차 historical 실행
 

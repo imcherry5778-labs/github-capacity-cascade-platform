@@ -662,7 +662,7 @@ class CollectionGateTests(unittest.TestCase):
                     f.pods[1] = f.pod('new', 'ext-authz-sim-new'); f.collect(2); f.missing = {'new'}; at = 3
                 with self.assertRaises(ValueError): f.collect(at)
 
-    def test_measured_snapshot_retains_single_budget_under_twelfth_phase_latency(self):
+    def test_legacy_sequential_snapshot_exhausts_budget_under_twelfth_phase_latency(self):
         evidence = m.load(ROOT / 'docs/evidence/p9-mitigation-twelfth-20261101/execution.json')
         failure = evidence['source_failure']
         configuration = failure['elapsed_seconds'] - failure['stage_elapsed_seconds']
@@ -691,7 +691,10 @@ class CollectionGateTests(unittest.TestCase):
                      patch.object(m.time, 'time', side_effect=lambda: 1000 + now[0]), \
                      patch.object(m.p8.subprocess, 'run', side_effect=process):
                     with self.assertRaises(m.p8.subprocess.TimeoutExpired) as error:
-                        m.collect_snapshot(f.runtime, f.config, f.baseline, rows.append, threading.Event())
+                        # Preserve the old sequential path as a negative replay.
+                        f.runtime.collection_deadline.at = 30
+                        configure(f.config)
+                        guard()
                 self.assertAlmostEqual(error.exception.timeout, remaining)
                 self.assertAlmostEqual(now[0], 30)
                 self.assertFalse(any(r['record'] in {'snapshot', 'convergence'} for r in rows))
@@ -711,6 +714,127 @@ class CollectionGateTests(unittest.TestCase):
                         self.assertEqual(m.validate(directory)['validity'], 'pending-cloud-confounder-review')
                     else:
                         with self.assertRaisesRegex(ValueError, 'observation gap'): m.validate(directory)
+
+    def test_last_haproxy_read_sets_true_end_and_cannot_overrun_snapshot_budget(self):
+        for arm in ('C0', 'C3'):
+            for case in ('delayed', 'boundary', 'overrun', 'failed'):
+                with self.subTest(arm=arm, case=case):
+                    f, now, rows = LiveFixture(arm), [5.0], []
+                    def last_read():
+                        now[0] += {'boundary': 30, 'overrun': 30.001}.get(case, 4.5)
+                        if case == 'failed': raise ValueError('mandatory HAProxy read failed')
+                        return {'last_mandatory_read': True}
+                    f.runtime.haproxy = last_read
+                    with patch.object(m.time, 'monotonic', side_effect=lambda: now[0]), \
+                         patch.object(m.time, 'time', side_effect=lambda: 1000 + now[0]):
+                        if case in {'delayed', 'boundary'}:
+                            m.collect_snapshot(f.runtime, f.config, f.baseline, rows.append, threading.Event())
+                            snap = next(r for r in rows if r['record'] == 'snapshot')
+                            self.assertEqual(snap['end'], 9.5 if case == 'delayed' else 35)
+                            self.assertEqual(snap['epoch'], 1000 + snap['end'])
+                            self.assertEqual(snap['haproxy'], {'last_mandatory_read': True})
+                        else:
+                            with self.assertRaises((ValueError, m.SnapshotBudgetExceeded)):
+                                m.collect_snapshot(f.runtime, f.config, f.baseline, rows.append, threading.Event())
+                            self.assertFalse(any(r['record'] in {'snapshot', 'convergence'} for r in rows))
+
+    def test_twelfth_latency_parallel_snapshot_preserves_all_reads_and_cadence(self):
+        evidence = m.load(ROOT / 'docs/evidence/p9-mitigation-twelfth-20261101/execution.json')
+        failure = evidence['source_failure']
+        configuration_cost = failure['elapsed_seconds'] - failure['stage_elapsed_seconds']
+        guard_cost = failure['stage_elapsed_seconds']
+        for arm in ('C0', 'C3'):
+            for case in ('success', 'configuration-failed', 'guard-failed', 'guard-timeout', 'guard-uid-drift',
+                         'signal-failed', 'missing-signal', 'late-last-read'):
+                with self.subTest(arm=arm, case=case):
+                    f, origin, rows = LiveFixture(arm), [0.0], []
+                    f.rate = 1
+                    r, main_thread = f.runtime, threading.get_ident()
+                    times = {main_thread: 0.0}
+                    configured, guarding = threading.Event(), threading.Event()
+                    calls = []
+                    configure, guard, stats, pods, k, prom = r.configuration, r.guard, r.stats, r.pods, r.k, r.prom
+                    def clock():
+                        return times.get(threading.get_ident(), origin[0] + .5)
+                    def advance(seconds):
+                        times[threading.get_ident()] = clock() + seconds
+                    def inventory(*args):
+                        if args == (m.NS, 'app=ext-authz-sim'): advance(.5)
+                        return pods(*args)
+                    def configuration(*args, **kwargs):
+                        configured.set()
+                        self.assertTrue(guarding.wait(1), 'guard must overlap configuration')
+                        self.assertEqual(r.collection_deadline.at, origin[0] + 30)
+                        result = configure(*args, **kwargs)
+                        advance(configuration_cost); calls.append('configuration')
+                        if case == 'configuration-failed': raise ValueError('mandatory configuration failed')
+                        return result
+                    def safety():
+                        self.assertNotEqual(threading.get_ident(), main_thread)
+                        self.assertEqual(r.collection_deadline.at, origin[0] + 30)
+                        guarding.set(); self.assertTrue(configured.wait(1))
+                        advance(guard_cost); calls.append('guard')
+                        if case == 'guard-failed': raise ValueError('mandatory guard failed')
+                        if case == 'guard-timeout':
+                            times[threading.get_ident()] = origin[0] + 29.75
+                            def expired(args, **kwargs):
+                                self.assertAlmostEqual(kwargs['timeout'], .25)
+                                raise m.p8.subprocess.TimeoutExpired(args, kwargs['timeout'])
+                            with patch.object(m.p8.subprocess, 'run', side_effect=expired):
+                                return m.Runtime.k(r, 'get', 'events', '-A', '-o', 'json')
+                        result = guard()
+                        if case == 'guard-uid-drift': result['pods'][0]['uid'] = 'replaced'
+                        return result
+                    def counters(actual):
+                        # Join the two logical phase clocks after Future.result.
+                        times[main_thread] = max(times.values())
+                        calls.append('stats')
+                        return stats(actual)
+                    def logs(*args):
+                        if 'logs' in args:
+                            advance(.375); calls.append('logs')
+                        return k(*args)
+                    def query(expression):
+                        advance(.2); calls.append('prometheus')
+                        if case == 'signal-failed': raise ValueError('mandatory query failed')
+                        return prom(expression)
+                    def last_read():
+                        advance(5.1 if case == 'late-last-read' else 4.5)
+                        calls.append('haproxy')
+                        return {'complete': True}
+                    r.configuration, r.guard, r.stats, r.pods, r.k, r.prom, r.haproxy = configuration, safety, counters, inventory, logs, query, last_read
+                    if case == 'missing-signal': f.missing = {'target'}
+                    # Only configuration/guard phase costs derive from Azure.
+                    # Remaining costs and successful responses are synthetic.
+                    with patch.object(m.time, 'monotonic', side_effect=clock), \
+                         patch.object(m.time, 'time', side_effect=lambda: 1000 + clock()):
+                        for _ in range(3 if case == 'success' else 1):
+                            configured.clear(); guarding.clear(); times.clear(); times[main_thread] = origin[0]
+                            if case != 'success':
+                                with self.assertRaises((ValueError, m.SnapshotBudgetExceeded, m.p8.subprocess.TimeoutExpired)):
+                                    m.collect_snapshot(r, f.config, f.baseline, rows.append, threading.Event())
+                                self.assertFalse(any(e['record'] in {'snapshot', 'convergence'} for e in rows))
+                                break
+                            m.collect_snapshot(r, f.config, f.baseline, rows.append, threading.Event())
+                            snap = next(e for e in reversed(rows) if e['record'] == 'snapshot')
+                            self.assertAlmostEqual(snap['end'] - snap['at'], 29.47232480799721)
+                            self.assertEqual(snap['end'], clock())
+                            self.assertEqual(snap['signal']['status'], 'observed')
+                            self.assertEqual(snap['admin_stats'], r.admin_observations)
+                            self.assertEqual(snap['haproxy'], {'complete': True})
+                            origin[0] = snap['end'] + 1
+                    if case == 'success':
+                        snapshots = [e for e in rows if e['record'] == 'snapshot']
+                        self.assertTrue(all(b['end'] - a['end'] <= 35 for a, b in zip(snapshots, snapshots[1:])))
+                        self.assertEqual(calls.count('guard'), 3)
+                        self.assertEqual(calls.count('configuration'), 3)
+                        self.assertEqual(calls.count('stats'), 3)
+                        self.assertEqual(calls.count('logs'), 12)
+                        self.assertEqual(calls.count('prometheus'), 15)
+                        self.assertEqual(calls.count('haproxy'), 3)
+                        if arm == 'C3':
+                            self.assertTrue(any(e['record'] == 'scaledobject_configuration' and
+                                                e['metadata']['uid'] == 'so' and e['spec'] == f.scaled[0]['spec'] for e in rows))
 
     def test_release_partial_convergence_checks_invariants_and_records_gap(self):
         for order in ('hold-first', 'capacity-first'):
