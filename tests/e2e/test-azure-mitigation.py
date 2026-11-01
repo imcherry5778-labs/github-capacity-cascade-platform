@@ -1004,7 +1004,17 @@ class CollectionGateTests(unittest.TestCase):
                 self.assertFalse(any(w['good'] for w in result['recovery']['windows'] if w['start'] < 195))
 
     def test_release_drift_and_unknown_failure_reach_monitor_cancel_and_release(self):
-        for case in ('hostname', 'provider', 'selector', 'controller', 'image', 'unknown'):
+        sensitive = 'private-token-and-path-must-not-be-published'
+        unknown_type = type(sensitive, (ValueError,), {})
+        failures = {
+            'unknown': (ValueError(sensitive), 'ValueError', 'validation_failed'),
+            'timeout': (m.p8.subprocess.TimeoutExpired(['kubectl', sensitive], 1, output=sensitive, stderr=sensitive),
+                        'TimeoutExpired', 'command_timeout'),
+            'command': (m.p8.subprocess.CalledProcessError(1, ['kubectl', sensitive], output=sensitive, stderr=sensitive),
+                        'CalledProcessError', 'command_failed'),
+            'unknown-type': (unknown_type(sensitive), 'BaseException', 'unknown_failure'),
+        }
+        for case in ('hostname', 'provider', 'selector', 'controller', 'image', *failures):
             with self.subTest(case=case), tempfile.TemporaryDirectory() as directory:
                 f = LiveFixture('C0')
                 real_config = f.runtime.configuration
@@ -1017,7 +1027,8 @@ class CollectionGateTests(unittest.TestCase):
                         elif case == 'selector': f.policy['spec']['selector'] = {'matchLabels': {'app': 'unknown'}}
                         elif case == 'controller': f.hpa['metadata']['ownerReferences'] = [{'kind': 'Unknown'}]
                         elif case == 'image': f.pods[0]['spec']['containers'][0]['image'] = 'wrong'
-                        else: raise ValueError('unknown validation failure')
+                        else:
+                            raise failures[case][0] from RuntimeError(sensitive)
                     return real_config(config, **kwargs)
                 f.runtime.configuration = drift
                 released = threading.Event()
@@ -1043,12 +1054,17 @@ class CollectionGateTests(unittest.TestCase):
                      patch.object(m, 'execution_gate'), patch.object(m, 'Runtime', return_value=f.runtime), \
                      patch.object(m, 'drive', side_effect=drive), \
                      patch.object(m.p8, 'request', return_value={'semantic_result': True}):
-                    with self.assertRaises(ValueError):
+                    with self.assertRaises(type(failures[case][0]) if case in failures else ValueError):
                         m._measure(t8.identity(), v, 'C0', 'calibration', output, Path(directory, 'approval.json'), '-', Path(directory, 'ledger'))
                 rows = [json.loads(line) for line in Path(output, 'events.jsonl').read_text().splitlines()]
                 self.assertTrue(released.is_set())
-                self.assertTrue(any(e['record'] == 'monitor_failure' for e in rows))
+                failure = next(e for e in rows if e['record'] == 'monitor_failure')
+                self.assertEqual(set(failure), {'record', 'at', 'exception_class', 'error_code'})
+                expected = failures[case][1:] if case in failures else ('ValueError', 'validation_failed')
+                self.assertEqual((failure['exception_class'], failure['error_code']), expected)
+                self.assertNotIn(sensitive, json.dumps(rows))
                 self.assertTrue(any(e['record'] == 'run_failure' for e in rows))
+                self.assertFalse(any(e['record'] == 'run_end' for e in rows))
                 self.assertFalse(any(e['record'] == 'snapshot_gap' and e['at'] >= drift_at[0] for e in rows))
                 self.assertEqual(next(e for e in rows if e['record'] == 'operation')['outcome'], 'not-issued')
 

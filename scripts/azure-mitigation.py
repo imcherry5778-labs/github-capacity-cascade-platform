@@ -1257,8 +1257,9 @@ def _measure(identity, v, arm, phase, output, approval_path, frozen_path, ledger
             while not stop.is_set():
                 try:
                     collect_snapshot(runtime, config, baseline, emit, release_started)
-                except Exception:
-                    emit({'record': 'monitor_failure', 'at': time.monotonic()}); failed.set(); return
+                except Exception as error:
+                    # Reuse the fixed allowlist; exception text/chains may contain secrets.
+                    emit({'record': 'monitor_failure', 'at': time.monotonic(), **initialization_error(error)}); failed.set(); return
                 stop.wait(1)
         def release(_due):
             release_started.set()

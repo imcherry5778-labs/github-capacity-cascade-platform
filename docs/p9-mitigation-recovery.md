@@ -28,6 +28,39 @@ KEDA apply/restore 각1회·historical 누적 각3회, 이전13개 raw archive b
 기존 retention과 stable Azure Environment를 P11 재사용을 위해 보존한다. 후속 docs/evidence HEAD는 실행 source가 아니다.
 P9 acceptance 미충족이며 merge/P10은 수행하지 않는다.
 
+## 제14차 후속 cost-free 원인 검토
+
+시작 HEAD `caee78d986582771dafdf19fc5a6d4c277060d2c`의 기존 archive240개 member를 index의
+size/SHA256와 대조했다. Direct preflight200은15:36:28 UTC, calibration sentinel15개는 모두
+status null / transport / semantic false이고 각 curl 시간은0.004783–0.006709초다.
+`request()`는 curl의 nonzero/non28 종료를 모두 transport로 기록하며 종료 코드/stderr를 보존하지 않는다.
+따라서 connection refusal, tunnel 단절, process 종료 등 세부 원인은 unknown이다.
+중단 후15:39:13 UTC의 PID 부재와 forwarding/connection만 있는100-byte log는 실행 중 사망 시각이나 원인을 입증하지 않는다.
+위 historical lifecycle invalid는 직접 경로가 유지되지 않았다는 관측이며 process 사망의 확정 진단이 아니다.
+
+기존 제14차 operator 실행 기록에서 별도 Python 명령의 `Popen`으로 `kubectl port-forward`를 시작하고
+PID/Pod UID/port를 저장한 것을 확인했다. Session 분리와 campaign 동안의 `poll()`/종료 상태 회수 기록은 없다.
+Tool/부모 lifecycle에 의한 종료 가능성은 있지만 실제 종료 원인으로 단정하지 않는다.
+다음 별도 승인 실행에서는 기존 operator의 campaign 부모가 `Popen` handle을 끝까지 보유하고
+stdin 분리·`start_new_session=True`로 실행 경계를 분리한다. PID와 시작 시각/Pod UID, 단계 전환 및 실행 중
+`poll()` liveness, 종료 시 `wait()` return code와 의도한 stop 여부를 민감정보 없이 기록해야 한다.
+Fault 수렴 후 measure 직전 같은 loopback 경로의 non-admin native-auth semantic200을 확인하며,
+process 종료/직접 경로 실패 시 재시작·추가 calibration으로 메우지 않고 invalid/STOP한다.
+이는 기존 operator process 관리의 최소 보완이며 새 harness/controller/runbook을 추가하지 않는다.
+
+별도 `monitor_failure` 직전 마지막 scale query는 HTTP200/success/empty vector다.
+Source는 이 응답을 거부할 수 있으나 실제 exception type/실패 지점을 발행하지 않았으므로
+제14차 monitor의 최종 원인과 sentinel 오류와의 인과는 unknown으로 유지한다.
+입증된 source 결함은 `monitor()`가 exception을 버리는 진단 누락이다. 기존 `initialization_error()`의
+고정 allowlist를 재사용하여 `exception_class`/`error_code`만 추가한다. Exception message/chain,
+argv/stderr/response/private path와 사용자 정의 class 이름은 발행하지 않는다.
+실패 flag·demand 취소·invalid 판정·deadline·acceptance는 유지하며 과거 raw/incident는 수정하지 않는다.
+
+다음 paid campaign은 새 exact-source CI/독립 review, 별도 명시적 승인과 current cost/resource/RBAC/quota·
+보존 기한 확인, 위 forwarding 소유/liveness/exit 관측 및 직전 native-auth200을 충족하기 전까지 **NO-GO**다.
+충족 후에도 기존 normal/healthy/KEDA/collection gate를 그대로 적용해야 하며 runtime 성공은 미검증이다.
+이번 검토는 Azure 조회/변경·새 calibration·제15차 실행·merge/P10을 수행하지 않는다.
+
 ## 제13차 historical 실행
 
 [제13차 evidence](evidence/p9-mitigation-thirteenth-20261101/README.md)는 승인 source
