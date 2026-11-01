@@ -1058,21 +1058,34 @@ def healthy_initialize(runtime, v, journey, emit, *, clock=time.monotonic, wait=
         while True:
             stage, stage_started = 'telemetry_configuration', clock()
             require(clock() < deadline, 'healthy initialization polling timeout; do not repeat journey')
-            runtime.collection_deadline.at = min(clock() + 30, deadline)
-            actual = runtime.configuration(config, initializing=True)
-            require({t['uid'] for t in actual['targets']} == initial and actual == before, 'initialization config/UID drift')
-            stage, stage_started = 'telemetry_resource_guard', clock()
-            # Keep guard, signal and final path evidence bounded together after
-            # configuration, capped by the unchanged overall telemetry deadline.
-            runtime.collection_deadline.at = min(clock() + 30, deadline)
-            cpu_positive = initialization_safety(runtime.guard(), cpu_startup=cpu_startup, emit=emit, at=clock())
+            collection_end = min(clock() + 30, deadline)
+            runtime.collection_deadline.at = collection_end
+            def collect_guard():
+                # Independent reads; the worker needs its own thread-local cap.
+                runtime.collection_deadline.at = collection_end
+                guard = runtime.guard()
+                return guard, clock()
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as worker:
+                guard_result = worker.submit(collect_guard)
+                actual = runtime.configuration(config, initializing=True)
+                require({t['uid'] for t in actual['targets']} == initial and actual == before, 'initialization config/UID drift')
+                stage, stage_started = 'telemetry_resource_guard', clock()
+                guard, guard_end = guard_result.result(timeout=max(0, collection_end - clock()))
+            require(clock() <= collection_end, 'healthy initialization collection timeout')
+            require({p['uid']: p['name'] for p in guard['pods'] if p['name'].startswith('ext-authz-sim-')} ==
+                    {t['uid']: t['name'] for t in actual['targets']}, 'initialization guard target inventory differs')
+            cpu_positive = initialization_safety(guard, cpu_startup=cpu_startup, emit=emit, at=clock())
+            # A fresh guard can age while configuration, signal or path reads
+            # finish. Translate its sample age to the same monotonic clock.
+            cpu_fresh_until = (guard_end + 30 - (p8.p7.utc(guard['timestamp_utc']).timestamp() -
+                               cpu_startup.validated_sample['timestamp_epoch'])) if cpu_positive else guard_end
             stage, stage_started = 'telemetry_signal', clock()
             pods = runtime.targets()
             require({p['metadata']['uid'] for p in pods} == initial, 'initialization live UID drift')
             signal = runtime.signal(pods, initializing=True)
             emit({'record': 'healthy_telemetry_poll', 'at': clock(), 'configuration': actual,
                   'admin_stats': runtime.admin_observations, 'signal': signal, 'deadline': deadline})
-            if signal['status'] == 'observed' and cpu_positive:
+            if signal['status'] == 'observed' and cpu_positive and clock() <= cpu_fresh_until:
                 require(clock() <= deadline, 'healthy initialization polling timeout')
                 stage, stage_started = 'positive_path', clock()
                 logs_after = runtime.logs(actual)
@@ -1104,12 +1117,16 @@ def healthy_initialize(runtime, v, journey, emit, *, clock=time.monotonic, wait=
                     require(total == len(target), 'healthy target counter/log delta mismatch')
                 else:
                     require(total == len(logs_after['proxies']['target'][uid]), 'healthy target lifetime counter/log mismatch')
-                require(clock() <= deadline, 'healthy initialization polling timeout')
+                journey_sha256 = hashlib.sha256(Path(journey_path).read_bytes()).hexdigest()
+                completed_at = clock()
+                require(completed_at <= deadline, 'healthy initialization polling timeout')
+                require(completed_at <= collection_end, 'healthy initialization collection timeout')
+                require(completed_at <= cpu_fresh_until, 'healthy initialization final CPU sample stale')
                 result = {'record': 'healthy_initialization_complete', 'source_sha': runtime.value['source_sha'],
-                          'at': clock(), 'metric_contract': metric_contract(), 'journey_invocations': 1,
+                          'at': completed_at, 'metric_contract': metric_contract(), 'journey_invocations': 1,
                           'ingress_http_records': len(http), 'authorization_checks': len(delta['checks']),
                           'request_accounting': 'actual same-window server log deltas, not 1:1 operation/HTTP inference',
-                          'log_delta': delta, 'journey_sha256': hashlib.sha256(Path(journey_path).read_bytes()).hexdigest(),
+                          'log_delta': delta, 'journey_sha256': journey_sha256,
                           'correlated_attempt_checks': {aid: sum(c['attempt_id'] == aid for c in checks) for aid in attempts},
                           'auxiliary_checks': sum(c['operation_id'] == auxiliary for c in checks),
                           'target_requests': total, 'counter_accounting': 'observed-start-delta' if uid in stats_before else 'whole-UID-counter-and-log',

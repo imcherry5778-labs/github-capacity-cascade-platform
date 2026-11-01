@@ -13,6 +13,32 @@ Owned cleanup·stable 보존26항목을 확인했고 source 수정·자동 제14
 Before posted ActualCost KRW123,029.5838968907, 누적 세전 USD180 review 범위의 보수적 추정 USD134.192723이다.
 Final 비용 요청은 실패해 unknown이며 P9 단독 비용 귀속도 unknown이다. 기존 보존 기한을 유지한다.
 
+## 제13차 후속 cost-free telemetry 수집 교정
+
+제13차 raw `initialize/events.jsonl`의 후반 서로 다른 CPU sample timestamp 간격은59초씩3회다.
+Telemetry poll은2개뿐이며 간격34.757031242초, 그 사이 CPU guard 관측 간격은35.945945376초다.
+두 target signal은 모두 observed지만 CPU는 stale/pending이었다. 다음 `telemetry_configuration`은
+전체 deadline 잔여0.144983690초의 command timeout으로 끝났다. 개별 명령 latency·API 지연 원인은 unknown이며
+이2개 poll만으로 일반 cadence/성능이나 병렬화의 Azure 성공을 단정하지 않는다.
+
+교정은 `healthy_initialize`의 **journey 이후 telemetry configuration/guard**만 겹치는 것으로 한정한다.
+추가 worker1개에 thread-local 절대 `min(poll 시작+30초, 기존 telemetry deadline)`을 직접 전달하고 두 결과를 기다린다.
+Configuration 실패 때도 worker 종료를 기다리며 guard 실패를 성공으로 바꾸지 않는다. 두 수집의 target UID/name과
+기존 CPU HPA UID/owner·Warning/resource 조건을 검증한 뒤 기존 inventory/signal/path 순서를 유지한다.
+Guard 종료 시각과 raw CPU sample age를 monotonic freshness 만료 시각으로 연결한다. Configuration/signal을
+기다리는 동안 stale이 되면 pending이며, 최종 log/counter/journey hash 확인 뒤에도 freshness≤30초를 요구한다.
+최종 path에서 stale이 되거나 collection30초를 넘으면 성공을 발행하지 않는다. Mandatory read는 생략하지 않는다.
+Settling300초·command15초·전체 telemetry `ingestion+3×scrape`·outer840초·acceptance/resource 조건은 유지한다.
+
+기존 테스트에서 제13차 actual CPU/HPA/Warning projection을 replay하면 ready1회 뒤 stale/pending2회가 유지된다.
+Full guard/UTC가 미기록이라 command-end UTC로 시간을 재구성하며 auxiliary safety 응답은 synthetic이다.
+별도 synthetic configuration10초/guard8초/signal2초/path2초 모델의 완료는14초다(순차 합계22초).
+Freshness30초는 허용하고 config/signal 대기 중 stale, 최종 path 중 stale, timeout·UID/owner/Warning/resource·signal 실패는 차단한다.
+이 결과는 source 회귀이며 실제 제13차 negative·13개 raw archive나 P9 acceptance 미충족을 변경하지 않는다.
+실제 Azure 동시 API contention·CPU freshness와 target telemetry의 동시 충족·후속 measured/recovery는 unknown이다.
+다음 별도 승인 실행에서는 기존 계약의 DB TLS `verify-full`과 target 단계 live headroom 선행 순서를 적용해야 한다.
+제13차 operator 준비 오류는 source bug로 재분류하지 않으며 이번 교정으로 새 Azure 실행을 승인하지 않는다.
+
 ## 제12차와 후속 cost-free source 교정 이력
 
 아래 제12차 negative 및 cost-free source 결과는 역사적 기록이며 제13차 runtime 성공을 뜻하지 않는다.
@@ -487,8 +513,9 @@ telemetry `ingestion+3×scrape`, dispatch 여유5초를 합한다. 현재 후보
 각각 TERM 뒤 kill-after5초이며 measured run600초와 구분한다. 정상 시 바로 종료한다.
 Settling의 configuration과 guard는 각각 `min(now+30, settling deadline)`을 적용하며 command≤15초를 유지한다.
 제12차에서 configuration 전후21.972초가 guard budget을 소모한 공유 계약을 교정한 것이다. 전체 settling300초는 늘리지 않는다.
-Telemetry는 configuration에 이어 guard 진입에서도 `min(now+30, telemetry deadline)`을 적용한다.
-Guard 이후 signal/최종 path 검증은 그30초 budget을 공유하며 전체 telemetry deadline과 최종 freshness/safety gate를 유지한다.
+Telemetry는 독립 configuration/guard를 worker1개로 겹치며 둘 다 같은 `min(poll 시작+30, telemetry deadline)`을 적용한다.
+이후 signal/최종 path 검증도 그 절대 budget을 공유한다. Guard 이후 대기/조회 시간을 CPU age에 반영하여
+최종 판단 시점의 freshness≤30초와 기존 safety gate를 유지한다.
 Baseline stats/logs는 완료된 settling collection과 분리한30초를 사용한다. Preparation 진입 시 외부 timeout+5초 kill 여유와
 기존 run/drain+30분 rollback reserve가 retention 전에 들어가는지도 검사한다.
 

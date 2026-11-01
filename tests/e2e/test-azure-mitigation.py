@@ -1969,31 +1969,47 @@ class MetricInitializationTests(unittest.TestCase):
                 f, now, rows, polls, journeys, allocations = self.preparation(), [0.0], [], [], [], []
                 configure, guard, signal = f.runtime.configuration, f.runtime.guard, f.runtime.signal
                 positive, _, _ = self.positive_journey(f)
-                pending_cost = [0]
+                pending_cost = threading.local()
+                main_thread = threading.get_ident()
+                worker_time, cycle_start = [0], [0]
+                configured, guarding = threading.Event(), threading.Event()
+                def clock():
+                    return now[0] if threading.get_ident() == main_thread else worker_time[0]
+                def advance(seconds):
+                    target = now if threading.get_ident() == main_thread else worker_time
+                    target[0] += seconds
                 def process(args, **kwargs):
-                    budget, cost = kwargs['timeout'], pending_cost[0]
+                    budget, cost = kwargs['timeout'], pending_cost.value
                     self.assertTrue(0 < budget <= 15)
                     allocations.append((args, budget))
                     if cost > budget + 1e-9:
-                        now[0] += budget
+                        advance(budget)
                         raise m.p8.subprocess.TimeoutExpired(args, budget)
-                    now[0] += cost
+                    advance(cost)
                     return m.p8.subprocess.CompletedProcess(args, 0, stdout='{}')
                 def command(cost, *args):
-                    pending_cost[0] = cost
+                    pending_cost.value = cost
                     return m.Runtime.k(f.runtime, *args)
                 def configuration_phase(*args, **kwargs):
+                    if journeys:
+                        cycle_start[0] = now[0]; configured.set()
+                        self.assertTrue(guarding.wait(1))
                     result = configure(*args, **kwargs)
                     # Synthetic command split; none exceeds the existing 15s.
                     for cost in (10, 10, configuration - 20): command(cost, 'get', 'configuration-fixture')
                     return result
                 def guard_phase():
+                    if journeys:
+                        self.assertTrue(configured.wait(1))
+                        worker_time[0] = cycle_start[0]; guarding.set()
                     command(prior_events, 'get', 'guard-fixture')
                     command(events_cost, 'get', 'events', '-A', '-o', 'json')
-                    result = guard(); polls.append(now[0])
+                    result = guard(); polls.append(clock())
                     if len(polls) == 1 or mode == 'settling-timeout': result['pod_metrics'] = []
                     return result
                 def signal_phase(*args, **kwargs):
+                    now[0] = max(now[0], worker_time[0])
+                    configured.clear(); guarding.clear()
                     command(4, 'get', 'signal-fixture')
                     if mode == 'telemetry-timeout': f.missing = {'target'}
                     return signal(*args, **kwargs)
@@ -2001,8 +2017,8 @@ class MetricInitializationTests(unittest.TestCase):
                     journeys.append(timeout); f.no_admin.clear()
                     return positive(timeout)
                 f.runtime.configuration, f.runtime.guard, f.runtime.signal = configuration_phase, guard_phase, signal_phase
-                with patch.object(m.time, 'monotonic', side_effect=lambda: now[0]), \
-                     patch.object(m.time, 'time', side_effect=lambda: 1000 + now[0]), \
+                with patch.object(m.time, 'monotonic', side_effect=clock), \
+                     patch.object(m.time, 'time', side_effect=lambda: 1000 + clock()), \
                      patch.object(m.p8.subprocess, 'run', side_effect=process):
                     if mode == 'legacy-shared':
                         f.runtime.collection_deadline.at = 30
@@ -2030,6 +2046,169 @@ class MetricInitializationTests(unittest.TestCase):
                             self.assertAlmostEqual(now[0], accounting['at'] + plan()['ingestion_seconds'] + 3 * plan()['scrape_seconds'])
                         self.assertFalse(any(r['record'] == 'healthy_initialization_complete' for r in rows))
                 self.assertEqual(journeys, [] if mode == 'settling-timeout' else [90])
+
+    def test_thirteenth_actual_stale_telemetry_and_deadline_remain_negative(self):
+        with tarfile.open(ROOT / 'docs/evidence/p9-mitigation-thirteenth-20261101/raw-evidence.tar.gz') as t:
+            archived = [json.loads(line) for line in t.extractfile('initialize/events.jsonl')]
+            end = json.load(t.extractfile('initialize-command.json'))
+            hpa = json.load(t.extractfile('created-horizontalpodautoscaler-hpa-app-cpu.json'))
+            interpretation = json.load(t.extractfile('initialization-interpretation.json'))
+            pod = next(p for p in json.load(t.extractfile('initial-pods.json'))['items']
+                       if p['metadata']['labels'].get('app') == 'ext-authz-sim')
+        polls = [r for r in archived if r['record'] == 'cpu_preparation_poll']
+        telemetry = [r for r in archived if r['record'] == 'healthy_telemetry_poll']
+        stamps = list(dict.fromkeys(p['sample_epoch'] for p in polls))
+        self.assertEqual([b - a for a, b in zip(stamps[-4:], stamps[-3:])], [59] * 3)
+        self.assertEqual([p['status'] for p in polls], ['pending'] * 8 + ['ready', 'pending', 'pending'])
+        self.assertEqual([p['signal']['status'] for p in telemetry], ['observed'] * 2)
+        self.assertAlmostEqual(telemetry[1]['at'] - telemetry[0]['at'], 34.757031242)
+        self.assertEqual((archived[-1]['stage'], archived[-1]['error_code']), ('telemetry_configuration', 'command_timeout'))
+        self.assertAlmostEqual(interpretation['private_diagnostic_extract']['timeout_seconds'], .14498369)
+        self.assertEqual(end['exit_code'], 1)
+        self.assertFalse(any(r['record'] == 'healthy_initialization_complete' for r in archived))
+        # Replay actual CPU/HPA/Warning projections. Full guard/UTC was not
+        # emitted: end UTC anchors time; auxiliary safety I/O is synthetic.
+        f, replay = self.preparation(), []
+        guard = f.runtime.guard()
+        stamp = lambda epoch: m.datetime.fromtimestamp(epoch, m.timezone.utc).isoformat()
+        offset = m.p8.p7.utc(end['at_utc']).timestamp() - archived[-1]['at']
+        actual = {'targets': [{'uid': pod['metadata']['uid'], 'name': pod['metadata']['name']}], 'hpa_spec': hpa['spec']}
+        cpu = m.CPUStartup(actual)
+        guard['cpu_preparation_pods'] = [{**{k: pod['metadata'].get(k) for k in
+            ('namespace', 'name', 'uid', 'creationTimestamp', 'deletionTimestamp')},
+            'ready_conditions': [c for c in pod['status']['conditions'] if c['type'] == 'Ready']}]
+        for p in polls:
+            guard['timestamp_utc'] = stamp(offset + p['at'])
+            guard['cpu_hpa'] = copy.deepcopy(hpa)
+            guard['cpu_hpa']['status'] = {'conditions': [{'type': 'AbleToScale', 'status': 'True'},
+                {'type': 'ScalingActive', 'status': 'True' if p['scaling_active'] else 'False',
+                 'reason': 'ValidMetricFound' if p['scaling_active'] else 'FailedGetContainerResourceMetric',
+                 'lastTransitionTime': stamp(p['hpa_transition_epoch'])}],
+                'currentMetrics': [{'type': 'ContainerResource', 'containerResource': {'name': 'cpu', 'container': 'app',
+                    'current': {k: p['hpa_current_cpu'][k] for k in ('averageValue', 'averageUtilization')}}}]
+                    if p['hpa_current_cpu'] else [{'type': ''}]}
+            guard['pod_metrics'] = [{'metadata': {'namespace': m.NS, 'name': pod['metadata']['name']},
+                'timestamp': stamp(p['sample_epoch']), 'window': str(p['sample']['window_seconds']) + 's',
+                'containers': [{'name': 'app', 'usage': {'cpu': p['sample']['app_cpu']}}]}]
+            guard['events'] = [{'uid': uid, 'timestamp_utc': last, 'count': count, 'first_timestamp_utc': first,
+                'type': 'Warning', 'reason': reason, 'owner': {'namespace': m.NS, 'name': 'hpa-app-cpu',
+                    'kind': 'HorizontalPodAutoscaler', 'uid': p['hpa_uid']}}
+                for uid, (last, count, first, reason) in p['warning_history'].items()]
+            self.assertEqual(m.initialization_safety(guard, cpu_startup=cpu, emit=replay.append, at=p['at']), p['status'] == 'ready')
+        self.assertEqual([p['status'] for p in replay if p['record'] == 'cpu_preparation_poll'], [p['status'] for p in polls])
+
+    def test_healthy_telemetry_parallel_collection_deadlines_freshness_and_failures(self):
+        # Explicit synthetic phase costs/CPU/client/server/Prometheus positives.
+        # These are bounded concurrency regressions, not Azure latency evidence.
+        cases = ('success', 'fresh-30', 'configuration-failed', 'guard-failed', 'guard-timeout',
+                 'collection-timeout', 'uid', 'owner', 'live-uid', 'warning', 'resource',
+                 'signal-failed', 'signal-missing', 'cpu-stale', 'aged-during-configuration',
+                 'aged-during-signal', 'aged-during-path')
+        for case in cases:
+            with self.subTest(case=case):
+                f, rows, journeys = self.preparation(), [], []
+                r, main_thread = f.runtime, threading.get_ident()
+                times, cycle = {main_thread: 0.0}, [0.0]
+                configured, guarding, finished = threading.Event(), threading.Event(), threading.Event()
+                configuration_failed = threading.Event()
+                calls = []
+                configure, guard, signal = r.configuration, r.guard, r.signal
+                positive, _, _ = self.positive_journey(f)
+                logs = r.logs
+                def clock():
+                    return times[threading.get_ident()]
+                def advance(seconds):
+                    times[threading.get_ident()] += seconds
+                def configuration(*args, **kwargs):
+                    if not journeys: return configure(*args, **kwargs)
+                    cycle[0] = clock(); configured.set()
+                    self.assertTrue(guarding.wait(1), 'guard must overlap configuration')
+                    self.assertEqual(r.collection_deadline.at, min(cycle[0] + 30, 115))
+                    calls.append('configuration')
+                    result = configure(*args, **kwargs)
+                    advance(30.001 if case == 'collection-timeout' else 10)
+                    if case == 'configuration-failed':
+                        configuration_failed.set()
+                        raise ValueError('configuration read failed')
+                    self.assertTrue(finished.wait(1))
+                    times[main_thread] = max(times.values())
+                    if case == 'live-uid':
+                        r.targets = lambda: [f.pod('other', 'ext-authz-sim-other')]
+                    return result
+                def safety():
+                    if not journeys: return guard()
+                    self.assertNotEqual(threading.get_ident(), main_thread)
+                    self.assertTrue(configured.wait(1))
+                    times[threading.get_ident()] = cycle[0]
+                    self.assertEqual(r.collection_deadline.at, min(cycle[0] + 30, 115))
+                    guarding.set(); calls.append('guard')
+                    try:
+                        if case == 'configuration-failed': self.assertTrue(configuration_failed.wait(1))
+                        advance(8)
+                        if case == 'guard-failed': raise ValueError('guard read failed')
+                        if case == 'guard-timeout':
+                            times[threading.get_ident()] = r.collection_deadline.at - .25
+                            def expired(args, **kwargs):
+                                self.assertAlmostEqual(kwargs['timeout'], .25)
+                                raise m.p8.subprocess.TimeoutExpired(args, kwargs['timeout'])
+                            with patch.object(m.p8.subprocess, 'run', side_effect=expired):
+                                return m.Runtime.k(r, 'get', 'events', '-A', '-o', 'json')
+                        g = guard()
+                        age = {'fresh-30': 24, 'cpu-stale': 31, 'aged-during-configuration': 29,
+                               'aged-during-signal': 27, 'aged-during-path': 25}.get(case, 20)
+                        g['pod_metrics'][0]['timestamp'] = m.datetime.fromtimestamp(1000 + clock() - age, m.timezone.utc).isoformat()
+                        if case == 'uid': g['pods'][0]['uid'] = 'other'
+                        elif case == 'owner': g['cpu_hpa']['metadata']['ownerReferences'] = [{'uid': 'other'}]
+                        elif case == 'warning': g['events'] = [{'type': 'Warning', 'reason': 'Unhealthy'}]
+                        elif case == 'resource': g['admission']['conservative_sum']['limits']['cpu'] = 2
+                        return g
+                    finally:
+                        finished.set()
+                def target_signal(*args, **kwargs):
+                    calls.append('signal'); advance(2)
+                    if case == 'signal-failed': raise ValueError('signal query failed')
+                    if case == 'signal-missing': f.missing = {'target'}
+                    result = signal(*args, **kwargs)
+                    configured.clear(); guarding.clear(); finished.clear()
+                    return result
+                def path(actual):
+                    if journeys and calls.count('signal'):
+                        calls.append('path'); advance(2)
+                    return logs(actual)
+                def journey(timeout):
+                    journeys.append(timeout); f.no_admin.clear()
+                    advance(40)
+                    return positive(timeout)
+                def emit(row):
+                    if row['record'] == 'healthy_initialization_failure':
+                        self.assertTrue(finished.is_set() or calls.count('signal'), 'failure must join guard worker')
+                    rows.append(row)
+                r.configuration, r.guard, r.signal, r.logs = configuration, safety, target_signal, path
+                with patch.object(m.time, 'monotonic', side_effect=clock), \
+                     patch.object(m.time, 'time', side_effect=lambda: 1000 + clock()):
+                    kwargs = {'clock': clock, 'wait': advance}
+                    if case in {'success', 'fresh-30'}:
+                        result = m.healthy_initialize(r, plan(), journey, emit, **kwargs)
+                        self.assertTrue(result['ready_for_keda_authentication'])
+                        self.assertFalse(result['runtime_preflight_passed'])
+                        self.assertEqual(result['authorization_checks'], 14)
+                        self.assertEqual(result['target_requests'], 14)
+                        self.assertEqual(clock(), 54)  # journey40 + max(10,8) + signal2 + path2.
+                        self.assertCountEqual(calls[:2], ['guard', 'configuration'])
+                        self.assertEqual(calls[2:], ['signal', 'path'])
+                    else:
+                        with self.assertRaises((ValueError, m.p8.subprocess.TimeoutExpired)):
+                            m.healthy_initialize(r, plan(), journey, emit, **kwargs)
+                        self.assertFalse(any(e['record'] == 'healthy_initialization_complete' for e in rows))
+                        self.assertEqual(rows[-1]['record'], 'healthy_initialization_failure')
+                        self.assertFalse(rows[-1]['runtime_preflight_passed'])
+                        if case == 'guard-timeout': self.assertEqual(rows[-1]['error_code'], 'command_timeout')
+                        if case == 'aged-during-path': self.assertEqual(rows[-1]['stage'], 'positive_path')
+                        if case in {'signal-missing', 'cpu-stale', 'aged-during-configuration', 'aged-during-signal'}:
+                            self.assertEqual(clock(), 115)
+                            self.assertNotIn('path', calls)
+                self.assertEqual(journeys, [90])
+                self.assertTrue(finished.is_set() or calls.count('signal'))
 
     def test_initialize_process_group_timeout_covers_internal_budgets_and_retention(self):
         v = plan()
