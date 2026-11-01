@@ -606,19 +606,35 @@ class Runtime(p8.Runtime):
             deferred = {p['metadata']['uid'] for p in ready} - getattr(self, 'initializing_stat_seen', set())
         elif self.arm == 'C3' and hasattr(self, 'lifecycle'):
             deferred = set(self.lifecycle.first_seen) - self.initial_uids - self.lifecycle.admin_seen
-        result = super().configuration(config, target_range=(1, 2) if self.arm == 'C3' else (1, 1),
-                                       haproxy_config=self.hp_config, hpa_name=self.hpa_name,
-                                       target_pods=ready, releasing=releasing, stat_uids=deferred, stats_path=metric_contract()['admin_request'])
-        self.admin_observations = result.pop('stat_observations')
-        result['metric_contract'] = metric_contract()
-        for target in result['targets']:
-            bootstrap = self.admin(NS, target['name'], 'config_dump?mask=bootstrap.stats_config')
+        parallel = self.arm == 'C3' and len(ready) == 2
+        def observe_target(target, observation, bootstrap):
+            # The two-target path uses the same immutable bootstrap response for
+            # matcher and metric-binding validation, rather than reading twice.
+            if not parallel:
+                bootstrap = self.admin(NS, target['name'], 'config_dump?mask=bootstrap.stats_config')
             target['metric_binding'] = metric_mapping(target['mapping'], bootstrap)
-            observation = self.admin_observations[target['uid']]
             observation['native'] = native_samples(self.k('-n', NS, 'exec', target['name'], '-c', 'istio-proxy', '--',
                                                         'pilot-agent', 'request', 'GET', metric_contract()['exposition_request']))
-            if admin_observation(target, observation) and initializing:
-                self.initializing_stat_seen = getattr(self, 'initializing_stat_seen', set()) | {target['uid']}
+            admin_observation(target, observation)
+        options = {'target_range': (1, 2) if self.arm == 'C3' else (1, 1), 'haproxy_config': self.hp_config,
+                   'hpa_name': self.hpa_name, 'target_pods': ready, 'releasing': releasing, 'stat_uids': deferred,
+                   'stats_path': metric_contract()['admin_request'], 'target_observer': observe_target if parallel else None}
+        if parallel:
+            deadline = getattr(self.collection_deadline, 'at', None)
+            def target_deadline():
+                self.collection_deadline.at = deadline
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2, initializer=target_deadline) as workers:
+                result = super().configuration(config, **options, target_executor=workers)
+        else:
+            result = super().configuration(config, **options)
+        self.admin_observations = result.pop('stat_observations')
+        result['metric_contract'] = metric_contract()
+        if not parallel:
+            for target in result['targets']:
+                observe_target(target, self.admin_observations[target['uid']], None)
+        if initializing:
+            self.initializing_stat_seen = getattr(self, 'initializing_stat_seen', set()) | {
+                t['uid'] for t in result['targets'] if self.admin_observations[t['uid']]['status'] == 'observed'}
         expected = render(self.value, self.v, self.arm)['fixtures.json']['items']
         if self.arm == 'C3':
             so = next(o for o in expected if o['kind'] == 'ScaledObject')

@@ -59,9 +59,32 @@ HPA/Pod/bootstrap 중복 read는 provenance·drift 관측을 줄일 수 있어 �
 각 arm의 연속3개 snapshot은 전체29.472324808초, 실제 end 간격30.472324808초(기존 poll wait1초 포함)다.
 기존 순차 경로의0.452934343초 allocation timeout도 negative replay로 보존한다. Configuration/guard/query 실패,
 guard worker의 잔여0.25초 command timeout, UID drift, missing signal, 마지막 조회 overrun은 snapshot을 차단한다.
-실제 Azure의 각 명령 latency·동시 조회 시 지연·C3 두 Ready target의 전체 latency는 아직 측정하지 않았다.
+이 단계에서는 C3 두 Ready target의 전체 latency를 검증하지 않았다. 아래 후속 source 회귀로 범위를 확장한다.
 이 결과는 bounded source 회귀이며 Azure measured 성공이나 제13차 실행 승인이 아니다. 실제 cadence/scale-out은 후속 runtime gate로 남는다.
 직접 P9 regression77개·P8 regression38개와 `make static`을 통과했다. 과거12개 P9 raw archive의 byte/SHA256는 시작 HEAD와 동일하다.
+
+### C3 두 Ready target 수집
+
+[후속 독립 review](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#pullrequestreview-5727302776)에 따라
+기존 `LiveFixture`에 실제 source가 읽는 두 Ready target 객체를 넣고 호출별 latency를 적용한다.
+제12차 pre-guard21.972324808초를 one-target configuration의 admin9/kubectl3회에 균등 배분한 **합성 비용1.831027067초/request**다.
+실제 Azure 개별 명령 latency를 측정한 값은 아니다. Guard8.034264953초와 기존 inventory0.5초/log당0.375초/query당0.2초/HAProxy4.5초를 유지한다.
+기존 source는 두 target에서 admin16/kubectl5회와 추가 app/proxy logs를 순차 수집하여 전체46.701568414초로30초를 초과한다.
+
+P8 adapter는 per-target 수집을 local result로 반환하고 선택적 executor/observer를 받는다. 기본 P8/C0/one-target 경로는 순차 호출을 유지한다.
+P9의 C3 **Ready2개일 때만** target worker를2개로 제한하고 같은 절대 collection deadline을 thread-local에 전달한다.
+Target별 matcher/native sample/hold/counter/mapping 검증을 worker 안에서 끝내고 성공 결과만 메인 경로에서 UID별로 합친다.
+두 target 각각의 이미 읽은 bootstrap 응답을 matcher와 metric-binding 검증에 함께 사용하여 중복 read1회씩만 제거한다.
+다른 target의 응답이나 이전 cycle cache를 재사용하지 않는다. HPA/owner/config/UID/Warning/log/counter/signal 및 raw ScaledObject provenance는 유지한다.
+
+같은 호출별 모델에서 C3 Ready2개 configuration은 admin14/kubectl5회이며 target2개 read가 겹친다.
+각 target의 app·proxy logs와 ingress·HAProxy logs **6회**, Prometheus5query, HAProxy 실제 CSV parser까지 포함한 연속3snapshot의
+전체 완료는 **28.391297741초**, end 간격은 **29.391297741초**다. C0 Ready1개는 기존 **29.472324808초 / 30.472324808초**다.
+Collection30초 허용/30.001초 발행 차단, 기존 saved gap35초 허용/35.001초 거부를 유지한다.
+두 번째 target read/native 실패·worker 잔여0.25초 timeout·UID/owner drift·missing/failed signal은 snapshot을 내보내지 않는다.
+Target 실패 때 기존 admin observations를 부분 결과로 덮어쓰지 않는 것도 검증한다.
+실제 Azure의 명령별 latency·동시 API contention·scale-out/recovery 성능은 여전히 runtime gate다. 합성 회귀를 실제 measured PASS로 분류하지 않는다.
+직접 P9 regression78개·P8 regression38개와 `make static`을 통과했고 과거12개 raw archive의 byte/SHA256를 보존했다.
 
 ## 제11차 historical 실행
 

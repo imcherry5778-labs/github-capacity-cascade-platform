@@ -340,11 +340,12 @@ class Runtime:
         return self.pods(NS, 'app=ext-authz-sim')
 
     def configuration(self, config, *, target_range=(1, 1), haproxy_config=None, hpa_name='hpa-app-cpu',
-                      target_pods=None, releasing=False, stat_uids=None, stats_path='stats?format=json&filter=upstream_rq_'):
+                      target_pods=None, releasing=False, stat_uids=None, stats_path='stats?format=json&filter=upstream_rq_',
+                      target_executor=None, target_observer=None):
         measurement_transport(self.value)
         policy = self.j('-n', 'aks-istio-ingress', 'get', 'authorizationpolicy', 'p8-shared-gate', '-o', 'json')
         result = {'targets': [], 'scenario': config, 'ingress': [], 'forgejo_hostname': self.value['forgejo_hostname']}
-        for pod in self.targets() if target_pods is None else target_pods:
+        def collect_target(pod):
             name = pod['metadata']['name']
             require(next(c['image'] for c in pod['spec']['containers'] if c['name'] == 'app') == self.value['ext_authz_image'], 'target source image drift')
             cluster_dump = self.admin(NS, name, 'config_dump?resource=dynamic_active_clusters')
@@ -354,21 +355,34 @@ class Runtime:
                 self.admin(NS, name, 'config_dump?resource=dynamic_listeners'),
                 allowed_capacities=(2, 1024) if releasing else None,
                 allow_uninitialized=stat_uids is not None and pod['metadata']['uid'] in stat_uids)
+            observation = None
             if stat_uids is not None:
                 require(len(values) == sum(row.get('name') in values for row in stat_payload['stats']), 'ambiguous target stats')
                 missing = sorted(set(mapping['stat_names']) - set(values))
-                result.setdefault('stat_observations', {})[pod['metadata']['uid']] = {
+                observation = {
                     'status': 'uninitialized' if missing else 'observed', 'values': values, 'missing': missing}
             hold = int(self.k('-n', NS, 'exec', name, '-c', 'app', '--', 'cat', '/config/hold-ms'))
             require(hold in (0, 1000) if releasing else hold == config['hold_ms'], 'hold convergence')
-            if releasing:
-                result.setdefault('fault_state', {})[pod['metadata']['uid']] = {'hold_ms': hold, 'max_requests': mapping['capacity']}
             statuses = pod['status'].get('containerStatuses', []) + pod['status'].get('initContainerStatuses', [])
-            result['targets'].append({'uid': pod['metadata']['uid'], 'name': name, 'mapping': mapping,
+            target = {'uid': pod['metadata']['uid'], 'name': name, 'mapping': mapping,
                 'images': {s['name']: s['imageID'] for s in statuses},
                 'proxy_version': self.admin(NS, name, 'server_info')['version'],
-                'runtime_guard': self.admin(NS, name, 'runtime?format=json').get('entries', {}).get(p4.GUARD),
-                'stats_matcher': [v['stats_matcher'] for v in walk(self.admin(NS, name, 'config_dump?mask=bootstrap.stats_config')) if 'stats_matcher' in v]})
+                'runtime_guard': self.admin(NS, name, 'runtime?format=json').get('entries', {}).get(p4.GUARD)}
+            bootstrap = self.admin(NS, name, 'config_dump?mask=bootstrap.stats_config')
+            target['stats_matcher'] = [v['stats_matcher'] for v in walk(bootstrap) if 'stats_matcher' in v]
+            if target_observer is not None:
+                target_observer(target, observation, bootstrap)
+            return target, observation, {'hold_ms': hold, 'max_requests': mapping['capacity']}
+        pods = self.targets() if target_pods is None else target_pods
+        collected = map(collect_target, pods) if target_executor is None else target_executor.map(collect_target, pods)
+        # Workers own their target/observation dictionaries. Merge only after
+        # successful collection; P8's default remains the sequential path.
+        for target, observation, fault in collected:
+            result['targets'].append(target)
+            if stat_uids is not None:
+                result.setdefault('stat_observations', {})[target['uid']] = observation
+            if releasing:
+                result.setdefault('fault_state', {})[target['uid']] = fault
         require(target_range[0] <= len(result['targets']) <= target_range[1], 'target replica range differs')
         hp = self.pod(NS, 'app=haproxy')
         require(next(c['image'] for c in hp['spec']['containers'] if c['name'] == 'haproxy') == PINS['HAPROXY_IMAGE'], 'HAProxy source image drift')

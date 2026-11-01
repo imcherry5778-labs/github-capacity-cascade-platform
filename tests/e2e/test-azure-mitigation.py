@@ -836,6 +836,121 @@ class CollectionGateTests(unittest.TestCase):
                             self.assertTrue(any(e['record'] == 'scaledobject_configuration' and
                                                 e['metadata']['uid'] == 'so' and e['spec'] == f.scaled[0]['spec'] for e in rows))
 
+    def test_two_ready_targets_use_per_request_latency_and_preserve_full_snapshot(self):
+        failure = m.load(ROOT / 'docs/evidence/p9-mitigation-twelfth-20261101/execution.json')['source_failure']
+        # Uniform synthetic command cost calibrated to the observed one-target
+        # configuration phase's 12 admin/k calls. No Azure per-command claim.
+        cost = (failure['elapsed_seconds'] - failure['stage_elapsed_seconds']) / 12
+        scenarios = [('C0', 1, 'success')] + [('C3', 2, case) for case in (
+            'success', 'read-failed', 'worker-timeout', 'uid-drift', 'owner-drift', 'signal-failed',
+            'missing-signal', 'invalid-native', 'bootstrap-drift', 'counter-invalid', 'boundary', 'overrun')]
+        for arm, count, case in scenarios:
+            with self.subTest(arm=arm, case=case):
+                f, origin, rows, calls = LiveFixture(arm), [0.0], [], []
+                if count == 2:
+                    f.pods.append(f.pod('new', 'ext-authz-sim-new'))
+                    f.collect(-1)  # Establish both Ready UIDs/series before testing loss.
+                    f.epoch = None
+                f.rate = 1
+                r, main = f.runtime, threading.get_ident()
+                previous = copy.deepcopy(r.admin_observations)
+                times = {main: 0.0}
+                barrier = threading.Barrier(2)
+                first, tids = set(), set()
+                admin, k, pods, prom, guard = r.admin, r.k, r.pods, r.prom, r.guard
+                names = {p['metadata']['name'] for p in f.pods}
+                def clock(): return times.get(threading.get_ident(), origin[0] + .5)
+                def advance(seconds): times[threading.get_ident()] = clock() + seconds
+                def target_admin(ns, name, path):
+                    if ns == m.NS and name in names and threading.get_ident() != main:
+                        self.assertEqual(r.collection_deadline.at, origin[0] + 30)
+                        tids.add(threading.get_ident())
+                        if name not in first:
+                            first.add(name); barrier.wait(2)
+                    advance(cost); calls.append(('admin', ns, name, path))
+                    if name == 'ext-authz-sim-new' and path == 'server_info':
+                        if case == 'read-failed': raise ValueError('second target read failed')
+                        if case == 'worker-timeout':
+                            times[threading.get_ident()] = origin[0] + 29.75
+                            def expired(args, **kwargs):
+                                self.assertAlmostEqual(kwargs['timeout'], .25)
+                                raise m.p8.subprocess.TimeoutExpired(args, kwargs['timeout'])
+                            with patch.object(m.p8.subprocess, 'run', side_effect=expired):
+                                return m.Runtime.k(r, 'get', 'target-deadline-probe')
+                    result = admin(ns, name, path)
+                    if name == 'ext-authz-sim-new':
+                        if case == 'bootstrap-drift' and path == 'config_dump?mask=bootstrap.stats_config':
+                            result['stats_tags'][0]['regex'] = 'wrong'
+                        if case == 'counter-invalid' and path.startswith('stats?'):
+                            result['stats'][0]['value'] = -1
+                    return result
+                def command(*args):
+                    if 'logs' in args:
+                        advance(.375); calls.append(('log', args[3], args[-1]))
+                    elif 'http://127.0.0.1:8404/stats;csv' in args:
+                        advance(4.5); calls.append(('haproxy',))
+                        if case in {'boundary', 'overrun'}: times[main] = origin[0] + (30 if case == 'boundary' else 30.001)
+                        fields = list(m.p8.p4.HAPROXY_FIELDS)
+                        return '# pxname,svname,status,' + ','.join(fields) + '\n' + '\n'.join(
+                            'ext_authz,' + name + ',no check,' + ','.join('0' for _ in fields) for name in ('app', 'BACKEND'))
+                    else:
+                        advance(cost); calls.append(('k', *args))
+                        if case == 'invalid-native' and 'ext-authz-sim-new' in args and 'stats/prometheus' in args: return ''
+                    return k(*args)
+                def inventory(*args):
+                    if args == (m.NS, 'app=ext-authz-sim'): advance(.5)
+                    # Target futures are joined before the shared HAProxy reads.
+                    elif args == (m.NS, 'app=haproxy') and threading.get_ident() == main:
+                        times[main] = max(times.values())
+                    return pods(*args)
+                def query(expression):
+                    advance(.2); calls.append(('query', expression))
+                    if case == 'signal-failed': raise ValueError('mandatory query failed')
+                    return prom(expression)
+                def safety():
+                    advance(failure['stage_elapsed_seconds']); calls.append(('guard',))
+                    result = guard()
+                    if case == 'uid-drift': result['pods'][1]['uid'] = 'replaced'
+                    return result
+                r.admin, r.k, r.pods, r.prom, r.guard = target_admin, command, inventory, query, safety
+                r.haproxy = lambda: m.Runtime.haproxy(r)
+                if case == 'owner-drift': f.hpa['metadata']['ownerReferences'] = [{'kind': 'Unknown', 'uid': 'other', 'controller': True}]
+                if case == 'missing-signal': f.missing = {'new'}
+                with patch.object(m.time, 'monotonic', side_effect=clock), \
+                     patch.object(m.time, 'time', side_effect=lambda: 1000 + clock()):
+                    for _ in range(3 if case == 'success' else 1):
+                        calls.clear(); first.clear(); tids.clear(); times.clear(); times[main] = origin[0]
+                        if case not in {'success', 'boundary'}:
+                            with self.assertRaises((ValueError, m.SnapshotBudgetExceeded, m.p8.subprocess.TimeoutExpired)):
+                                m.collect_snapshot(r, f.config, f.baseline, rows.append, threading.Event())
+                            self.assertFalse(any(e['record'] in {'snapshot', 'convergence'} for e in rows))
+                            if case in {'read-failed', 'worker-timeout', 'invalid-native', 'bootstrap-drift', 'counter-invalid'}:
+                                self.assertEqual(r.admin_observations, previous)  # No partial target result is published.
+                            break
+                        m.collect_snapshot(r, f.config, f.baseline, rows.append, threading.Event())
+                        snap = next(e for e in reversed(rows) if e['record'] == 'snapshot')
+                        expected = (12 if count == 1 else 11) * cost + .5 + (2 * count + 2) * .375 + 1 + 4.5
+                        self.assertAlmostEqual(snap['end'] - snap['at'], 30 if case == 'boundary' else expected)
+                        self.assertLessEqual(snap['end'] - snap['at'], 30)
+                        self.assertEqual(set(snap['stats']), {'target'} if count == 1 else {'target', 'new'})
+                        self.assertEqual(set(snap['logs']['proxies']['target']), set(snap['stats']))
+                        self.assertEqual({p['pod_uid'] for p in snap['signal']['pods']}, set(snap['stats']))
+                        self.assertEqual(snap['signal']['status'], 'observed')
+                        self.assertEqual(snap['end'], clock())
+                        self.assertEqual(sum(c[0] == 'admin' for c in calls), 9 if count == 1 else 14)
+                        self.assertEqual(sum(c[0] == 'k' for c in calls), 3 if count == 1 else 5)
+                        self.assertEqual(sum(c[0] == 'log' for c in calls), 2 * count + 2)
+                        self.assertEqual(sum(c[0] == 'query' for c in calls), 5)
+                        self.assertEqual(sum(c[0] == 'haproxy' for c in calls), 1)
+                        self.assertEqual(sum(c[0] == 'guard' for c in calls), 1)
+                        if count == 2:
+                            self.assertEqual(len(tids), 2)
+                            for name in names:
+                                self.assertEqual(sum(c == ('admin', m.NS, name, 'config_dump?mask=bootstrap.stats_config') for c in calls), 1)
+                        origin[0] = snap['end'] + 1
+                snapshots = [e for e in rows if e['record'] == 'snapshot']
+                self.assertTrue(all(b['end'] - a['end'] <= 35 for a, b in zip(snapshots, snapshots[1:])))
+
     def test_release_partial_convergence_checks_invariants_and_records_gap(self):
         for order in ('hold-first', 'capacity-first'):
             with self.subTest(order=order):
