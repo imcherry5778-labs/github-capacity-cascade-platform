@@ -37,16 +37,17 @@ Archive/legacy repository는 historical reference일 뿐 current contract가 아
 - 현재 milestone만 reviewable work-unit graph로 분해한다.
 - 각 work unit의 architecture relevance, scope/non-goals, safety, REVALIDATE result, acceptance/evidence를 정의한다.
 - architecture/spec correction은 docs-only PR로 제안/정리할 수 있지만 implementation source 수정은 Local AI Agent에 위임한다.
+- 사용 가능한 연결로 작업·교정을 직접 전달한다. 기본적으로 Local Agent가 실행하고 사용자가 완료 또는 실제 blocker의 결과 링크를 가져오면 검토하며, routine prompt 전달이나 상시 감독을 전제하지 않는다.
 - exact-head CI/review 뒤 actual PR/diff/HEAD/check/review thread를 독립 검토한다.
 - 문제가 없을 때 검토한 exact HEAD를 기준으로 squash merge한다.
 
 ### Local AI Agent
 
-Repository implementation executor. **새 work unit은 fresh session**에서 시작하고 actual Git/GitHub state를 독립 확인한다. Agent는 merge하지 않는다.
+Repository implementation executor. **새 work unit의 초기 context는 fresh를 기본**으로 하고 actual Git/GitHub state를 확인한다. 합의된 범위의 추가 조사·세부 계획·구현·검증·CI 대응·승인된 운영/복구·evidence 정리를 소유한다. Agent는 merge하지 않는다.
 
-여기서 **fresh session**은 agent conversation/context를 새로 시작한다는 뜻이며 Git lifecycle 의미의 `FRESH_WORK_UNIT`과는 다르다. 같은 work unit의 복구/수정인 `CONTINUE_EXISTING_PR`은 사용 가능한 동일 Agent session/worktree/branch/PR을 기본 재사용한다. 동시에 implementation writer/cloud mutation owner는 하나만 둔다.
+여기서 **fresh session**은 agent context의 시작이며 Git lifecycle과는 별개다. 같은 work unit의 `CONTINUE_EXISTING_PR`은 기존 session을 재사용/resume한다. 재개 불가 또는 구체적인 context 품질 문제로 교체해도 worktree/branch/PR/evidence를 보존하고 경쟁 writer 부재를 확인한다. Implementation writer/cloud mutation owner는 각각 하나만 둔다.
 
-Milestone 첫 work unit은 ChatGPT가 확정한 milestone decomposition을 읽고 시작한다. 구현 중 새로운 evidence로 scope/acceptance/safety boundary 변경이나 work-unit 재분해가 필요하면 임의로 다음 unit 구조를 바꾸지 않고 ChatGPT가 판단한다. 같은 boundary 안의 오류 복구는 §5를 따른다.
+Milestone 첫 work unit은 ChatGPT가 확정한 milestone decomposition을 읽고 시작한다. 같은 intent/acceptance/safety/권한 경계의 세부 계획과 구현 방법은 Agent가 evidence에 따라 조정한다. 계약 변경이나 work-unit 재분해는 ChatGPT가 판단하며, 사용자 권한이 필요한 결정은 기존 승인 범위를 넘겨 대신 승인하지 않는다. 같은 boundary 안의 오류 복구는 §5를 따른다.
 
 ### GitHub
 
@@ -60,7 +61,7 @@ P0 specification 자체는 bootstrap 이후 feature branch / PR / exact-head rev
 
 ## 4. Fresh work-unit start
 
-Fresh Local AI Agent는 먼저 확인한다.
+이 절차는 새 work unit의 branch를 시작할 때 적용한다. 기존 PR의 Agent context 재개·교체는 현재 worktree/branch/PR을 보존하고 필요한 상태만 확인하며, 아래의 main 전환·새 branch·이전 작업 cleanup을 자동 적용하지 않는다. 새 work unit의 Agent는 먼저 확인한다.
 
 - repository/remote URL
 - `git status`
@@ -96,7 +97,7 @@ Remote head branch lifecycle은 actual GitHub repository policy를 따른다.
 
 ## 5. Implementation cycle
 
-Cleanup 뒤 clean/synchronized `main`에서 새 feature branch를 만든다.
+새 work unit은 §4 뒤 clean/synchronized `main`에서 새 feature branch를 만든다. 기존 작업의 수정은 같은 branch/PR에서 수행한다.
 
 1. current upstream/runtime preflight
 2. 합의 scope 구현
@@ -105,6 +106,8 @@ Cleanup 뒤 clean/synchronized `main`에서 새 feature branch를 만든다.
 5. commit
 6. push
 7. PR 생성
+
+PR 생성만으로 작업 완료를 주장하지 않는다. 관련 필수 CI 결과 확인·in-scope 실패 교정과 적용되는 실행·원복 evidence 정리까지 수행한 뒤 PR/exact HEAD/acceptance 근거를 연결해 보고한다. 승인 범위에서 해결할 수 없는 blocker는 부분 결과·시도한 조치·남은 한도·안전 상태와 필요한 판단을 보고한다.
 
 다음 work unit capability를 선제 구현하지 않는다. 한 PR은 가능한 한 하나의 capability다.
 
@@ -116,7 +119,7 @@ Scope/acceptance/safety boundary가 바뀌지 않는 구현·운영 오류는 Ag
 
 Campaign은 사용자 중단·범위 완료·안전/ownership 복구 불가·승인상 종료·횟수/비용/retention reserve 소진일 때 owned cleanup으로 종료하며, 실패 한 번 자체를 종료 사유로 삼지 않는다.
 
-Source 수정과 cost-free 검증은 진행할 수 있다. 승인이 exact SHA로만 한정되어 있으면 변경 SHA의 paid 경로는 필요한 review/승인 전까지 보류한다. 향후 승인이 동일 scope의 bounded source correction을 명시적으로 포함하면 영향 검증·독립 review·새 SHA/image/plan binding 후 그 승인 범위에서 진행한다. 보존 기한 자동 연장이나 전체 Environment teardown을 복구 수단으로 삼지 않는다.
+Source 수정과 cost-free 검증은 진행할 수 있다. 승인이 exact SHA로만 한정되어 있으면 변경 SHA의 paid 경로는 필요한 review/승인 전까지 보류한다. 향후 승인이 동일 scope의 bounded source correction을 명시적으로 포함해도 실제 실행 gate가 해당 복구·누적 계수를 지원하는지 확인하고, 영향 검증·독립 review·새 SHA/image/plan binding을 마친 범위에서만 진행한다. 보존 기한 자동 연장이나 전체 Environment teardown을 복구 수단으로 삼지 않는다.
 
 ## 6. Exact-head review / fix
 
@@ -134,7 +137,7 @@ Relevant native post-merge repository policy가 있으면 실제 적용 결과�
 
 그 새 `main` SHA가 다음 work unit의 단일 remote baseline이다.
 
-방금 merge된 work의 local worktree/local branch cleanup과 local `main` fast-forward synchronization은 다음 **fresh Local AI Agent**가 독립 확인 후 수행한다.
+방금 merge된 work의 local worktree/local branch cleanup과 local `main` fast-forward synchronization은 다음 새 work unit을 맡은 Local AI Agent가 상태를 독립 확인 후 수행한다.
 
 Milestone의 마지막 work unit이 merge되면 ChatGPT가 milestone exit evidence를 확인하고 다음 milestone deep research/decomposition을 수행한다.
 

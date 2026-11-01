@@ -773,6 +773,12 @@ Environment/Foundation 기한 연장, 새 compute/Disk/PVC, node autoscaling/DNS
 
 ## 실행 entrypoint와 남은 gate
 
+현재 [실행 source](../scripts/azure-mitigation.py)의 `approval_gate()`는 **ledger의 모든 run이 현재 source SHA와 동일**해야 하며, calibration≤2 / measured arm별≤1을 강제한다. `measure`는 workload 전에 횟수를 기록하므로 시작한 invalid run도 사용량에서 빠지지 않는다. Measured arm당1회에는 실패 후 같은 arm을 다시 실행할 여유가 없다.
+
+따라서 [AGENTS.md §5](../AGENTS.md#복구와-실행-중단-경계)의 공통 bounded recovery 정책만으로 **이전 SHA의 run을 보존한 채 다른 SHA로 같은 ledger에서 재개하는 기능**이 구현됐다고 보지 않는다. 이 복구가 실제 필요할 때만 승인·source gate·직접 영향 검증을 함께 정합화한다. `initialize()`의 healthy journey 소비 검사는 현재 source SHA별이다. 이는 source SHA 교정 때 새 journey 횟수가 승인된다는 뜻이 아니다. Raw/소비량을 지우거나 빈 ledger로 바꿔 한도를 우회하지 않는다.
+
+최종 비교는 같은 freeze/source/configuration 경계를 유지한다. 실행 중 필요한 독립 review는 최종 PR 검토로 미룰 수 없으며, 그 근거가 없으면 해당 paid 경로를 보류하고 안전한 독립 작업만 계속한다. 이 설명은 추가 시도·새 유료 실행·retention 연장 또는 gate 변경의 승인이 아니다.
+
 Source gate는 직접 회귀, P8 historical replay, `make static`, exact-head PR CI와 독립 review다.
 제7차 이후 Warning/freshness 계약을 교정했고 제10차에 실제 CPU/healthy·KEDA positive를 관측했다. C3 calibration configuration 이후 measured/recovery gate는 미완료다.
 아래는 entrypoint 사용 형식이며 성공한 campaign 기록이 아니다. 재개 전 새 source gate와 필요한 승인을 확인한다.

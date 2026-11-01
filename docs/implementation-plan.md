@@ -66,15 +66,15 @@ ChatGPT는 milestone 시작 전에 다음을 수행한다.
 
 ```text
 1 work unit
-≈ 1 fresh Local AI Agent session
+≈ 하나의 일관된 acceptance boundary
 ≈ 가능하면 1 PR
 ```
 
-Milestone이 충분히 작으면 milestone 하나가 work unit 하나일 수 있다.
+Milestone이 충분히 작으면 milestone 하나가 work unit 하나일 수 있다. Agent context의 재개·교체는 작업 단위를 바꾸지 않으며 `AGENTS.md`의 session/ownership 경계를 따른다.
 
 ### Work-unit refinement
 
-구현 중 새 evidence가 초기 계획의 세부사항을 무효화해도 **engineering intent, acceptance, safety/external-side-effect boundary가 유지**되면 ChatGPT가 current work-unit contract를 보정하고 같은 branch/PR에서 계속할 수 있다.
+구현 중 새 evidence가 초기 계획의 세부사항을 무효화해도 **engineering intent, acceptance, safety/external-side-effect 및 승인 권한 경계가 유지**되면 Local AI Agent가 세부 실행 계획·구현 방법을 조정하고 같은 branch/PR에서 계속한다. 계약 자체의 보정이나 work-unit 재분해는 ChatGPT가 판단하며, 기존 사용자 승인 밖의 권한은 별도 승인 없이 확대하지 않는다.
 
 다음 중 하나면 기존 work unit을 억지로 확장하지 않고 현재 milestone 안에서 재분해한다.
 
@@ -103,7 +103,7 @@ ChatGPT가 각 work unit 시작 전에 다음을 확정한다.
 
 구현 결과에 맞춰 acceptance를 사후 완화하지 않는다.
 
-Fresh Local AI Agent session prompt는 `AGENTS.md` standing rule을 반복하지 않고 이번 work unit의 delta만 담는다.
+Local AI Agent 작업 지시는 `AGENTS.md` standing rule을 반복하지 않고 이번 work unit의 delta만 담는다.
 
 ## 6. Exact pin / runtime-dependent value
 
