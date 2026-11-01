@@ -110,11 +110,13 @@ Cleanup 뒤 clean/synchronized `main`에서 새 feature branch를 만든다.
 
 ### 복구와 실행 중단 경계
 
-Scope/acceptance/safety boundary가 바뀌지 않는 구현·운영 오류는 Agent가 원인 파악 → 수정 → 영향 검증 → 계속 진행한다. 해결 불가능한 계약/권한 충돌만 ChatGPT에 escalation한다.
+Scope/acceptance/safety boundary가 바뀌지 않는 구현·운영 오류는 Agent가 원인 파악 → 수정 → 영향 검증 → 계속 진행한다. 계약/권한 충돌 또는 가용 증거로 더 진행할 수 없는 기술적 blocker는 구체 근거와 최소 다음 행동을 ChatGPT에 전달해 escalation한다.
 
 위험 행동·부하 중단 및 필요한 fault release/isolation과 campaign 전체 종료/원복을 구분한다. 안전·ownership·비용·기한이 유지되고 해당 실행 승인이 bounded recovery를 허용하면 같은 campaign에서 고치고 진행한다. 시작한 실패 run은 invalid/횟수 소비로 보존하며 재개해 valid로 만들지 않는다. 다음 calibration은 원인 조치 후 남은 승인 횟수·비용·시간 안에서만 가능하다. 근거 없는 반복·카운터 초기화·acceptance 완화는 금지한다.
 
-Source 수정과 cost-free 검증은 진행할 수 있지만 승인된 exact SHA 밖 source로 paid workload를 실행할 수 없다. 필요한 독립 review/승인은 해당 paid 경로만 보류한다. 보존 기한 자동 연장이나 전체 Environment teardown을 복구 수단으로 삼지 않는다.
+Campaign은 사용자 중단·범위 완료·안전/ownership 복구 불가·승인상 종료·횟수/비용/retention reserve 소진일 때 owned cleanup으로 종료하며, 실패 한 번 자체를 종료 사유로 삼지 않는다.
+
+Source 수정과 cost-free 검증은 진행할 수 있다. 승인이 exact SHA로만 한정되어 있으면 변경 SHA의 paid 경로는 필요한 review/승인 전까지 보류한다. 향후 승인이 동일 scope의 bounded source correction을 명시적으로 포함하면 영향 검증·독립 review·새 SHA/image/plan binding 후 그 승인 범위에서 진행한다. 보존 기한 자동 연장이나 전체 Environment teardown을 복구 수단으로 삼지 않는다.
 
 ## 6. Exact-head review / fix
 
