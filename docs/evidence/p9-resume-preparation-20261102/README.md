@@ -55,6 +55,9 @@ exit7 차단/회수, 정상 stop/wait를 확인했다. Mock 검증은 TERM timeo
 기존 log 덮어쓰기 및 approval 거부 시 spawn 부재를 확인했다.
 Live kubectl/port-forward 또는 실제 승인 operator 전체가 검증됐다는 주장은 없다.
 [validation.json](validation.json)은 직접 검증과 source 파일 hash를 연결한다.
+Source 변경 HEAD `f16d70911c52c52b52408a5c67b26140c6677bc0`의 [자동 CI](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/actions/runs/41356125476)는
+full-runtime/success다. P9 회귀84개와 local/recovery/upgrade/ownership/cleanup이 실제 실행되어 성공했다.
+후속 문서 HEAD의 check 결과는 PR 결과 comment에 별도 연결하며 Azure runtime/독립 review로 확대하지 않는다.
 
 ## 단일 통합 실행 승인 요청 범위
 

@@ -43,7 +43,7 @@
     "projection_with_next_variable_no_extension_usd": "154.4323063821850597626916667",
     "retention_extension_hours_requested": 0,
     "contingency_only_6h_two_rg_retention_usd": "6.330837658564249943562499998",
-    "contingency_requires_new_decision": "8045s reserve不足なら実行NO-GO。Environment +6hを別途承認・source deadline/新exact SHA/CI/独立review整合後のみ利用可。Foundation/Bootstrapは既存期限内。自動延長なし。"
+    "contingency_requires_new_decision": "8045초 reserve 부족 시 실행 NO-GO. Environment +6h는 별도 기한 승인과 source deadline/새 exact SHA/CI/독립 review 정합화 후에만 사용할 수 있다. Foundation/Bootstrap은 기존 기한 안이며 자동 연장은 없다."
   },
   "limitations": [
     "GET Usage Details는 과거 CostManagement POST aggregate와 다른 API surface; returned line items 기준",
