@@ -1,6 +1,8 @@
 # P9-W1 Mitigation & Recovery
 
-현재 상태: **제12차 normal valid / 첫 guard collection30초 command timeout / CPU poll·healthy·KEDA·calibration·C0–C3 measured0 / P9-owned 원복 완료 / P9 acceptance 미충족**.
+현재 상태: **제12차 actual negative·원복 evidence 보존 / initialization collection budget source 교정 / measured snapshot latency 위험 미해결 / P9 acceptance 미충족**.
+
+제12차 실행 결과는 normal valid / 첫 guard collection30초 command timeout / CPU poll·healthy·KEDA·calibration·C0–C3 measured0이다.
 
 승인·실제 source `dfdfaabe03d56a5ec9f1dd6f8cffc6627c621d6f`의
 [제12차 actual raw·비용·cleanup](evidence/p9-mitigation-twelfth-20261101/README.md)을 연결한다.
@@ -13,6 +15,33 @@ CUSTOM/shared mesh/namespace/PAT24/image/임시 IAM/보호 사본을 정리하�
 준비/원복 누적12회, before/final posted two-RG ActualCost KRW112,982.43859335 → KRW115,421.7153009966, P9 incremental unknown이다.
 첫 단일 비용 검토 예측USD121.8181787은 승인된 합산 세전 USD140 안이었으며 hard cap/확정 잔액이 아니다.
 Source·timeout·acceptance·retention은 변경하지 않았다. 제13차 자동 실행·새 source 수정·merge/P10은 없다.
+
+## 제12차 후속 collection budget source 교정
+
+`healthy_initialize`의 configuration과 뒤따르는 resource guard가 같은30초 countdown을 소모하던 계약은
+실제 순차 명령 latency를 수용하지 못했다. 제12차 archive의 pre-guard elapsed21.972324808초(configuration·초기 setup 포함),
+guard stage8.034264953초와 마지막 events allocation0.452934343초를 기존 fixture와 실제 `Runtime.k` timeout 경계에서 replay한다.
+공유 budget 경로는 동일 allocation에서 `TimeoutExpired`이며 CPU 관측 전에 실패한다.
+각 선행 command latency와 정상 events 응답 시간은 archive에 없으므로 회귀의 command 분할·성공 응답 및 CPU/journey/target positive는
+명시적 synthetic이다. 실제 제12차 negative나 제10차 positive·제11차 negative evidence를 변경하지 않는다.
+
+Source 변경은 initialization의 guard 진입 두 곳에서 deadline을 다시 지정하는 것으로 한정한다.
+첫/반복 CPU poll의 configuration과 guard는 각각 최대30초이며 같은 settling300초에 포함된다.
+Telemetry에서도 configuration 다음 guard 진입 시 최대30초를 부여한다. Guard·target inventory/signal·최종 path evidence는
+그 budget을 계속 공유하고 전체 `ingestion+3×scrape` deadline을 넘을 수 없다. Command15초, final fresh CPU/HPA·positive target telemetry,
+Warning/UID/resource safety, valid-stale pending, C3 canonical spec, outer840초와 run600초는 그대로다.
+Cost-free replay는 초기 pending → 반복 fresh positive → 단일 synthetic journey → 후속 fresh CPU/target positive를 완료하며,
+미회복은 settling300초, target telemetry 미확보는 기존 telemetry deadline에서 실패한다.
+
+**측정 snapshot latency 위험은 미해결이다.** `collect_snapshot`은 inventory/configuration/guard/stats/logs/HAProxy/signal에
+단일30초 budget을 유지한다. 기존 C0/C3 fixture에 같은 phase latency를 주입하면 마지막 guard events 명령에서 실패하여
+snapshot/convergence를 내보내지 못한다. Configuration 전후와 실패 guard의 합계만 이미30.006590초이며 이후 collector latency는 unknown이다.
+이는 실제 measured 관측이 아닌 bounded synthetic latency 회귀다. Guard 뒤 모든 수집에 budget을 새로 주거나 30초를 늘리는 방법은
+gap≤35초 증거를 보장하지 못하므로 적용하지 않았다. Saved validator의 gap35초 허용/35.001초 거부도 회귀로 고정한다.
+현재 자료만으로 모든 safety·provenance·sampling 조건과 실제 cadence를 보존하는 최소 snapshot 수정은 명확하지 않다.
+Initialization 교정은 다음 유료 실행 준비 완료나 P9 acceptance 충족을 의미하지 않으며, snapshot 수집 비용/명령 중복을 줄이는
+안전한 설계의 별도 exact-source 검토 전에는 이 위험이 남는다. Azure 재실행·추가 retention/비용 승인은 이 변경에 포함하지 않는다.
+직접 P9 regression75개·P8 regression38개와 `make static`을 통과했다. 과거12개 P9 raw archive의 byte/SHA256는 시작 HEAD와 동일하다.
 
 ## 제11차 historical 실행
 
@@ -398,7 +427,10 @@ Cost-free 검증: P9 regression66개(제4·7·8차 archive와 synthetic 구분, 
 이후 settling300초(configuration 포함), 별도 baseline stats/logs collection30초, journey90초+kill/wait 여유10초,
 telemetry `ingestion+3×scrape`, dispatch 여유5초를 합한다. 현재 후보는 **840초**, 허용 cadence 최대는1005초,
 각각 TERM 뒤 kill-after5초이며 measured run600초와 구분한다. 정상 시 바로 종료한다.
-Settling의 각 configuration+guard collection은 `min(now+30, settling deadline)`을 공유하며 command≤15초를 유지한다.
+Settling의 configuration과 guard는 각각 `min(now+30, settling deadline)`을 적용하며 command≤15초를 유지한다.
+제12차에서 configuration 전후21.972초가 guard budget을 소모한 공유 계약을 교정한 것이다. 전체 settling300초는 늘리지 않는다.
+Telemetry는 configuration에 이어 guard 진입에서도 `min(now+30, telemetry deadline)`을 적용한다.
+Guard 이후 signal/최종 path 검증은 그30초 budget을 공유하며 전체 telemetry deadline과 최종 freshness/safety gate를 유지한다.
 Baseline stats/logs는 완료된 settling collection과 분리한30초를 사용한다. Preparation 진입 시 외부 timeout+5초 kill 여유와
 기존 run/drain+30분 rollback reserve가 retention 전에 들어가는지도 검사한다.
 

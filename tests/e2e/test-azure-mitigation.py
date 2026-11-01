@@ -662,6 +662,56 @@ class CollectionGateTests(unittest.TestCase):
                     f.pods[1] = f.pod('new', 'ext-authz-sim-new'); f.collect(2); f.missing = {'new'}; at = 3
                 with self.assertRaises(ValueError): f.collect(at)
 
+    def test_measured_snapshot_retains_single_budget_under_twelfth_phase_latency(self):
+        evidence = m.load(ROOT / 'docs/evidence/p9-mitigation-twelfth-20261101/execution.json')
+        failure = evidence['source_failure']
+        configuration = failure['elapsed_seconds'] - failure['stage_elapsed_seconds']
+        remaining = evidence['direct_diagnostic']['command_timeout_seconds']
+        # Only phase totals/allocation were archived. The per-command split
+        # implied by this phase latency injection is explicitly synthetic.
+        prior_events = 30 - configuration - remaining
+        for arm in ('C0', 'C3'):
+            with self.subTest(arm=arm):
+                f, now, rows = LiveFixture(arm), [0.0], []
+                real_config, real_guard = f.runtime.configuration, f.runtime.guard
+                def configure(*args, **kwargs):
+                    result = real_config(*args, **kwargs)
+                    now[0] += configuration
+                    return result
+                def process(args, **kwargs):
+                    self.assertLessEqual(kwargs['timeout'], 15)
+                    now[0] += kwargs['timeout']
+                    raise m.p8.subprocess.TimeoutExpired(args, kwargs['timeout'])
+                def guard():
+                    real_guard()
+                    now[0] += prior_events
+                    return m.Runtime.k(f.runtime, 'get', 'events', '-A', '-o', 'json')
+                f.runtime.configuration, f.runtime.guard = configure, guard
+                with patch.object(m.time, 'monotonic', side_effect=lambda: now[0]), \
+                     patch.object(m.time, 'time', side_effect=lambda: 1000 + now[0]), \
+                     patch.object(m.p8.subprocess, 'run', side_effect=process):
+                    with self.assertRaises(m.p8.subprocess.TimeoutExpired) as error:
+                        m.collect_snapshot(f.runtime, f.config, f.baseline, rows.append, threading.Event())
+                self.assertAlmostEqual(error.exception.timeout, remaining)
+                self.assertAlmostEqual(now[0], 30)
+                self.assertFalse(any(r['record'] in {'snapshot', 'convergence'} for r in rows))
+
+    def test_saved_snapshot_gap_stays_35_seconds(self):
+        for gap in (35, 35.001):
+            with self.subTest(gap=gap), tempfile.TemporaryDirectory() as directory:
+                rows = CompleteEvidenceTests().fixture(directory)
+                # Remove otherwise valid intermediate snapshots. A longer
+                # collector timeout cannot manufacture acceptable coverage.
+                rows = [r for r in rows if r['record'] != 'snapshot' or not 0 < r['at'] < 35]
+                selected = next(r for r in rows if r['record'] == 'snapshot' and r['at'] == 35)
+                selected.update(at=gap, end=gap)
+                Path(directory, 'events.jsonl').write_text(''.join(json.dumps(r) + '\n' for r in rows))
+                with patch.object(m, 'path_accounting', return_value={'admitted_checks': [], 'checks': 1800}):
+                    if gap == 35:
+                        self.assertEqual(m.validate(directory)['validity'], 'pending-cloud-confounder-review')
+                    else:
+                        with self.assertRaisesRegex(ValueError, 'observation gap'): m.validate(directory)
+
     def test_release_partial_convergence_checks_invariants_and_records_gap(self):
         for order in ('hold-first', 'capacity-first'):
             with self.subTest(order=order):
@@ -1664,6 +1714,83 @@ class MetricInitializationTests(unittest.TestCase):
                 self.assertEqual(len(calls), int(recover))
                 self.assertLessEqual(now[0], 300)
                 self.assertTrue(any(r['record'] == 'cpu_preparation_poll' and r['at'] >= 90 and r['status'] == 'pending' for r in rows))
+
+    def test_twelfth_latency_separates_configuration_from_initial_poll_and_telemetry_guard(self):
+        evidence = m.load(ROOT / 'docs/evidence/p9-mitigation-twelfth-20261101/execution.json')
+        failure, diagnostic = evidence['source_failure'], evidence['direct_diagnostic']
+        configuration = failure['elapsed_seconds'] - failure['stage_elapsed_seconds']
+        remaining = diagnostic['command_timeout_seconds']
+        prior_events = 30 - configuration - remaining
+        events_cost = failure['stage_elapsed_seconds'] - prior_events
+        # Pre-guard elapsed includes small setup costs. There are no archived
+        # per-command timings or successful events latency: these completions
+        # and all CPU/journey/target positives are synthetic, not Azure proof.
+        for mode in ('legacy-shared', 'success', 'settling-timeout', 'telemetry-timeout'):
+            with self.subTest(mode=mode):
+                f, now, rows, polls, journeys, allocations = self.preparation(), [0.0], [], [], [], []
+                configure, guard, signal = f.runtime.configuration, f.runtime.guard, f.runtime.signal
+                positive, _, _ = self.positive_journey(f)
+                pending_cost = [0]
+                def process(args, **kwargs):
+                    budget, cost = kwargs['timeout'], pending_cost[0]
+                    self.assertTrue(0 < budget <= 15)
+                    allocations.append((args, budget))
+                    if cost > budget + 1e-9:
+                        now[0] += budget
+                        raise m.p8.subprocess.TimeoutExpired(args, budget)
+                    now[0] += cost
+                    return m.p8.subprocess.CompletedProcess(args, 0, stdout='{}')
+                def command(cost, *args):
+                    pending_cost[0] = cost
+                    return m.Runtime.k(f.runtime, *args)
+                def configuration_phase(*args, **kwargs):
+                    result = configure(*args, **kwargs)
+                    # Synthetic command split; none exceeds the existing 15s.
+                    for cost in (10, 10, configuration - 20): command(cost, 'get', 'configuration-fixture')
+                    return result
+                def guard_phase():
+                    command(prior_events, 'get', 'guard-fixture')
+                    command(events_cost, 'get', 'events', '-A', '-o', 'json')
+                    result = guard(); polls.append(now[0])
+                    if len(polls) == 1 or mode == 'settling-timeout': result['pod_metrics'] = []
+                    return result
+                def signal_phase(*args, **kwargs):
+                    command(4, 'get', 'signal-fixture')
+                    if mode == 'telemetry-timeout': f.missing = {'target'}
+                    return signal(*args, **kwargs)
+                def journey(timeout):
+                    journeys.append(timeout); f.no_admin.clear()
+                    return positive(timeout)
+                f.runtime.configuration, f.runtime.guard, f.runtime.signal = configuration_phase, guard_phase, signal_phase
+                with patch.object(m.time, 'monotonic', side_effect=lambda: now[0]), \
+                     patch.object(m.time, 'time', side_effect=lambda: 1000 + now[0]), \
+                     patch.object(m.p8.subprocess, 'run', side_effect=process):
+                    if mode == 'legacy-shared':
+                        f.runtime.collection_deadline.at = 30
+                        configuration_phase({'max_requests': 1024, 'hold_ms': 0}, initializing=True)
+                        with self.assertRaises(m.p8.subprocess.TimeoutExpired) as error: guard_phase()
+                        self.assertAlmostEqual(error.exception.timeout, remaining)
+                        self.assertEqual(allocations[-1][0], diagnostic['command'])
+                        self.assertEqual(polls, [])
+                        continue
+                    kwargs = {'clock': lambda: now[0], 'wait': lambda s: now.__setitem__(0, now[0] + s)}
+                    if mode == 'success':
+                        result = m.healthy_initialize(f.runtime, plan(), journey, rows.append, **kwargs)
+                        self.assertTrue(result['ready_for_keda_authentication'])
+                        self.assertFalse(result['runtime_preflight_passed'])
+                        self.assertGreaterEqual(len(polls), 3)  # Initial, repeated settling, telemetry.
+                        self.assertTrue(all(budget > remaining for args, budget in allocations if 'events' in args))
+                        self.assertEqual([r['status'] for r in rows if r['record'] == 'cpu_preparation_poll'],
+                                         ['pending', 'ready', 'ready'])
+                    else:
+                        with self.assertRaises((ValueError, m.SnapshotBudgetExceeded, m.p8.subprocess.TimeoutExpired)):
+                            m.healthy_initialize(f.runtime, plan(), journey, rows.append, **kwargs)
+                        if mode == 'settling-timeout': self.assertAlmostEqual(now[0], 300)
+                        else:
+                            accounting = next(r for r in rows if r['record'] == 'healthy_journey_accounting')
+                            self.assertAlmostEqual(now[0], accounting['at'] + plan()['ingestion_seconds'] + 3 * plan()['scrape_seconds'])
+                        self.assertFalse(any(r['record'] == 'healthy_initialization_complete' for r in rows))
+                self.assertEqual(journeys, [] if mode == 'settling-timeout' else [90])
 
     def test_initialize_process_group_timeout_covers_internal_budgets_and_retention(self):
         v = plan()

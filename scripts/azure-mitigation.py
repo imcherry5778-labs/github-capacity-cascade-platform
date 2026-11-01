@@ -975,6 +975,9 @@ def healthy_initialize(runtime, v, journey, emit, *, clock=time.monotonic, wait=
         settle_deadline = started + CPUStartup.settling_seconds
         stage, stage_started = 'readiness_resource_guard', clock()
         while True:
+            # Configuration and safety are separate bounded collections. Both
+            # still consume the same monotonic settling cap, never a new 300s.
+            runtime.collection_deadline.at = min(clock() + 30, settle_deadline)
             complete = initialization_safety(runtime.guard(), cpu_startup=cpu_startup, emit=emit, at=clock())
             require(clock() <= settle_deadline, 'CPU preparation settling timeout')
             if complete:
@@ -1030,6 +1033,9 @@ def healthy_initialize(runtime, v, journey, emit, *, clock=time.monotonic, wait=
             actual = runtime.configuration(config, initializing=True)
             require({t['uid'] for t in actual['targets']} == initial and actual == before, 'initialization config/UID drift')
             stage, stage_started = 'telemetry_resource_guard', clock()
+            # Keep guard, signal and final path evidence bounded together after
+            # configuration, capped by the unchanged overall telemetry deadline.
+            runtime.collection_deadline.at = min(clock() + 30, deadline)
             cpu_positive = initialization_safety(runtime.guard(), cpu_startup=cpu_startup, emit=emit, at=clock())
             stage, stage_started = 'telemetry_signal', clock()
             pods = runtime.targets()
