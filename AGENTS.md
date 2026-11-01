@@ -42,11 +42,11 @@ Archive/legacy repository는 historical reference일 뿐 current contract가 아
 
 ### Local AI Agent
 
-Repository implementation executor. **각 work unit은 fresh session**에서 시작하고 actual Git/GitHub state를 독립 확인한다. Agent는 merge하지 않는다.
+Repository implementation executor. **새 work unit은 fresh session**에서 시작하고 actual Git/GitHub state를 독립 확인한다. Agent는 merge하지 않는다.
 
-여기서 **fresh session**은 agent conversation/context를 새로 시작한다는 뜻이다. Git lifecycle 의미의 `FRESH_WORK_UNIT`과는 다르며, 기존 PR을 수정하는 `CONTINUE_EXISTING_PR`도 fresh Local AI Agent session에서 같은 branch/PR을 이어간다.
+여기서 **fresh session**은 agent conversation/context를 새로 시작한다는 뜻이며 Git lifecycle 의미의 `FRESH_WORK_UNIT`과는 다르다. 같은 work unit의 복구/수정인 `CONTINUE_EXISTING_PR`은 사용 가능한 동일 Agent session/worktree/branch/PR을 기본 재사용한다. 동시에 implementation writer/cloud mutation owner는 하나만 둔다.
 
-Milestone 첫 work unit은 ChatGPT가 확정한 milestone decomposition을 읽고 시작한다. 구현 중 새로운 evidence가 plan을 무효화하면 임의로 다음 unit 구조를 바꾸지 않고 중단/보고한다. 같은 intent/acceptance/safety boundary 안의 refinement인지, work-unit 재분해가 필요한 변화인지는 ChatGPT가 판단한다.
+Milestone 첫 work unit은 ChatGPT가 확정한 milestone decomposition을 읽고 시작한다. 구현 중 새로운 evidence로 scope/acceptance/safety boundary 변경이나 work-unit 재분해가 필요하면 임의로 다음 unit 구조를 바꾸지 않고 ChatGPT가 판단한다. 같은 boundary 안의 오류 복구는 §5를 따른다.
 
 ### GitHub
 
@@ -107,6 +107,14 @@ Cleanup 뒤 clean/synchronized `main`에서 새 feature branch를 만든다.
 7. PR 생성
 
 다음 work unit capability를 선제 구현하지 않는다. 한 PR은 가능한 한 하나의 capability다.
+
+### 복구와 실행 중단 경계
+
+Scope/acceptance/safety boundary가 바뀌지 않는 구현·운영 오류는 Agent가 원인 파악 → 수정 → 영향 검증 → 계속 진행한다. 해결 불가능한 계약/권한 충돌만 ChatGPT에 escalation한다.
+
+위험 행동·부하 중단 및 필요한 fault release/isolation과 campaign 전체 종료/원복을 구분한다. 안전·ownership·비용·기한이 유지되고 해당 실행 승인이 bounded recovery를 허용하면 같은 campaign에서 고치고 진행한다. 시작한 실패 run은 invalid/횟수 소비로 보존하며 재개해 valid로 만들지 않는다. 다음 calibration은 원인 조치 후 남은 승인 횟수·비용·시간 안에서만 가능하다. 근거 없는 반복·카운터 초기화·acceptance 완화는 금지한다.
+
+Source 수정과 cost-free 검증은 진행할 수 있지만 승인된 exact SHA 밖 source로 paid workload를 실행할 수 없다. 필요한 독립 review/승인은 해당 paid 경로만 보류한다. 보존 기한 자동 연장이나 전체 Environment teardown을 복구 수단으로 삼지 않는다.
 
 ## 6. Exact-head review / fix
 

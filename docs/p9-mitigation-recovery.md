@@ -44,8 +44,10 @@ Tool/부모 lifecycle에 의한 종료 가능성은 있지만 실제 종료 원�
 다음 별도 승인 실행에서는 기존 operator의 campaign 부모가 `Popen` handle을 끝까지 보유하고
 stdin 분리·`start_new_session=True`로 실행 경계를 분리한다. PID와 시작 시각/Pod UID, 단계 전환 및 실행 중
 `poll()` liveness, 종료 시 `wait()` return code와 의도한 stop 여부를 민감정보 없이 기록해야 한다.
-Fault 수렴 후 measure 직전 같은 loopback 경로의 non-admin native-auth semantic200을 확인하며,
-process 종료/직접 경로 실패 시 재시작·추가 calibration으로 메우지 않고 invalid/STOP한다.
+Fault 수렴 후 measure 직전 같은 loopback 경로의 non-admin native-auth semantic200을 확인한다.
+Process 종료/직접 경로 실패의 복구와 campaign 종료 판단은 [AGENTS.md §5의 공통 복구 규칙](../AGENTS.md#복구와-실행-중단-경계)을 따른다.
+다음 실행 승인에는 이 bounded recovery 정책이 명시적으로 포함되어야 한다. Measure 전 operator 오류는
+복구 후 영향받는 native/signal gate만 재확인하고, 시작한 invalid calibration은 그대로 계수한다.
 이는 기존 operator process 관리의 최소 보완이며 새 harness/controller/runbook을 추가하지 않는다.
 
 별도 `monitor_failure` 직전 마지막 scale query는 HTTP200/success/empty vector다.
@@ -59,7 +61,8 @@ argv/stderr/response/private path와 사용자 정의 class 이름은 발행하�
 다음 paid campaign은 새 exact-source CI/독립 review, 별도 명시적 승인과 current cost/resource/RBAC/quota·
 보존 기한 확인, 위 forwarding 소유/liveness/exit 관측 및 직전 native-auth200을 충족하기 전까지 **NO-GO**다.
 충족 후에도 기존 normal/healthy/KEDA/collection gate를 그대로 적용해야 하며 runtime 성공은 미검증이다.
-이번 검토는 Azure 조회/변경·새 calibration·제15차 실행·merge/P10을 수행하지 않는다.
+현재 제15차는 승인되지 않았으며 이번 문서 정합화는 Azure 실행 승인이 아니다.
+Azure 조회/변경·새 calibration·제15차 실행·merge/P10은 수행하지 않는다.
 
 ## 제13차 historical 실행
 
@@ -411,7 +414,7 @@ hostname, Argo revision과 나머지 drift 검사는 유지한다. Arm마다 ini
 `max(120s, 3×(scrape+ingestion+controller))` 이상, 10초 배수로 **measured 전에** 고정한다.
 코드는 mitigation≤300s, recovery120–240s, 두 구간 합계≤540s, arm 계획≤600s를 제한한다.
 Kubernetes 명령은 최대15s, 한 snapshot의 Kubernetes 수집 budget30s, Prometheus query는
-각5s다. Deadline/관측 부족은 raw로 보존하고 새 run으로 자동 보충하지 않는다.
+각5s다. Deadline/관측 부족은 raw로 보존하며 복구/다음 run 판단은 위 공통 복구 규칙을 따른다.
 
 | 상한 | 후보360s / run | 최대로 승인 요청하는540s / run |
 | --- | ---: | ---: |
@@ -430,7 +433,7 @@ Git 내부 HTTP/check 수는 attempt 수와 다르므로 이 숫자가 check 상
 (6회 약3,600회)이며 public demand와 별도다. 초기/최종 정상 journey는 각1회,
 healthy-gate journey1회, native-deny/controlled-deny/path 확인은 각각1회로 요청한다.
 모든 probe·actual HTTP/check 수·telemetry query 수를 실행 ledger에 기록한다.
-추가 반복은 자동 실행하지 않고 새로운 승인 대상이다.
+승인 상한을 넘는 추가 반복은 새로운 승인 대상이다.
 
 Scheduler는 wave 완료를 기다리지 않고 같은 monotonic offsets에 arrival을 제출한다.
 Issue12/Git1 worker와 최대49 pending으로 client backlog를 제한한다. 초과 또는 monitor 실패 시
