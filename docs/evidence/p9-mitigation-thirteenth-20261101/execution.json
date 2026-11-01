@@ -1,0 +1,120 @@
+{
+  "campaign": "thirteenth",
+  "campaign_id": "p9z20261101",
+  "execution_state_at_start": "not-started; local/session/live duplicate gates passed",
+  "source_sha": "453841d4274d6777073a0ed1d5282e3e784461c8",
+  "main": "3f788a9c1d103f6c07bd403af269133fac287002",
+  "approval_url": "https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6557532658",
+  "started_at_utc": "2026-11-01T12:55:08.668108+00:00",
+  "ended_at_utc": "2026-11-01T13:11:48.960577+00:00",
+  "image_digest": "sha256:ade8027ac1c958c23cb07c568365f5f7f875380de32c6de51474a6666ee1ff0c",
+  "plan_sha256": "ec82078689d9d5df7e15a3315ceefbd6c82bb375a8c8efd1f9bab785a008958e",
+  "frozen_plan": null,
+  "normal": {
+    "validity": "valid",
+    "completion": "success",
+    "phase": "warmup",
+    "operation_count": 9,
+    "attempt_count": 9
+  },
+  "normal_invocations": 1,
+  "initialize": {
+    "at_utc": "2026-11-01T13:08:11.248513+00:00",
+    "invocations": 1,
+    "exit_code": 1,
+    "elapsed_seconds": 381.38620344099763
+  },
+  "initialize_intent": {
+    "at_utc": "2026-11-01T13:01:49.862229+00:00",
+    "invocations": 1,
+    "source_sha": "453841d4274d6777073a0ed1d5282e3e784461c8",
+    "entrypoint": "public initialize",
+    "plan_sha256": "ec82078689d9d5df7e15a3315ceefbd6c82bb375a8c8efd1f9bab785a008958e"
+  },
+  "source_failure": {
+    "record": "healthy_initialization_failure",
+    "source_sha": "453841d4274d6777073a0ed1d5282e3e784461c8",
+    "at": 33383.459597708,
+    "stage": "telemetry_configuration",
+    "elapsed_seconds": 376.8807832120001,
+    "stage_elapsed_seconds": 1.0566854659991805,
+    "exception_class": "TimeoutExpired",
+    "error_code": "command_timeout",
+    "runtime_preflight_passed": false,
+    "ready_for_keda_authentication": false,
+    "measured_denominator": false
+  },
+  "cpu_poll_count": 11,
+  "cpu_ready_poll_count": 1,
+  "healthy_journey": {
+    "validity": "valid",
+    "completion": "success",
+    "phase": "warmup",
+    "operation_count": 9,
+    "attempt_count": 9
+  },
+  "healthy_journey_invocations": 1,
+  "same_window_healthy_checks": 30,
+  "target_signal_statuses": [
+    "observed",
+    "observed"
+  ],
+  "healthy_initialization_complete": false,
+  "runtime_preflight_passed": false,
+  "preparation_contract": "invalid; TLS mode require instead of verify-full; live headroom collection order not fully satisfied",
+  "keda": {
+    "auth_proof": "not reached",
+    "mutations": 0,
+    "apply_restore_restarts": [
+      0,
+      0
+    ],
+    "historical_cumulative_apply_restore_restarts": [
+      2,
+      2
+    ]
+  },
+  "calibration": {
+    "invocations": 0,
+    "budget": 2
+  },
+  "measured_runs": {
+    "C0": 0,
+    "C1": 0,
+    "C2": 0,
+    "C3": 0
+  },
+  "measured_budget_per_arm": 1,
+  "c3_two_ready_snapshot": "not reached; synthetic28.391s not Azure evidence",
+  "recovery": "not reached; no observation window or recovery claim",
+  "comparison": "not performed; no measured arms",
+  "p9_acceptance_met": false,
+  "automatic_retry": false,
+  "source_changed": false,
+  "manual_replica_scaling": false,
+  "pod_history_reset": false,
+  "cumulative_preparation_cleanup_campaigns": 13,
+  "combined_pre_tax_review_envelope_usd": 180,
+  "new_review_allowance_usd": 40,
+  "latest_successful_posted_actual_two_rg_krw": "123029.58389689068135066",
+  "latest_successful_posted_actual_phase": "before paid mutation",
+  "cleanup_final_posted_actual": "unknown; final query failed; no billing result inferred",
+  "p9_incremental_actual": "unknown; shared/delayed; posted delta not attributed to P9",
+  "conservative_cumulative_risk_projection_usd": "134.1927229620722339885708333",
+  "billing_hard_cap": false,
+  "environment_deadline": "2026-11-02T01:30:00Z",
+  "foundation_bootstrap_deadline": "2026-11-02T15:33:00Z",
+  "retention_changed": false,
+  "owned_cleanup_complete": true,
+  "final_native_verify": {
+    "at_utc": "2026-11-01T13:09:33.232811+00:00",
+    "invocations": 1,
+    "exit_code": 0,
+    "elapsed_seconds": 0.9000640610029222
+  },
+  "cleanup_verification_checks": 26,
+  "final_cost_unknown_is_separate_from_owned_cleanup": true,
+  "local_private_files_removed": 247,
+  "past_archives_preserved": 12,
+  "execution_source_and_followup_docs_evidence_head_distinct": true
+}

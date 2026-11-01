@@ -1,6 +1,21 @@
 # P9-W1 Mitigation & Recovery
 
-현재 상태: **제12차 actual negative·원복 evidence 보존 / initialization·measured snapshot bounded source 교정·cost-free 회귀 / 실제 measured 미검증 / P9 acceptance 미충족**.
+현재 상태: **제13차 단일 campaign 종료 / 준비 계약 invalid·initialize telemetry deadline 실패 / C0–C3 measured·recovery 미도달 / P9-owned 원복 검증 / P9 acceptance 미충족**.
+
+[제13차 evidence](evidence/p9-mitigation-thirteenth-20261101/README.md)는 승인 source
+`453841d4274d6777073a0ed1d5282e3e784461c8`의 실제 실행 기록이다. Normal1과 healthy journey1은 각각
+valid/success/warmup9, CPU ready와 target signal observed2회는 부분 관측이다. Public initialize1회는
+최종 healthy gate 전에 telemetry configuration의 남은 deadline에서 command timeout/exit1로 종료했다.
+임시 DB client의 `PGSSLMODE=require`와 target 단계 live headroom 수집 순서는 승인된 준비 계약을
+충족하지 못했다. Source 실패와 operator 준비 오류를 분리하며 뒤의 positive로 소급 충족시키지 않는다.
+KEDA·calibration/freeze·네 measured arm·continuing-demand recovery는 모두 미도달이다.
+Owned cleanup·stable 보존26항목을 확인했고 source 수정·자동 제14차·merge/P10은 없다.
+Before posted ActualCost KRW123,029.5838968907, 누적 세전 USD180 review 범위의 보수적 추정 USD134.192723이다.
+Final 비용 요청은 실패해 unknown이며 P9 단독 비용 귀속도 unknown이다. 기존 보존 기한을 유지한다.
+
+## 제12차와 후속 cost-free source 교정 이력
+
+아래 제12차 negative 및 cost-free source 결과는 역사적 기록이며 제13차 runtime 성공을 뜻하지 않는다.
 
 제12차 실행 결과는 normal valid / 첫 guard collection30초 command timeout / CPU poll·healthy·KEDA·calibration·C0–C3 measured0이다.
 

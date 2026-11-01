@@ -1,0 +1,11 @@
+{
+  "status": "not-performed",
+  "reason": "C0-C3 measured all0; preparation invalid and initialize incomplete",
+  "valid_measured_arms": [],
+  "invalid_preparation": true,
+  "valid_negative_measured_run": false,
+  "not_recovered_measured_run": false,
+  "hypothesis_support": "not assessed",
+  "same_window_confounder_review": "no measured run reached; no cloud review completion claim",
+  "acceptance_relaxed": false
+}
