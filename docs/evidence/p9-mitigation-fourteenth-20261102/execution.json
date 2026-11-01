@@ -1,0 +1,177 @@
+{
+  "campaign": "fourteenth",
+  "campaign_id": "p9a20261102",
+  "source_sha": "69bace6cdb3dabe047a71454528c27111f706c05",
+  "main": "3f788a9c1d103f6c07bd403af269133fac287002",
+  "approval_url": "https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6559890287",
+  "source_review_url": "https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#pullrequestreview-5728767267",
+  "started_at_utc": "2026-11-01T15:26:26.402337+00:00",
+  "ended_at_utc": "2026-11-01T15:44:00.245431+00:00",
+  "image_digest": "sha256:40f06fee3d0355645918562ad33a82d772806a3ffe96e9a69751b4d47a0348c5",
+  "preparation_plan_sha256": "ec82078689d9d5df7e15a3315ceefbd6c82bb375a8c8efd1f9bab785a008958e",
+  "plan_sha256": "ca5c920b5287907084bbf19020d140fabd02ca2341cf065fb0f3e46e889b41c4",
+  "frozen_plan": null,
+  "freeze_sha256": null,
+  "normal": {
+    "validity": "valid",
+    "completion": "success",
+    "phase": "warmup",
+    "operation_count": 9,
+    "attempt_count": 9
+  },
+  "normal_invocations": 1,
+  "initialize": {
+    "at_utc": "2026-11-01T15:34:50.099583+00:00",
+    "invocations": 1,
+    "exit_code": 0,
+    "elapsed_seconds": 170.86152101700281
+  },
+  "healthy_journey": {
+    "validity": "valid",
+    "completion": "success",
+    "phase": "warmup",
+    "operation_count": 9,
+    "attempt_count": 9
+  },
+  "cpu_poll_count": 6,
+  "cpu_ready_poll_count": 2,
+  "healthy_initialization_complete": true,
+  "healthy_same_window": {
+    "ingress_http_records": 30,
+    "authorization_checks": 30,
+    "target_requests": 30
+  },
+  "runtime_preflight_passed": true,
+  "full_runtime_preflight": {
+    "at_utc": "2026-11-01T15:37:00.493133+00:00",
+    "source_sha": "69bace6cdb3dabe047a71454528c27111f706c05",
+    "plan_sha256": "ca5c920b5287907084bbf19020d140fabd02ca2341cf065fb0f3e46e889b41c4",
+    "p9_exact_c3_configuration_passed": true,
+    "bounded_snapshot_passed": true,
+    "snapshot_seconds": 15.860678990000451,
+    "same_target_uid": [
+      "29620cdc-af23-4caa-a5af-a52e168b028f"
+    ],
+    "native_deny_status": 401,
+    "controlled_deny_status": 403,
+    "actual_keda_scaler_auth": "keda-scaler-positive.json",
+    "runtime_preflight_passed": true
+  },
+  "preparation_contract": "ordered gates verified: verify-full actual hostname/CA, target-stage live headroom before HAProxy, admission/UID/restart0/owner maintained",
+  "keda_scaler_auth_owner": {
+    "at_utc": "2026-11-01T15:36:25.851513+00:00",
+    "scaledobject_uid": "9bd4791b-8d22-4b1a-aaae-2543c47f6734",
+    "hpa_uid": "1c97649e-86c1-4bc1-9bc2-3d1dc0e65e46",
+    "controller_ownership_verified": true,
+    "scaledobject_ready": true,
+    "hpa_scaling_active": true,
+    "hpa_current_metrics": [
+      {
+        "external": {
+          "current": {
+            "averageValue": "0"
+          },
+          "metric": {
+            "name": "s0-prometheus",
+            "selector": {
+              "matchLabels": {
+                "scaledobject.keda.sh/name": "p9-proxy"
+              }
+            }
+          }
+        },
+        "type": "External"
+      }
+    ],
+    "operator_query_not_used_as_scaler_auth_proof": true
+  },
+  "keda_apply_restore_restarts": [
+    1,
+    1
+  ],
+  "historical_cumulative_keda_apply_restore_restarts": [
+    3,
+    3
+  ],
+  "calibration": {
+    "invocations": 1,
+    "budget": 2,
+    "validity": "invalid",
+    "entrypoint": "unchanged main measure",
+    "result": {
+      "at_utc": "2026-11-01T15:38:47.097405+00:00",
+      "exit_code": 1,
+      "elapsed_seconds": 46.94112110899732,
+      "invocations": 1,
+      "entrypoint": "unchanged main measure"
+    },
+    "failure": {
+      "at_utc": "2026-11-01T15:39:13.228021+00:00",
+      "calibration_invocations": 1,
+      "calibration_validity": "invalid",
+      "source_exception": "ValueError: direct native-auth sentinel preflight",
+      "monitor_failure_count": 1,
+      "direct_sentinel": {
+        "samples": 15,
+        "statuses": {
+          "None": 15
+        },
+        "errors": {
+          "transport": 15
+        },
+        "semantic_successes": 0
+      },
+      "port_forward_owned_pid_present_after_stop": false,
+      "operator_direct_forward_lifecycle": "passed full-preflight but owned process absent at stop; disappearance cause not captured",
+      "monitor_exception": "unknown; source emits fixed monitor_failure without cause",
+      "public_demand_operation_events": 0,
+      "normal_positive_preserved": true,
+      "healthy_positive_preserved": true,
+      "keda_positive_preserved": true,
+      "freeze": null,
+      "measured": {
+        "C0": 0,
+        "C1": 0,
+        "C2": 0,
+        "C3": 0
+      },
+      "recovery": "not reached",
+      "retry_authorized": false,
+      "downstream": "STOP"
+    },
+    "first_snapshot_seconds": 16.953281818001415,
+    "measured_demand_issued": 0
+  },
+  "measured_runs": {
+    "C0": 0,
+    "C1": 0,
+    "C2": 0,
+    "C3": 0
+  },
+  "recovery": "not reached; no observation window; not a valid-negative recovery result",
+  "comparison": "not performed",
+  "p9_acceptance_met": false,
+  "automatic_retry": false,
+  "source_changed": false,
+  "cumulative_preparation_cleanup_campaigns": 14,
+  "cost": {
+    "at_utc": "2026-11-01T15:42:32.207416+00:00",
+    "before_posted_actual_two_rg_krw": "130403.04555420384792946",
+    "final_posted_actual_two_rg_krw": "130403.04555420384792946",
+    "p9_attributable_incremental_actual": "unknown/shared/delayed",
+    "cumulative_projection_before_first_paid_mutation_usd": "140.3372743431665394709041667",
+    "combined_pre_tax_review_envelope_usd": 180,
+    "new_allowance_usd": 0,
+    "billing_hard_cap": false,
+    "no_repeat_cost_review_or_mutation_after_stop": true,
+    "retention_extended": false
+  },
+  "environment_deadline": "2026-11-02T01:30:00Z",
+  "foundation_bootstrap_deadline": "2026-11-02T15:33:00Z",
+  "retention_changed": false,
+  "owned_cleanup_complete": true,
+  "stable_preservation_checks": 33,
+  "local_protected_files_removed": 224,
+  "past_archives_preserved": 13,
+  "execution_source_and_followup_docs_evidence_head_distinct": true
+}

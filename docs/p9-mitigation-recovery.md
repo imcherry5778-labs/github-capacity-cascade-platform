@@ -1,6 +1,34 @@
 # P9-W1 Mitigation & Recovery
 
-현재 상태: **제13차 단일 campaign 종료 / 준비 계약 invalid·initialize telemetry deadline 실패 / C0–C3 measured·recovery 미도달 / P9-owned 원복 검증 / P9 acceptance 미충족**.
+현재 상태: **제14차 단일 campaign 종료 / normal·healthy·KEDA 인증·full C3 preflight positive / calibration1 invalid / freeze·C0–C3 measured·recovery 미도달 / P9-owned 원복 검증 / P9 acceptance 미충족**.
+
+## 제14차 실제 실행과 finalization
+
+[제14차 evidence](evidence/p9-mitigation-fourteenth-20261102/README.md)와
+[incident](incidents/p9-mitigation-fourteenth.md)는 승인 source
+`69bace6cdb3dabe047a71454528c27111f706c05`의 단일 실제 campaign 기록이다.
+DB `verify-full`의 hostname/CA 검증과 HAProxy 생성 전 target-stage live headroom을 적용했다.
+Normal1·healthy journey1은 각각 valid/success/warmup9, public initialize1은 exit0이다.
+실제 두 advancing fresh CPU/HPA와 target telemetry, 같은-window ingress/check/target 각30을 확인했다.
+그 뒤에만 KEDA IAM/필요한 SA annotation·apply restart1회와 실제 scaler auth·단일 owner를 검증했다.
+Full P9 C3 exact configuration·snapshot15.860679s도 통과했으며 measured scale-out/recovery와 구분한다.
+
+C3 calibration1은 첫 snapshot16.953282s 뒤 direct sentinel15회 모두 transport error,
+`monitor_failure`/`run_failure`와 `ValueError: direct native-auth sentinel preflight`로 exit1이었다.
+Preflight에서200이었던 소유 forwarding process는 중단 후 없었다. Operator lifecycle invalid이며
+소멸 원인과 별도 monitor exception은 unknown이다. Public demand 발행0, saved validator 거부다.
+두 번째 calibration·freeze·네 measured arm·continuing-demand recovery로 진행하지 않았다.
+Source/시간/acceptance 교정이나 자동 제15차 실행은 없다.
+
+CUSTOM/shared CM·KEDA SA/deployment·owned IAM/FIC/UAMI·namespace·PAT27/28·image·임시 AKS role을 정리하고
+stable/owned33개 check, final native verify1/exit0, 보호 사본224개 제거를 확인했다.
+KEDA apply/restore 각1회·historical 누적 각3회, 이전13개 raw archive byte/hash를 보존했다.
+전후 posted two-RG ActualCost는 KRW130,403.0455542038, 단일 사전 비용 검토 projection은 세전USD140.3372743432다.
+기존 누적USD180 review envelope를 유지하며 P9 단독 실비는 shared/delayed/unknown이다.
+기존 retention과 stable Azure Environment를 P11 재사용을 위해 보존한다. 후속 docs/evidence HEAD는 실행 source가 아니다.
+P9 acceptance 미충족이며 merge/P10은 수행하지 않는다.
+
+## 제13차 historical 실행
 
 [제13차 evidence](evidence/p9-mitigation-thirteenth-20261101/README.md)는 승인 source
 `453841d4274d6777073a0ed1d5282e3e784461c8`의 실제 실행 기록이다. Normal1과 healthy journey1은 각각
