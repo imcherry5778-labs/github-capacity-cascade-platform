@@ -1298,6 +1298,87 @@ class MetricInitializationTests(unittest.TestCase):
         f.runtime.guard = cpu_guard
         return f
 
+    def test_initializing_target_reuses_bootstrap_and_keeps_metric_checks(self):
+        for case in ('uninitialized', 'observed', 'bootstrap-drift', 'native-missing'):
+            with self.subTest(case=case):
+                f, calls = self.preparation(), []
+                r, admin, command = f.runtime, f.runtime.admin, f.runtime.k
+                if case != 'uninitialized': f.no_admin.clear()
+                def target_admin(ns, name, path):
+                    calls.append(path)
+                    value = admin(ns, name, path)
+                    if case == 'bootstrap-drift' and path == 'config_dump?mask=bootstrap.stats_config':
+                        value['stats_tags'][0]['regex'] = 'wrong'
+                    return value
+                def target_command(*args):
+                    if 'stats/prometheus' in args:
+                        calls.append('native')
+                        if case == 'native-missing': return ''
+                    return command(*args)
+                r.admin, r.k = target_admin, target_command
+                config = f.config | {'hold_ms': 0, 'max_requests': 1024}
+                if case in {'bootstrap-drift', 'native-missing'}:
+                    with self.assertRaises(ValueError): r.configuration(config, initializing=True)
+                else:
+                    actual = r.configuration(config, initializing=True)
+                    target = actual['targets'][0]
+                    self.assertEqual(target['stats_matcher'], ['fixed'])
+                    self.assertEqual(target['metric_binding'], {'cluster_label': 'cluster_name', 'tag_regex': m.metric_contract()['tag_regex']})
+                    self.assertEqual(target['mapping']['capacity'], 1024)
+                    observation = r.admin_observations[target['uid']]
+                    self.assertEqual(observation['status'], 'uninitialized' if case == 'uninitialized' else 'observed')
+                    self.assertEqual(bool(observation['native']), case == 'observed')
+                self.assertEqual(calls.count('config_dump?mask=bootstrap.stats_config'), 1)
+                self.assertEqual(calls.count('native'), 0 if case == 'bootstrap-drift' else 1)
+
+    def test_initializing_bootstrap_reuse_preserves_short_cpu_overlap(self):
+        # Synthetic one-second bootstrap I/O and 1.5s remaining CPU freshness.
+        # This exercises real configuration/initialization, not Azure replay.
+        f, now, rows, journeys, bootstrap_reads = self.preparation(), [0.0], [], [], []
+        r = f.runtime
+        configure, guard, admin = r.configuration, r.guard, r.admin
+        positive, _, _ = self.positive_journey(f)
+        logs = r.logs
+        main, guard_clock = threading.get_ident(), [0.0]
+        configuring, guarded = threading.Event(), threading.Event()
+        def clock(): return now[0] if threading.get_ident() == main else guard_clock[0]
+        def configuration(*args, **kwargs):
+            if journeys:
+                configuring.set()
+                self.assertTrue(guarded.wait(1))
+            return configure(*args, **kwargs)
+        def safety():
+            if not journeys: return guard()
+            self.assertTrue(configuring.wait(1))
+            guard_clock[0] = now[0]
+            value = guard()
+            value['pod_metrics'][0]['timestamp'] = m.datetime.fromtimestamp(1000 + clock() - 28.5, m.timezone.utc).isoformat()
+            guarded.set()
+            return value
+        def target_admin(ns, name, path):
+            if journeys and path == 'config_dump?mask=bootstrap.stats_config':
+                bootstrap_reads.append(now[0]); now[0] += 1
+            return admin(ns, name, path)
+        def path(actual):
+            if any(row['record'] == 'healthy_telemetry_poll' for row in rows): now[0] += .25
+            return logs(actual)
+        def journey(timeout):
+            journeys.append(timeout); f.no_admin.clear(); now[0] += 40
+            return positive(timeout)
+        def wait(seconds): now[0] += seconds
+        r.configuration, r.guard, r.admin, r.logs = configuration, safety, target_admin, path
+        with patch.object(m.time, 'monotonic', side_effect=clock), \
+             patch.object(m.time, 'time', side_effect=lambda: 1000 + clock()):
+            result = m.healthy_initialize(r, plan(), journey, rows.append, clock=clock, wait=wait)
+        self.assertEqual(journeys, [90])
+        self.assertEqual(bootstrap_reads, [40])
+        self.assertEqual(now[0], 41.25)  # Final CPU age29.75s, including same-UID path reads.
+        self.assertEqual(len(f.queries), 5)
+        self.assertEqual(result['authorization_checks'], 14)
+        self.assertEqual(result['target_requests'], 14)
+        self.assertTrue(result['ready_for_keda_authentication'])
+        self.assertFalse(result['runtime_preflight_passed'])
+
     def positive_journey(self, f):
         """Synthetic client/server positives, never runtime evidence or new load."""
         temporary = tempfile.TemporaryDirectory(prefix='p9-healthy-unit-')

@@ -20,6 +20,19 @@ P9 단독 실비는 unknown/shared/delayed다. 기존 보존기한과 admin 회�
 다음 paid campaign은 별도 exact-SHA 승인이 필요하며, source 변경 시 ChatGPT 독립 review가 필요하다.
 아래 제16차·이전 절의 당시 승인 전/비용/회전 미수행 문구는 역사 기록이다.
 
+## 제17차 후속 cost-free bootstrap 중복 조회 제거
+
+[독립 결과 review](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#pullrequestreview-5736393763) 뒤
+initializing configuration의 같은 target bootstrap GET2회를1회로 줄였다. 기존 P8 callback으로 동일 응답의 matcher와
+metric binding을 검증하고 native exposition도1회 그대로 검증한다. C3 두-target 경로는 이미 이 방식을 썼으며,
+initializing 이외의 경로는 유지한다. 새 API/probe·worker·계측은 추가하지 않았다.
+Focused synthetic regression은 bootstrap/tag·native 검증과 짧은 CPU freshness overlap을 확인한다.
+Synthetic bootstrap I/O1초·잔여 CPU freshness1.5초 조건에서 기존 중복 조회는 실패하고 교정 뒤 path까지1.25초에 완료한다.
+이는 제17차 API별 latency나 성공 replay가 아니다. 실제 guard 종료/fresh-until/평가 clock은 미기록이며 sample epoch62/56/63초의
+export/cache 원인은 unknown이다. CPU30초·두 advancing sample/quiet/HPA/Warning/UID·collection30초·telemetry75초·
+명령/조회/시작간격 상한과 실패·횟수 계수는 유지한다. 제17차 raw·판정·누적 소비는 변경하지 않는다.
+**새 source의 Azure 효과는 NOT VERIFIED**이며 ChatGPT 독립 exact-head source review와 별도 사용자 결정 전 paid 경로는 보류한다.
+
 ## 제16차 실제 결과
 
 [명시 실행 승인](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6570216466)의

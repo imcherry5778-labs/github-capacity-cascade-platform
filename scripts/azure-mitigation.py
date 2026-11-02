@@ -686,9 +686,9 @@ class Runtime(p8.Runtime):
             deferred = set(self.lifecycle.first_seen) - self.initial_uids - self.lifecycle.admin_seen
         parallel = self.arm == 'C3' and len(ready) == 2
         def observe_target(target, observation, bootstrap):
-            # The two-target path uses the same immutable bootstrap response for
-            # matcher and metric-binding validation, rather than reading twice.
-            if not parallel:
+            # Preparation and the two-target path validate matcher and binding
+            # from the same bootstrap response, without a duplicate admin GET.
+            if bootstrap is None:
                 bootstrap = self.admin(NS, target['name'], 'config_dump?mask=bootstrap.stats_config')
             target['metric_binding'] = metric_mapping(target['mapping'], bootstrap)
             observation['native'] = native_samples(self.k('-n', NS, 'exec', target['name'], '-c', 'istio-proxy', '--',
@@ -696,7 +696,7 @@ class Runtime(p8.Runtime):
             admin_observation(target, observation)
         options = {'target_range': (1, 2) if self.arm == 'C3' else (1, 1), 'haproxy_config': self.hp_config,
                    'hpa_name': self.hpa_name, 'target_pods': ready, 'releasing': releasing, 'stat_uids': deferred,
-                   'stats_path': metric_contract()['admin_request'], 'target_observer': observe_target if parallel else None}
+                   'stats_path': metric_contract()['admin_request'], 'target_observer': observe_target if parallel or initializing else None}
         if parallel:
             deadline = getattr(self.collection_deadline, 'at', None)
             def target_deadline():
@@ -707,7 +707,7 @@ class Runtime(p8.Runtime):
             result = super().configuration(config, **options)
         self.admin_observations = result.pop('stat_observations')
         result['metric_contract'] = metric_contract()
-        if not parallel:
+        if not (parallel or initializing):
             for target in result['targets']:
                 observe_target(target, self.admin_observations[target['uid']], None)
         if initializing:
