@@ -1,8 +1,8 @@
 # P9-W1 Mitigation & Recovery
 
 목표는 동일 fault/demand의 C0–C3 비교, continuing-demand recovery, 실제 request accounting과 P9-owned 원복 evidence다.
-P9 acceptance는 아직 미충족이다. 제17차는 CLOSED이며 새 paid campaign 승인은 없다.
-누적 campaign17 / public initialize14 / healthy5 / started-invalid calibration2 / measured 각0 / KEDA restart3/3을 보존한다.
+P9 acceptance는 아직 미충족이다. 제18차는 CLOSED이며 새 paid campaign 승인은 없다.
+누적 campaign18 / public initialize15 / healthy6 / started-invalid calibration3 / measured 각0 / KEDA restart4/4을 보존한다.
 현재 source-only 교정의 Azure 효과는 NOT VERIFIED다. Source CI나 synthetic 성공을 runtime 성공으로 승격하지 않는다.
 
 현재 실행 범위·보존은 [Paid Azure boundary](implementation-plan.md#paid-azure-boundary--p6p11)와 별도 실제 사용자 결정을 따른다.
@@ -102,6 +102,17 @@ Mapping/tag/label ambiguity나 drift는 신규 Pod warmup 중에도 실패한다
 Query는 per-Pod rate·원본 timestamp freshness·up=1 및 **kube_pod_info의 target 수와 coverage**를
 guard한다. Inventory series의 label/freshness와 target Pod들의 실제 UID/name도 대조해야 한다.
 Empty/partial/stale/error를0으로 바꾸지 않고 `ignoreNullValues=false`, TLS verify를 사용한다.
+Collector의 기존 다섯 번째 instant query는 `p9_query_term` label로 canonical guarded 결과,
+rate/fresh-rate/inventory/up count·up minimum·raw/up/inventory maximum age와 `vector(time())`를 분리한다.
+Guarded row만 기존 판정에 넘기며 없는 operand는 `[]`, non-finite 값은 원문으로 보존한다.
+진단이 있어도 guarded `[]`는 measured 경로에서 invalid, initialize에서는 기존 uninitialized 경계다.
+Canonical `scale_query` hash와 collector envelope hash를 구분하고, raw 응답·추출 결과·server evaluation epoch 및
+request/response UTC·monotonic elapsed를 saved validator가 대조한다. UTC clock 동기화는 가정하지 않는다.
+[Instant API](https://prometheus.io/docs/prometheus/latest/querying/api/#instant-queries)와
+[`time()`](https://prometheus.io/docs/prometheus/latest/querying/functions/#time)의 단일 evaluation time은
+backend transaction/ingestion atomicity 보장이 아니다. 제18차 historical 조회와 당시 negative는 그대로 보존하며
+이번 cost-free 계측 교정으로 runtime 원인·P9 acceptance 완료를 주장하지 않는다. Request 횟수·query5초·collection30초는 유지한다.
+
 Threshold는 KEDA `AverageValue`이며 총 rate/threshold의 desired replica 판단을 actual generated
 HPA metric·desired·Ready·각 target의 traffic timeline과 함께 기록한다. 수동 scale은 성공 proof가 아니다.
 

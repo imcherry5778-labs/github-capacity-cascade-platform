@@ -159,24 +159,94 @@ def retry_delay(v, arm, item):
     return random.Random(seed).uniform(*v['backoff_ms']) / 1000
 
 
-def scale_query(v):
-    """Counter -> per-Pod rate -> sum, guarded against partial/stale inventory.
-
-    Exact name/labels and these inventory series MUST be checked in calibration.
-    There is deliberately no empty -> 0 fallback.
-    """
+def scale_query_parts(v):
+    # Keep the canonical KEDA expression and collector operands on the same
+    # fragments. No fallback, boolean conversion or altered matching semantics.
     base = 'cluster=' + json.dumps(v['prometheus_cluster']) + ',namespace=' + json.dumps(NS)
     raw = signal_queries(v)['raw']
     fresh = f'(time() - timestamp({raw}) <= {v["freshness_seconds"]})'
     rates = f'(rate({raw}[1m]) and {fresh})'
-    inventory = 'count(kube_pod_info{' + base + ',pod=~"ext-authz-sim-.+"})'
-    count = f'count({rates})'
+    info = 'kube_pod_info{' + base + ',pod=~"ext-authz-sim-.+"}'
     up = 'up{' + base + ',job=' + json.dumps(metric_contract()['job']) + '}'
-    return (f'sum({rates}) and on() ({count} == {inventory}) '
-            f'and on() (min({up}) == 1) '
-            f'and on() (count({up}) == {inventory}) '
-            f'and on() (max(time() - timestamp({up})) <= {v["freshness_seconds"]}) '
-            f'and on() (max(time() - timestamp(kube_pod_info{{{base},pod=~"ext-authz-sim-.+"}})) <= {v["freshness_seconds"]})')
+    return rates, {'rate_count': f'count(rate({raw}[1m]))', 'fresh_rate_count': f'count({rates})',
+                   'raw_max_age': f'max(time() - timestamp({raw}))', 'inventory_count': f'count({info})',
+                   'up_min': f'min({up})', 'up_count': f'count({up})',
+                   'up_max_age': f'max(time() - timestamp({up}))',
+                   'inventory_max_age': f'max(time() - timestamp({info}))'}
+
+
+def scale_query(v):
+    """Canonical scaler query; empty/partial/stale inventory never becomes zero."""
+    rates, t = scale_query_parts(v)
+    return (f'sum({rates}) and on() ({t["fresh_rate_count"]} == {t["inventory_count"]}) '
+            f'and on() ({t["up_min"]} == 1) '
+            f'and on() ({t["up_count"]} == {t["inventory_count"]}) '
+            f'and on() ({t["up_max_age"]} <= {v["freshness_seconds"]}) '
+            f'and on() ({t["inventory_max_age"]} <= {v["freshness_seconds"]})')
+
+
+QUERY_TERM_LABEL = 'p9_query_term'
+
+
+def collector_query(v):
+    """Fifth request only: disjoint aggregate rows plus server evaluation epoch.
+
+    One instant evaluation time is not a backend transaction/ingestion snapshot
+    guarantee. These operands explain guards; they never replace scaler rows.
+    """
+    terms = {'guarded': scale_query(v), **scale_query_parts(v)[1], 'evaluation_epoch': 'vector(time())'}
+    return ' or '.join(f'label_replace(({expr}), "{QUERY_TERM_LABEL}", "{name}", "", "^$")'
+                       for name, expr in terms.items())
+
+
+def extract_collector_query(rows, v):
+    """Strict aggregate-only envelope. Preserve absent and non-finite operands."""
+    require(type(rows) is list, 'invalid collector vector')
+    terms = {k: [] for k in ('guarded', *scale_query_parts(v)[1], 'evaluation_epoch')}
+    for row in rows:
+        require(type(row) is dict and set(row) == {'metric', 'value'} and type(row['metric']) is dict and
+                set(row['metric']) == {QUERY_TERM_LABEL}, 'ambiguous collector labels/sample')
+        name, value = row['metric'][QUERY_TERM_LABEL], row['value']
+        require(type(name) is str and name in terms and not terms[name], 'unknown/duplicate collector term')
+        require(type(value) is list and len(value) == 2 and bounded(value[0], 0, 100000000000) and
+                type(value[1]) is str, 'invalid collector sample')
+        try:
+            float(value[1])  # NaN/Inf remain raw diagnostics, never success zero.
+        except ValueError:
+            raise ValueError('invalid collector value') from None
+        terms[name] = [{'metric': {}, 'value': list(value)}]
+    epoch = terms.pop('evaluation_epoch')
+    require(len(epoch) == 1 and bounded(float(epoch[0]['value'][1]), 0, 100000000000) and
+            epoch[0]['value'][0] == float(epoch[0]['value'][1]), 'missing/invalid server evaluation epoch')
+    epoch = float(epoch[0]['value'][1])
+    require(all(r['value'][0] == epoch for group in terms.values() for r in group), 'mixed collector evaluation epochs')
+    return terms.pop('guarded'), {'evaluation_epoch': epoch, 'operands': terms}
+
+
+def validate_query_observation(signal, v, source_sha=None, interval=None):
+    """Shared live/saved extraction, provenance and monotonic budget validation."""
+    obs = signal['query_observation']
+    require(obs['record'] == 'prometheus_query_response' and obs['http_status'] == 200 and
+            obs['query_sha256'] == digest(collector_query(v)) and
+            obs['scale_query_sha256'] == signal['query_sha256'] == digest(scale_query(v)) and
+            (source_sha is None or obs['source_sha'] == source_sha), 'collector/canonical query provenance drift')
+    data = obs['payload']
+    require(data.get('status') == 'success' and data['data']['resultType'] == 'vector', 'Prometheus query error')
+    guarded, diagnostic = extract_collector_query(data['data']['result'], v)
+    require(guarded == signal['query'] and diagnostic == signal['query_diagnostics'], 'collector extraction drift')
+    require(bounded(obs['request_at'], -1e12, 1e12) and bounded(obs['at'], obs['request_at'], 1e12) and
+            bounded(obs['timeout_seconds'], 0, 5) and obs['timeout_seconds'] > 0 and
+            bounded(obs['elapsed_seconds'], 0, obs['timeout_seconds']) and
+            abs(obs['elapsed_seconds'] - (obs['at'] - obs['request_at'])) < 1e-9, 'query monotonic budget/clock drift')
+    # UTC is an independently recorded wall clock; no server/client clock sync
+    # or wall-clock monotonicity is assumed. Elapsed uses only monotonic time.
+    require(all(datetime.fromisoformat(obs[k]).utcoffset() == timedelta(0)
+                for k in ('request_timestamp_utc', 'timestamp_utc')), 'query UTC clock absent')
+    if interval is not None:
+        require(bounded(interval[1] - interval[0], 0, 30) and
+                interval[0] <= obs['request_at'] <= obs['at'] <= interval[1] and
+                obs['timeout_seconds'] <= interval[0] + 30 - obs['request_at'], 'query outside collection interval/budget')
+    return diagnostic
 
 
 def render(identity, v, arm):
@@ -757,22 +827,37 @@ class Runtime(p8.Runtime):
             return {'status': matches[0]['status']} | {k: int(matches[0][k]) for k in p8.p4.HAPROXY_FIELDS}
         return selected('app') | {'backend': selected('BACKEND')}
 
-    def prom(self, query):
+    def prom(self, query, *, observation=None):
         emit = getattr(self, 'emit', lambda _: None)
-        metadata = {'source_sha': self.value['source_sha'], 'query_sha256': digest(query), 'at': time.monotonic()}
+        started = time.monotonic()
+        metadata = {'source_sha': self.value['source_sha'], 'query_sha256': digest(query),
+                    'request_at': started, 'request_timestamp_utc': p8.utc()}
+        if query == collector_query(self.v):
+            metadata['scale_query_sha256'] = digest(scale_query(self.v))
         deadline = getattr(self.collection_deadline, 'at', None)
         timeout = 5 if deadline is None else min(5, deadline - time.monotonic())
         require(timeout > 0, 'snapshot query budget exceeded')
-        emit({'record': 'prometheus_query_intent', **metadata})
+        metadata['timeout_seconds'] = timeout
+        emit({'record': 'prometheus_query_intent', **metadata, 'at': started,
+              'timestamp_utc': metadata['request_timestamp_utc']})
+        def finished():
+            ended = time.monotonic()
+            return {**metadata, 'at': ended, 'timestamp_utc': p8.utc(), 'elapsed_seconds': ended - started}
         try:
             data = p8.p7.http_json(self.v['prometheus'] + '/api/v1/query?' + urllib.parse.urlencode({'query': query}), self.prom_token, timeout=timeout)
         except urllib.error.HTTPError as error:
-            # Query response only, never credential requests. Preserve negative
-            # bodies in protected evidence, redact a server-echoed bearer token.
+            # Negative body only, redacting a server-echoed bearer token.
             body = error.read(1024 * 1024).decode('utf-8', errors='replace').replace(self.prom_token, '[REDACTED]')
-            emit({'record': 'prometheus_query_error', **metadata, 'http_status': error.code, 'body': body})
+            emit({'record': 'prometheus_query_error', **finished(), 'http_status': error.code, 'body': body})
             raise
-        emit({'record': 'prometheus_query_response', **metadata, 'http_status': 200, 'payload': data})
+        except Exception:
+            emit({'record': 'prometheus_query_error', **finished(), 'error_code': 'prometheus_request_failed'})
+            raise
+        event = {'record': 'prometheus_query_response', **finished(), 'http_status': 200, 'payload': data}
+        emit(event)
+        if observation is not None:
+            observation.update(event)
+        require(event['elapsed_seconds'] <= timeout and (deadline is None or event['at'] <= deadline), 'snapshot query budget exceeded')
         require(data.get('status') == 'success' and data['data']['resultType'] == 'vector', 'Prometheus query error')
         return data['data']['result']
 
@@ -803,7 +888,11 @@ class Runtime(p8.Runtime):
         signal = {'status': ('uninitialized' if initializing else 'warming-new-pod') if missing else 'observed', 'missing_uids': missing,
                   'pods': rows, 'query': [], 'query_sha256': digest(scale_query(self.v))}
         if not missing:
-            signal['query'] = self.prom(scale_query(self.v))
+            observation = {}
+            result = self.prom(collector_query(self.v), observation=observation)
+            signal['query'], signal['query_diagnostics'] = extract_collector_query(result, self.v)
+            signal['query_observation'] = observation
+            validate_query_observation(signal, self.v, self.value['source_sha'])
         if initializing:
             if rows:
                 telemetry(rows, {r['pod_uid']: r['pod'] for r in rows}, time.time(), self.v['freshness_seconds'])
@@ -1591,6 +1680,11 @@ def validate(directory):
         require(s['configuration']['metric_contract'] == metric_contract(), 'snapshot metric contract drift')
         signals.append(lifecycle.signal(s['signal'], inventory, s['at'], s['epoch']))
         require(s['signal']['query_sha256'] == digest(scale_query(v)), 'scale query drift')
+        if not s['signal']['missing_uids']:
+            require('query_observation' in s['signal'], 'missing collector query observation')
+            validate_query_observation(s['signal'], v, manifest['source_sha'], (s['at'], s['end']))
+        else:
+            require(not any(k in s['signal'] for k in ('query_observation', 'query_diagnostics')), 'fabricated warmup query')
     require(signals[-1] is not None and all(b['end'] - a['end'] <= 35 for a, b in zip(snapshots, snapshots[1:])), 'final/missing observation gap')
     require(snapshots[0]['end'] <= origin and snapshots[-1]['at'] >= origin + v['mitigation_seconds'] + v['recovery_seconds'] and
             snapshots[-1]['end'] <= origin + v['mitigation_seconds'] + v['recovery_seconds'] + 60, 'full observation/drain deadline coverage')

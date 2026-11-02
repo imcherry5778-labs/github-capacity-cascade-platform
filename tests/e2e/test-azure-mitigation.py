@@ -382,6 +382,210 @@ class CompleteEvidenceTests(unittest.TestCase):
                     m.validate(directory)
 
 
+class CollectorQueryTests(unittest.TestCase):
+    def setUp(self):
+        env = patch.dict(os.environ, {'FORGEJO_URL': 'https://forgejo.example.com'}, clear=True)
+        # Preserve the explicitly selected optional cost-free PromQL tool.
+        tool = os.environ.get('PROMTOOL')
+        env.start(); self.addCleanup(env.stop)
+        if tool: os.environ['PROMTOOL'] = tool
+
+    def envelope(self, guarded='2', **operands):
+        values = {'guarded': guarded, 'rate_count': '2', 'fresh_rate_count': '2', 'raw_max_age': '0',
+                  'inventory_count': '2', 'up_min': '1', 'up_count': '2', 'up_max_age': '0',
+                  'inventory_max_age': '0', 'evaluation_epoch': '180'} | operands
+        return [{'metric': {m.QUERY_TERM_LABEL: k}, 'value': [180, v]} for k, v in values.items() if v is not None]
+
+    def test_strict_extraction_absent_false_nonfinite_and_ambiguity(self):
+        for value in (None, '0', 'NaN', '+Inf', '-Inf'):
+            rows = self.envelope(guarded=None, up_min=value)
+            guarded, diagnostic = m.extract_collector_query(rows, plan())
+            self.assertEqual(guarded, [])
+            self.assertEqual(diagnostic['operands']['up_min'], [] if value is None else [{'metric': {}, 'value': [180, value]}])
+        for case in ('unknown', 'duplicate', 'label', 'unlabelled', 'histogram', 'epoch-missing', 'epoch-nan', 'epoch-mixed', 'epoch-value', 'bad-number', 'number-type', 'duplicate-guarded'):
+            rows = self.envelope()
+            if case == 'unknown': rows[0]['metric'][m.QUERY_TERM_LABEL] = 'unknown'
+            elif case == 'duplicate': rows.append(copy.deepcopy(rows[1]))
+            elif case == 'label': rows[0]['metric']['pod'] = 'extra'
+            elif case == 'unlabelled': rows[0]['metric'] = {}
+            elif case == 'histogram': rows[0]['histogram'] = rows[0].pop('value')
+            elif case == 'epoch-missing': rows.pop()
+            elif case == 'epoch-nan': rows[-1]['value'][1] = 'NaN'
+            elif case == 'epoch-mixed': rows[0]['value'][0] += 1
+            elif case == 'epoch-value': rows[-1]['value'][1] = '181'
+            elif case == 'bad-number': rows[0]['value'][1] = 'error'
+            elif case == 'number-type': rows[0]['value'][1] = 2
+            else: rows.append(copy.deepcopy(rows[0]))
+            with self.subTest(case=case), self.assertRaises(ValueError): m.extract_collector_query(rows, plan())
+
+    def test_runtime_fifth_request_clocks_provenance_and_unchanged_counts(self):
+        f, events, obs = LiveFixture(), [], {}
+        r = f.runtime
+        r.emit, r.prom_token, r.collection_deadline.at = events.append, 'synthetic-bearer', 103
+        payload = {'status': 'success', 'data': {'resultType': 'vector', 'result': self.envelope(guarded=None)}}
+        with patch.object(m.time, 'monotonic', side_effect=[100, 100, 102]), \
+             patch.object(m.p8, 'utc', side_effect=['2026-11-03T01:00:00Z', '2026-11-03T00:59:59Z']), \
+             patch.object(m.p8.p7, 'http_json', return_value=payload) as request:
+            rows = m.Runtime.prom(r, m.collector_query(r.v), observation=obs)
+        self.assertEqual(request.call_count, 1)
+        self.assertEqual(request.call_args.kwargs['timeout'], 3)
+        url = m.urllib.parse.urlsplit(request.call_args.args[0])
+        self.assertEqual(m.urllib.parse.parse_qs(url.query), {'query': [m.collector_query(r.v)]})
+        self.assertEqual((events[0]['at'], events[1]['at'], obs['elapsed_seconds']), (100, 102, 2))
+        self.assertNotIn('synthetic-bearer', json.dumps(events))
+        guarded, diagnostic = m.extract_collector_query(rows, r.v)
+        signal = {'query': guarded, 'query_sha256': m.digest(m.scale_query(r.v)), 'query_diagnostics': diagnostic, 'query_observation': obs}
+        m.validate_query_observation(signal, r.v, r.value['source_sha'], (99, 103))
+        self.assertEqual(signal['query'], [])  # Diagnostic presence never fabricates scaler zero.
+        for seconds in (3.001, 5.001):
+            r.collection_deadline.at = 103 if seconds < 5 else 130
+            with patch.object(m.time, 'monotonic', side_effect=[100, 100, 100 + seconds]), \
+                 patch.object(m.p8.p7, 'http_json', return_value=payload), self.assertRaisesRegex(ValueError, 'query budget'):
+                m.Runtime.prom(r, m.collector_query(r.v))
+        f.collect(0)
+        self.assertEqual(len(f.queries), 5)
+        self.assertEqual(f.queries[-1], m.collector_query(r.v))
+
+    def test_live_guarded_empty_nonfinite_errors_and_initialization_still_fail_closed(self):
+        f = LiveFixture(); f.collect(0); f.epoch = None
+        original = f.prom
+        for value in (None, 'NaN', '+Inf', '-Inf', '0'):
+            for initializing in (False, True):
+                r = f.runtime
+                r.preparation = initializing
+                r.collection_deadline.at = time.monotonic() + 30
+                def query(expression, **kwargs):
+                    if expression != m.collector_query(r.v): return original(expression, **kwargs)
+                    r.prom_token = 'synthetic-only'
+                    with patch.object(m.p8.p7, 'http_json', return_value={'status': 'success', 'data': {'resultType': 'vector', 'result': self.envelope(guarded=value)}}):
+                        return m.Runtime.prom(r, expression, **kwargs)
+                r.prom = query
+                with self.subTest(value=value, initializing=initializing):
+                    if value == '0' or initializing and value is None:
+                        signal = r.signal(f.pods, initializing=initializing)
+                        self.assertEqual(signal['query'], [] if value is None else [{'metric': {}, 'value': [180, '0']}])
+                        self.assertEqual(signal['status'], 'uninitialized' if value is None else 'observed')
+                    else:
+                        with self.assertRaisesRegex(ValueError, 'guarded'): r.signal(f.pods, initializing=initializing)
+        for payload in ({'status': 'error', 'errorType': 'timeout', 'data': {'resultType': 'vector', 'result': self.envelope()}},
+                        {'status': 'success', 'data': {'resultType': 'matrix', 'result': self.envelope()}}):
+            with patch.object(m.p8.p7, 'http_json', return_value=payload), self.assertRaisesRegex(ValueError, 'Prometheus query error'):
+                m.Runtime.prom(r, m.collector_query(r.v))
+        captured = []; r.emit = captured.append
+        with patch.object(m.p8.p7, 'http_json', side_effect=m.urllib.error.URLError('synthetic-only')), self.assertRaises(m.urllib.error.URLError):
+            m.Runtime.prom(r, m.collector_query(r.v))
+        self.assertEqual(captured[-1]['error_code'], 'prometheus_request_failed')
+        self.assertNotIn('synthetic-only', json.dumps(captured))
+
+    def test_saved_validation_rejects_missing_tampered_envelope_clocks_and_zero(self):
+        with tempfile.TemporaryDirectory() as directory:
+            rows = CompleteEvidenceTests().fixture(directory)
+            for case in ('missing', 'canonical', 'envelope', 'source', 'epoch', 'query', 'operand', 'elapsed', 'timeout', 'outside', 'collection-budget', 'utc', 'api-error', 'type', 'empty', 'nan'):
+                changed = copy.deepcopy(rows)
+                snap = next(e for e in changed if e['record'] == 'snapshot')
+                s, obs = snap['signal'], snap['signal']['query_observation']
+                if case == 'missing': s.pop('query_observation')
+                elif case == 'canonical': obs['scale_query_sha256'] = 'f' * 64
+                elif case == 'envelope': obs['query_sha256'] = s['query_sha256']
+                elif case == 'source': obs['source_sha'] = 'f' * 40
+                elif case == 'epoch': obs['payload']['data']['result'][-1]['value'][1] = 'NaN'
+                elif case == 'query': s['query'][0]['value'][1] = '123'
+                elif case == 'operand': s['query_diagnostics']['operands']['up_min'] = []
+                elif case == 'elapsed': obs['elapsed_seconds'] = 1
+                elif case == 'timeout': obs['timeout_seconds'] = 5.001
+                elif case == 'outside': obs.update(at=snap['at'] - 1, request_at=snap['at'] - 1)
+                elif case == 'collection-budget': snap['end'] = snap['at'] + 30.001
+                elif case == 'utc': obs['timestamp_utc'] = '2026-11-03T00:00:00'
+                elif case == 'api-error': obs['payload']['status'] = 'error'
+                elif case == 'type': obs['payload']['data']['resultType'] = 'matrix'
+                else:
+                    raw = obs['payload']['data']['result']
+                    if case == 'empty': raw[:] = [r for r in raw if r['metric'][m.QUERY_TERM_LABEL] != 'guarded']
+                    else: raw[0]['value'][1] = 'NaN'
+                    s['query'], s['query_diagnostics'] = m.extract_collector_query(raw, plan())
+                Path(directory, 'events.jsonl').write_text(''.join(json.dumps(r) + '\n' for r in changed))
+                with self.subTest(case=case), patch.object(m, 'path_accounting', return_value={'admitted_checks': [], 'checks': 1800}), self.assertRaises((ValueError, KeyError)):
+                    m.validate(directory)
+
+    def test_eighteenth_negative_and_canonical_query_remain_unchanged(self):
+        with tarfile.open(ROOT / 'docs/evidence/p9-mitigation-eighteenth-20261103/raw-evidence.tar.gz') as archive:
+            manifest = json.load(archive.extractfile('calibration-C3-1/configuration.json'))
+            events = [json.loads(line) for line in archive.extractfile('calibration-C3-1/events.jsonl')]
+        failure = next(i for i, e in enumerate(events) if e['record'] == 'monitor_failure')
+        response = next(e for e in reversed(events[:failure]) if e['record'] == 'prometheus_query_response')
+        self.assertEqual(response['payload']['status'], 'success')
+        self.assertEqual(response['payload']['data'], {'resultType': 'vector', 'result': []})
+        v = manifest['plan']
+        self.assertEqual(response['query_sha256'], m.digest(m.scale_query(v)))
+        self.assertTrue(any(e['record'] == 'monitor_failure' for e in events))
+        lifecycle = m.TargetLifecycle('C3', {t['uid'] for t in manifest['baseline']['targets']}, v)
+        snapshots = [e for e in events if e['record'] == 'snapshot']
+        for s in snapshots:
+            lifecycle.inventory(s['target_inventory'], s['at'])
+            lifecycle.admin(s['configuration']['targets'], s['admin_stats'], s['stats'], s['at'])
+            lifecycle.signal(s['signal'], s['target_inventory'], s['at'], s['epoch'])
+        last = snapshots[-1]
+        with self.assertRaisesRegex(ValueError, 'empty/invalid guarded scale query'):
+            lifecycle.signal(last['signal'] | {'query': []}, last['target_inventory'], last['at'], last['epoch'])
+        self.assertNotIn('query_observation', last['signal'])  # No retrospective observation invention.
+
+    def test_promtool_real_evaluation_guard_operands_and_original_equivalence(self):
+        import shutil
+        import subprocess
+        tool = os.environ.get('PROMTOOL') or shutil.which('promtool')
+        if not tool: self.skipTest('optional promtool unavailable; protocol/parser tests still run')
+        v = plan() | {'freshness_seconds': 45}
+        c = m.metric_contract()
+        labels = {'cluster': v['prometheus_cluster'], 'namespace': m.NS}
+        def series(name, pod, more, values):
+            return {'series': name + '{' + ','.join(k + '=' + json.dumps(val) for k, val in (labels | {'pod': 'ext-authz-sim-' + pod} | more).items()) + '}', 'values': values}
+        tests = []
+        # 5s samples keep rate present when a raw sample is older than the
+        # 45s freshness predicate, independently of the 1m rate window.
+        for case in ('healthy', 'zero', 'raw-stale', 'raw-absent', 'one-sample', 'up-zero', 'up-absent', 'up-extra', 'up-stale', 'inventory-absent', 'inventory-extra', 'inventory-stale', 'all-absent', 'fresh-boundary'):
+            inputs = []
+            expected = {'guarded': 2, 'rate_count': 2, 'fresh_rate_count': 2, 'raw_max_age': 0, 'inventory_count': 2,
+                        'up_min': 1, 'up_count': 2, 'up_max_age': 0, 'inventory_max_age': 0, 'evaluation_epoch': 180}
+            for pod in ('a', 'b'):
+                raw = '0+5x36' if case != 'zero' else '0+0x36'
+                up, info = '1+0x36', '1+0x36'
+                if pod == 'a':
+                    if case == 'raw-stale': raw = '0+5x26'
+                    elif case == 'fresh-boundary': raw = '0+5x27'
+                    elif case == 'raw-absent': raw = None
+                    elif case == 'one-sample': raw = '_x36 1'
+                    elif case == 'up-zero': up = '0+0x36'
+                    elif case == 'up-absent': up = None
+                    elif case == 'up-stale': up = '1+0x26'
+                    elif case == 'inventory-absent': info = None
+                    elif case == 'inventory-stale': info = '1+0x26'
+                for name, more, values in ((c['overflow'], {'job': c['job'], c['cluster_label']: c['cluster']}, raw),
+                                           ('up', {'job': c['job']}, up), ('kube_pod_info', {}, info)):
+                    if values is not None: inputs.append(series(name, pod, more, values))
+            if case == 'zero': expected['guarded'] = 0
+            elif case == 'fresh-boundary': expected.update(raw_max_age=45, guarded=31 / 24)
+            elif case != 'healthy': expected.pop('guarded')
+            if case == 'raw-stale': expected.update(fresh_rate_count=1, raw_max_age=50)
+            elif case in {'raw-absent', 'one-sample'}: expected.update(rate_count=1, fresh_rate_count=1)
+            elif case == 'up-zero': expected['up_min'] = 0
+            elif case == 'up-absent': expected['up_count'] = 1
+            elif case == 'up-stale': expected['up_max_age'] = 50
+            elif case == 'inventory-absent': expected['inventory_count'] = 1
+            elif case == 'inventory-stale': expected['inventory_max_age'] = 50
+            elif case in {'up-extra', 'inventory-extra'}:
+                name = 'up' if case == 'up-extra' else 'kube_pod_info'
+                inputs.append(series(name, 'extra', {'job': c['job']} if name == 'up' else {}, '1+0x36'))
+                expected['up_count' if name == 'up' else 'inventory_count'] = 3
+            elif case == 'all-absent': inputs, expected = [], {'evaluation_epoch': 180}
+            envelope = [{'labels': '{' + m.QUERY_TERM_LABEL + '="' + k + '"}', 'value': val} for k, val in expected.items()]
+            tests.append({'name': case, 'interval': '5s', 'input_series': inputs, 'promql_expr_test': [
+                {'expr': m.collector_query(v), 'eval_time': '180s', 'exp_samples': envelope},
+                {'expr': m.scale_query(v), 'eval_time': '180s', 'exp_samples': [] if 'guarded' not in expected else [{'labels': '{}', 'value': expected['guarded']}]}]})
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d, 'test.json'); path.write_text(json.dumps({'rule_files': [], 'tests': tests}))
+            result = subprocess.run([tool, 'test', 'rules', str(path)], text=True, capture_output=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
 class LiveFixture:
     """Synthetic positives only, never Azure evidence; real config/signal/collection."""
     def __init__(self, arm='C3'):
@@ -467,11 +671,23 @@ class LiveFixture:
         if path == 'config_dump?mask=bootstrap.stats_config': return {'stats_matcher': 'fixed', 'stats_tags': [{'tag_name': 'cluster_name', 'regex': m.metric_contract()['tag_regex']}], 'use_all_default_tags': False}
         raise AssertionError((ns, name, path))
 
-    def prom(self, query):
+    def prom(self, query, *, observation=None):
         self.queries.append(query)
-        if query == m.scale_query(self.runtime.v):
-            # Real guard is empty while live inventory exceeds rate coverage.
-            return [] if any(not m.p8.p4.pod_guard(p)['ready'] or p['metadata']['uid'] in self.missing | self.one_sample for p in self.pods) else [{'metric': {}, 'value': [0, str(self.rate * len(self.pods))]}]
+        if query == m.collector_query(self.runtime.v):
+            epoch = time.time()
+            empty = any(not m.p8.p4.pod_guard(p)['ready'] or p['metadata']['uid'] in self.missing | self.one_sample for p in self.pods)
+            values = {'guarded': str(self.rate * len(self.pods)),
+                      **{k: '1' for k in m.scale_query_parts(self.runtime.v)[1]}, 'evaluation_epoch': str(epoch)}
+            rows = [{'metric': {m.QUERY_TERM_LABEL: k}, 'value': [epoch, value]}
+                    for k, value in values.items() if k != 'guarded' or not empty]
+            at = min(time.monotonic(), getattr(self.runtime.collection_deadline, 'at', float('inf')))
+            if observation is not None:
+                observation.update(record='prometheus_query_response', source_sha=self.runtime.value['source_sha'],
+                    query_sha256=m.digest(query), scale_query_sha256=m.digest(m.scale_query(self.runtime.v)),
+                    at=at, request_at=at, request_timestamp_utc=m.p8.utc(), timestamp_utc=m.p8.utc(),
+                    elapsed_seconds=0, timeout_seconds=5, http_status=200,
+                    payload={'status': 'success', 'data': {'resultType': 'vector', 'result': rows}})
+            return rows
         values = []
         for p in self.pods:
             uid, name = p['metadata']['uid'], p['metadata']['name']
@@ -691,6 +907,14 @@ class CollectionGateTests(unittest.TestCase):
                 replacement = copy.deepcopy(source)
                 replacement.update(at=row['at'], end=row['end'], epoch=row['epoch'])
                 for r in replacement['signal']['pods']: r['timestamp'] = row['epoch']
+                signal = replacement['signal']
+                if 'query_observation' in signal:
+                    obs = signal['query_observation']
+                    obs.update(at=row['at'], request_at=row['at'], elapsed_seconds=0)
+                    for r in obs['payload']['data']['result']:
+                        r['value'][0] = row['epoch']
+                        if r['metric'][m.QUERY_TERM_LABEL] == 'evaluation_epoch': r['value'][1] = str(row['epoch'])
+                    signal['query'], signal['query_diagnostics'] = m.extract_collector_query(obs['payload']['data']['result'], plan())
                 rows[i] = replacement
             # Preserve the collector's convergence and release-gap events.
             rows[-1:-1] = [e for e in initial + pending + ready + sample + observed if e['record'] in {'convergence', 'replica_timeline'}]
@@ -804,6 +1028,7 @@ class CollectionGateTests(unittest.TestCase):
                 rows = [r for r in rows if r['record'] != 'snapshot' or not 0 < r['at'] < 35]
                 selected = next(r for r in rows if r['record'] == 'snapshot' and r['at'] == 35)
                 selected.update(at=gap, end=gap)
+                selected['signal']['query_observation'].update(at=gap, request_at=gap)
                 Path(directory, 'events.jsonl').write_text(''.join(json.dumps(r) + '\n' for r in rows))
                 with patch.object(m, 'path_accounting', return_value={'admitted_checks': [], 'checks': 1800}):
                     if gap == 35:
@@ -890,10 +1115,10 @@ class CollectionGateTests(unittest.TestCase):
                         if 'logs' in args:
                             advance(.375); calls.append('logs')
                         return k(*args)
-                    def query(expression):
+                    def query(expression, **kwargs):
                         advance(.2); calls.append('prometheus')
                         if case == 'signal-failed': raise ValueError('mandatory query failed')
-                        return prom(expression)
+                        return prom(expression, **kwargs)
                     def last_read():
                         advance(5.1 if case == 'late-last-read' else 4.5)
                         calls.append('haproxy')
@@ -999,10 +1224,10 @@ class CollectionGateTests(unittest.TestCase):
                     elif args == (m.NS, 'app=haproxy') and threading.get_ident() == main:
                         times[main] = max(times.values())
                     return pods(*args)
-                def query(expression):
+                def query(expression, **kwargs):
                     advance(.2); calls.append(('query', expression))
                     if case == 'signal-failed': raise ValueError('mandatory query failed')
-                    return prom(expression)
+                    return prom(expression, **kwargs)
                 def safety():
                     advance(failure['stage_elapsed_seconds']); calls.append(('guard',))
                     result = guard()
@@ -1202,7 +1427,7 @@ class MetricInitializationTests(unittest.TestCase):
         trigger = next(o for o in m.render(t8.identity(), v, 'C3')['fixtures.json']['items'] if o['kind'] == 'ScaledObject')['spec']['triggers'][0]
         self.assertEqual(trigger['metadata']['query'], m.scale_query(v))
         f.collect(0)
-        self.assertEqual(set(f.queries), set(queries) - {m.signal_queries(v)['raw']})
+        self.assertEqual(set(f.queries), (set(queries) - {m.signal_queries(v)['raw'], m.scale_query(v)}) | {m.collector_query(v)})
         c = {'source_sha': t8.identity()['source_sha'], 'plan_sha256': m.digest(v), 'reviewed': True,
              'missing_required_signals': [], 'cadence_observed': True, 'all_pod_series_observed': True,
              'counter_semantics': 'per-pod-active-overflow-counter-rate-per-second', 'controller_ownership_verified': True,
@@ -1212,8 +1437,8 @@ class MetricInitializationTests(unittest.TestCase):
         c['metric_contract']['cluster_label'] = 'envoy_cluster_name'
         with self.assertRaises(ValueError): m.frozen(t8.identity(), v, [c])
         original = f.prom
-        def wrong_label(query):
-            rows = original(query)
+        def wrong_label(query, **kwargs):
+            rows = original(query, **kwargs)
             for r in rows:
                 if 'cluster_name' in r['metric']: r['metric']['envoy_cluster_name'] = r['metric'].pop('cluster_name')
             return rows
