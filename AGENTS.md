@@ -119,6 +119,8 @@ Scope/acceptance/safety boundary가 바뀌지 않는 구현·운영 오류는 Ag
 
 Campaign은 사용자 중단·범위 완료·안전/ownership 복구 불가·승인상 종료·횟수/비용/retention reserve 소진일 때 owned cleanup으로 종료하며, 실패 한 번 자체를 종료 사유로 삼지 않는다.
 
+유료·credential 관련 실행 전에는 source helper의 검사뿐 아니라 실제 operator 호출·process 소유·민감 출력·owned cleanup 경계와, 승인된 횟수/복구가 실제 gate에 지원되는지를 확인한다. 반복 실패에서는 이전 교정이 해결한 것·남은 unknown·다음 승인 실행이 구분할 관측을 명시해 근거 없는 동일 재시도를 피한다.
+
 Source 수정과 cost-free 검증은 진행할 수 있다. 승인이 exact SHA로만 한정되어 있으면 변경 SHA의 paid 경로는 필요한 review/승인 전까지 보류한다. 향후 승인이 동일 scope의 bounded source correction을 명시적으로 포함해도 실제 실행 gate가 해당 복구·누적 계수를 지원하는지 확인하고, 영향 검증·독립 review·새 SHA/image/plan binding을 마친 범위에서만 진행한다. 보존 기한 자동 연장이나 전체 Environment teardown을 복구 수단으로 삼지 않는다.
 
 ## 6. Exact-head review / fix
@@ -183,11 +185,13 @@ Reliability experiment 전에 관련 normal test가 PASS해야 한다.
 - negative result를 성공처럼 수정하지 않음
 - valid run / hypothesis support 구분
 - reviewed/final evidence에 exact source commit 기록
-- secret/private local path/credential 제외
+- secret/private local path/credential 제외 (공개 artifact뿐 아니라 tool/REPL 반환값·stdout/stderr·예외·cleanup 출력 포함; publication scan/보호 사본 제거는 노출된 credential의 별도 처리·회전을 대체하지 않음)
 - 측정하지 않은 결과 claim 금지
 - engineering evidence와 portfolio/presentation copy를 분리
 
 `PASS`, `verified`, `reproduced`, `restored`, `zero residual`은 실제 evidence 확인 후에만 사용한다.
+
+반복 실패·중대한 안전 사고·불필요한 재작업이 확인되면 별도 문서 대신 기존 PR/incident 결과에 근거·영향·최소 보정·검증 방법을 짧게 제안한다. 적용·보류 판단은 ChatGPT가 하며 새 harness·팀·규칙을 기본으로 추가하지 않는다.
 
 ## 12. Azure safety
 
