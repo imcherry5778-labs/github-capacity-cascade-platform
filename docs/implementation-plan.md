@@ -184,7 +184,7 @@ P5에서 exact OIDC subject, region/quota, AKS/revision capability, ingress/rout
 
 ### Paid Azure boundary — P6–P11
 
-P6–P11에서 **paid Azure resource를 사용·변경·삭제하는 action**을 시작하기 전에는 해당 milestone/campaign 기준으로 다음을 다시 확인한다.
+P6–P11의 paid 실행은 **해당 campaign의 첫 external mutation 직전** 다음 중 실행 판단에 영향을 주는 항목만 bounded하게 확인한다. 최근 검증된 항목은 scope·source·자원·권한·가격/사용량 가정·기한에 유효성 변화가 없으면 재사용한다. 새 채팅·보고·문서 수정만으로 전체 preflight를 반복하지 않는다.
 
 - exact source commit
 - current environment state/lifetime
@@ -192,7 +192,11 @@ P6–P11에서 **paid Azure resource를 사용·변경·삭제하는 action**을
 - 필요한 external DNS delegation action
 - explicit user approval와 그 approval이 cover하는 action/scope
 
-이전 milestone 또는 이전 날의 approval을 다음 paid campaign에 자동 승계하지 않는다.
+승인은 지정 campaign·source·권한·횟수·비용·기한에 결합된다. **새 campaign 또는 승인 밖 변경에는 명시 승인이 필요**하지만, 같은 유효 승인 안의 계속 실행·허용된 복구는 날짜 변경이나 새 보고만으로 재승인받지 않는다. 이 규칙은 exact-SHA/횟수/비용/기한 gate를 완화하거나 새 campaign을 승인하지 않는다.
+
+실행 중에는 resource/권한/사용량·단가/기한의 유의미한 변화, 실제 한도 초과 징후 또는 계약상 필수 gate가 있을 때 해당 항목만 재확인한다. 새 Pod·identity·process의 필수 live gate와 각 실행의 남은 횟수·deadline/원복 reserve 검사는 유지한다. 비용 모델은 기존 기준으로 필요한 delta만 갱신하며, 같은 보존구간·이미 계상한 allowance/uncertainty를 승인 왕복마다 새 항목으로 중복 추가하지 않는다. 기존 모델의 명시적 보수적 중복과 과거 기록은 숨기거나 소급 삭제하지 않는다.
+
+청구 지연에 따른 실비·잔액 unknown만으로 조회·승인서 작성 루프를 만들지 않는다. 유효한 보수적 projection과 승인 한도가 유지되면 그 범위에서 진행하고, 한도를 평가할 근거가 없거나 초과 위험이 있으면 관련 유료 행동만 보류한다. 새 사용자 결정은 미승인 실행·권한/자원 확대·실제 비용/횟수/기한 변경 등 필요한 delta에 한정해 기존 승인과 함께 한 번에 요청한다.
 
 P11까지 기존 environment 재사용을 우선한다. Milestone 종료를 same-day destroy에 연결하지 않는다. 기존 resource의 보존 승인과 다음 작업의 실행 승인은 별개이며, 현재 명시적 승인 범위와 보존 기한을 유지한다. 자동 연장·자동 삭제는 없다. 기한 조정 또는 범위 밖 실행·삭제가 필요하면 새 explicit approval을 받는다. 같은 branch/PR/evidence를 이어 쓰며 기한 조정만으로 다시 만들지 않는다.
 
