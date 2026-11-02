@@ -2,6 +2,43 @@
 
 현재 상태: **제14차 단일 campaign 종료 / normal·healthy·KEDA 인증·full C3 preflight positive / calibration1 invalid / freeze·C0–C3 measured·recovery 미도달 / P9-owned 원복 검증 / P9 acceptance 미충족**.
 
+## 승인된 추가 72시간 보존과 source gate 정합화
+
+[보존기간 PR #44](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/44)가
+main `cbb1a222478b867167b5572f103ab23139c308dc`에 병합됐다. 같은 P9 branch에 일반 merge로 반영하며
+[Paid Azure boundary](implementation-plan.md#paid-azure-boundary--p6p11)의 승인된 기한을 실행 gate에 맞춘다.
+
+| 대상 | 현재 승인 기한 (KST) | UTC |
+| --- | --- | --- |
+| Environment / P8 Runtime / P9 DEADLINE | **2026-11-05 10:30** | `2026-11-05T01:30:00Z` |
+| Foundation/Bootstrap | **2026-11-06 00:33** | `2026-11-05T15:33:00Z` |
+
+Foundation/Bootstrap 기한은 Environment 실행 한도가 아니다. P8 hard deadline의 strict `<`와 P9의
+run+drain60초+rollback1800초, 실제 initialization timeout+kill5초+run/drain/rollback reserve의 strict `<`를 유지한다.
+Raw deadline 직전이어도 reserve가 부족하면 거부한다. 기존 initialization/settling/command/run 상한과
+전체 campaign의8045초 준비 기준, 횟수·acceptance·resource/권한 경계는 바꾸지 않는다.
+
+[이전 준비 snapshot](evidence/p9-resume-preparation-20261102/README.md)과
+[당시 결과 comment](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6565270761)의
+11월2일 기한·08:15:55 시작 한계·미승인 +6h 대안·USD180 요청은 당시 판단이다. README/JSON과 과거 raw/archive/
+incident/실행·비용·누적 소비를 소급 수정하지 않는다. 현재 기한은 위 추가72h 결정이 대체하며 보존기간을 재승인 요청하지 않는다.
+
+#44의 저장 모델상 추가 보존 Two-RG 부분은 약USD75.97이며, 다음 campaign variable USD5를 제외한
+이전 누적 모델에 이 부분만 더해도 약USD225.40이다. Foundation/Bootstrap 추가분·미반영비·세금·다음 실행비는
+구분해야 하며 실제 환율/현재 청구액/새 비용상한이 아니다. **종전 USD180을 새 승인이나 잔액으로 쓰지 않는다.**
+
+이번 작업은 source-only다. 이전 GET 준비와 변경 없는 `owned_forward()` 검증을 재사용하고 Azure GET/preflight도
+반복하지 않는다. 제15차 승인량0이며 mutation/credential·RBAC 변경/refresh/image publish/port-forward/
+normal/healthy/calibration/measured/load/teardown은 미실행이다. 새 exact HEAD의 독립 review 뒤 필요한 bounded
+current cost/resource/RBAC/quota 및 새 SHA/기한/비용을 반영한 통합 실행 승인은 별도로 남는다.
+`owned_forward()`를 포함한 `d0d16cf..f4ffab6` delta와 이번 deadline delta는 최종 exact HEAD의 독립 review 대상이다.
+Single-SHA ledger/calibration≤2/measured arm별≤1/healthy intent 소비·freeze 조건을 유지한다.
+Source-changing same-ledger recovery와 measured retry는 여전히 미지원이며 P9 acceptance도 미충족이다.
+
+직접 검증은 기존 P8/P9 test surface에서 raw deadline과 각 유효 시작 cutoff의 직전/정각/직후를 다룬다.
+현재 source/test 변경의 정확한 SHA·local/static 결과·자동 exact-head CI URL은 기존 PR 결과 comment에 연결한다.
+작성자 self-review는 독립 review를 대신하지 않는다.
+
 ## 제14차 실제 실행과 finalization
 
 [제14차 evidence](evidence/p9-mitigation-fourteenth-20261102/README.md)와
@@ -28,13 +65,13 @@ KEDA apply/restore 각1회·historical 누적 각3회, 이전13개 raw archive b
 기존 retention과 stable Azure Environment를 P11 재사용을 위해 보존한다. 후속 docs/evidence HEAD는 실행 source가 아니다.
 P9 acceptance 미충족이며 merge/P10은 수행하지 않는다.
 
-## 제15차 승인 전 최소 재개 준비
+## 이전 제15차 승인 전 최소 재개 준비
 
-[현재 준비 evidence와 단일 통합 승인안](evidence/p9-resume-preparation-20261102/README.md)에
+[당시 준비 evidence와 단일 통합 승인안](evidence/p9-resume-preparation-20261102/README.md)에
 bounded Azure GET의 actual cost/resource/management RBAC/quota 관측, 기존 operator의
 `owned_forward()` 연결과 local process/mock 검증, 누적 횟수·비용·retention 계산을 정리했다.
-이번 TARGET의 read-only 승인을 사용했으며 아래 과거 문서 작업의 “Azure 조회/변경 없음”은 당시 이력이다.
-이번에도 cloud mutation/load/실제 port-forward는 없으며 제15차는 **미실행·미승인**이다.
+당시 TARGET의 read-only 승인을 사용했으며 아래 과거 문서 작업의 “Azure 조회/변경 없음”은 당시 이력이다.
+그 준비에서도 cloud mutation/load/실제 port-forward는 없었으며 제15차는 **미실행·미승인**이다.
 실행 source/실제 image·plan binding과 새 delta의 독립 review는 별도 gate다.
 기존 Environment 기한 내 전체8045초 reserve를 요구하며 준비 결과는 P9 acceptance가 아니다.
 
@@ -741,8 +778,8 @@ query/변동 여유USD1.739를 합친 **증가분 검토 예상USD5**, 추가 �
 rollout 비용/영향을 포함한 정확한 P9 실비는 분리 unknown이다. 재시작 때문에 새 node는 만들지 않는다.
 Actual volume/cost·새 비용 근거가 budget을 넘으면 추가 run을 시작하지 않는다.
 
-[사용자 +72h 보존 승인](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6509128514)에 따라
-현재 Environment 기한은 **2026-11-02 10:30 KST** (`2026-11-02T01:30:00Z`),
+[이전 사용자 +72h 보존 승인](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6509128514)에 따른
+당시 Environment 기한은 **2026-11-02 10:30 KST** (`2026-11-02T01:30:00Z`),
 Foundation/Bootstrap은 **2026-11-03 00:33 KST** (`2026-11-02T15:33:00Z`)다.
 P8 Runtime과 P9 DEADLINE은 같은 Environment 기한을 사용한다. 이전 기한 이후의 승인된 실행 진입을 허용하되
 새 기한 직전/정각/직후와 initialization840초+kill5초/run/drain60초/rollback30분 reserve 경계를 직접 회귀로 검증한다.

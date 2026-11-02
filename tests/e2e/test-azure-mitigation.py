@@ -197,24 +197,28 @@ class PlanTests(unittest.TestCase):
             with self.assertRaises(ValueError): m.execution_gate(identity, v, approval(), [entry | {'phase': 'calibration'}] * 3, now)
 
     def test_extended_retention_keeps_initialization_run_drain_and_rollback_reserves(self):
-        deadline = m.datetime(2026, 11, 2, 1, 30, tzinfo=m.timezone.utc)
-        old_deadline = m.datetime(2026, 10, 30, 1, 30, tzinfo=m.timezone.utc)
+        deadline = m.datetime(2026, 11, 5, 1, 30, tzinfo=m.timezone.utc)
+        old_deadline = m.datetime(2026, 11, 2, 1, 30, tzinfo=m.timezone.utc)
         self.assertEqual(m.DEADLINE, deadline)
         self.assertEqual(deadline - old_deadline, m.timedelta(days=3))
         identity = t8.identity()
         with patch.dict(os.environ, {'P9_AZURE_APPROVED': identity['source_sha']}, clear=True), patch.object(m.p8.p7, 'command') as command:
-            for v in (plan(), plan() | {'mitigation_seconds': 300, 'recovery_seconds': 240}):
+            for v in (plan(), plan() | {'mitigation_seconds': 300, 'recovery_seconds': 240},
+                      plan() | {'mitigation_seconds': 300, 'recovery_seconds': 240,
+                                'scrape_seconds': 60, 'ingestion_seconds': 39,
+                                'controller_seconds': 1, 'freshness_seconds': 99}):
                 approved = approval() | {'plan_sha256': m.digest(v)}
                 run = v['mitigation_seconds'] + v['recovery_seconds']
                 self.assertLessEqual(run + 60, 600)  # Existing measured run + drain bound.
                 for gate, reserve in ((m.execution_gate, run + 60 + 1800),
-                                      (m.preparation_gate, 840 + 5 + run + 60 + 1800)):
+                                      (m.preparation_gate, m.initialization_process_seconds(v) + 5 + run + 60 + 1800)):
                     with self.subTest(run=run, gate=gate.__name__):
                         gate(identity, v, approved, [], old_deadline + m.timedelta(seconds=1))
                         boundary = deadline - m.timedelta(seconds=reserve)
                         gate(identity, v, approved, [], boundary - m.timedelta(microseconds=1))
                         for now in (boundary, boundary + m.timedelta(microseconds=1),
-                                    deadline - m.timedelta(microseconds=1), deadline, deadline + m.timedelta(microseconds=1)):
+                                    deadline - m.timedelta(microseconds=1), deadline, deadline + m.timedelta(microseconds=1),
+                                    m.datetime(2026, 11, 5, 15, 33, tzinfo=m.timezone.utc)):
                             with self.subTest(now=now), self.assertRaisesRegex(ValueError, 'insufficient retention time'):
                                 gate(identity, v, approved, [], now)
             command.assert_not_called()

@@ -33,7 +33,7 @@ NS = p8.NS  # Reuse removed P8 fixture names, owned by the NEW campaign label.
 ARMS = ('C0', 'C1', 'C2', 'C3')
 HPA = 'p9-proxy'
 SLO = ROOT / 'docs/evidence/p7-operations-20261028/initial-slo.json'
-DEADLINE = datetime(2026, 11, 2, 1, 30, tzinfo=timezone.utc)
+DEADLINE = datetime(2026, 11, 5, 1, 30, tzinfo=timezone.utc)
 
 
 # Selected managed runtime contract, not an auto-discovery/fallback policy.
