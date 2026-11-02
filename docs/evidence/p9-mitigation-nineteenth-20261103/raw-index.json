@@ -1,0 +1,307 @@
+{
+  "source_sha": "7ee476d01eea6d5df68e7d237bf9ae07c1b1eb72",
+  "format": "sanitized append-only selected JSON/JSONL; no credentials, command argv, stderr, private trace or kubeconfig",
+  "redactions": [
+    "subscription UUID replaced consistently with zero UUID",
+    "owned local paths replaced with markers",
+    "exact credential and encoded credential values excluded/redacted"
+  ],
+  "original_selected": {
+    "normal/20261102182353-b43c19/events.jsonl": {
+      "bytes": 12879,
+      "sha256": "de5ceb694f7fa8808a25cea95f0ec46f40576017da7828ab3be6b2dc47156a0f"
+    },
+    "initialize/events.jsonl": {
+      "bytes": 139818,
+      "sha256": "799aadbcd15e57fe459e207c7c211a0193c32bac8aea4994eecc34c535054a24"
+    },
+    "initialize/journey/20261102183443-904492/events.jsonl": {
+      "bytes": 13142,
+      "sha256": "75650abe095c7b1ab6452e7215632f87913ab12d07d1db5d454495501f6784b7"
+    },
+    "calibration-C3-1/before.json": {
+      "bytes": 58,
+      "sha256": "3b8456308f29c3c3efe82d57d9192a4309d5b09dc51d35e440c23608f4b19aad"
+    },
+    "calibration-C3-1/invocation-failure.json": {
+      "bytes": 193,
+      "sha256": "573577f0d4c2fd762ada1a846e89cc79dc6f439c599b1e660ed118f16eede69e"
+    },
+    "calibration-C3-1/events.jsonl": {
+      "bytes": 19188371,
+      "sha256": "8ce5e393cc49018fea46a4de369d57d05bfc52ac9e3bd9e9fcc72460219bcbd8"
+    },
+    "calibration-C3-1/configuration.json": {
+      "bytes": 13164,
+      "sha256": "0a91ceeccaa8c0296e679dd64e6e77701d221efcd51c2c953085282d6b4c7f7c"
+    },
+    "operator-events.jsonl": {
+      "bytes": 2347870,
+      "sha256": "7cdc1ee2db4286c677033644a8c5bd2cb32a7b83211c9096dce612a1bc0c3d85"
+    },
+    "initialization-ledger.jsonl": {
+      "bytes": 139818,
+      "sha256": "799aadbcd15e57fe459e207c7c211a0193c32bac8aea4994eecc34c535054a24"
+    },
+    "run-ledger.jsonl": {
+      "bytes": 232,
+      "sha256": "5cea806899be076bd1e94bda9b6e84af27fb69e90e990d2f2ada763bfe19fc7e"
+    },
+    "identity.json": {
+      "bytes": 889,
+      "sha256": "5c66030ed02bd9fb3bbc35807d301ecd58c2487b9821830b08650fb0710a40fe"
+    },
+    "preparation-plan.json": {
+      "bytes": 527,
+      "sha256": "e9984138e83278ff805f48adbcb1f31608975a0e76629dadcd8e180d48d56d23"
+    },
+    "actual-plan.json": {
+      "bytes": 527,
+      "sha256": "ab1f79a9b62ce06f4bb8aeece130541b6e611ef05a6af3a5b8af018371582a1b"
+    },
+    "approval-initial.json": {
+      "bytes": 1444,
+      "sha256": "303530086411b8a6f94e591cd2fe57690d7c1c6cd070ac27fdb65bd25965e3bf"
+    },
+    "approval-normal.json": {
+      "bytes": 1443,
+      "sha256": "fbac3cd54928f390b5a93148df99d70c6977d1a3dc0081cf821fcea76edab1f8"
+    },
+    "approval-healthy.json": {
+      "bytes": 1442,
+      "sha256": "908bd1ffbc1b19e3aa5e0e3bcd832cdacb22f5fbbd4d2224cb26118f4abe23e6"
+    },
+    "approval-runtime.json": {
+      "bytes": 1441,
+      "sha256": "acfccf008afabf6f32bf145d455fd5fff2b4a8871cc9209cbf25b15bd25507a3"
+    },
+    "normal-validation.json": {
+      "bytes": 10356,
+      "sha256": "abf9b0552ad23dbb489f4e391aa129526c9b13a1331125be1235ba007494b547"
+    },
+    "context.json": {
+      "bytes": 1185,
+      "sha256": "96f6e7df81dec8c9c1055e6900d0139f682f0a60256ac383e3f278b8a3172568"
+    },
+    "context-healthy.json": {
+      "bytes": 1191,
+      "sha256": "d2e5581701aed64a7e7b53e86711eb20ee2574cdb0f10d07841c2c30d84ba626"
+    },
+    "initial-probes.json": {
+      "bytes": 1630,
+      "sha256": "8dc8bdd9b0dd5f21ad6bce40805c7c242902eced107194245614365a9fed03ea"
+    },
+    "admitted-actual.json": {
+      "bytes": 2307,
+      "sha256": "e19aef0e7e8d364fbf40b877524083357a5dc25dc34932f68207d1811bf45640"
+    },
+    "admitted-target-stage.json": {
+      "bytes": 1850,
+      "sha256": "9c3f1c32b7d7a7bc6c197b43f2cdad8ac329a439cd602cfe349a041c0dc930a0"
+    },
+    "target-headroom.json": {
+      "bytes": 248,
+      "sha256": "943e30e912523aa273a7c09d829dae89e9c6e6d584db1fa69b9ff43c038e0251"
+    },
+    "native-before-calibration.json": {
+      "bytes": 193,
+      "sha256": "21148ed0c3ccd25b00907bbb5e2d64ce3e8e061a1d9af21a246f24836a1fe0a6"
+    },
+    "full-runtime-preflight.json": {
+      "bytes": 1091324,
+      "sha256": "98f084d159193e479848c4c688159107cc7ea355b011f8cc640c5753f66672f7"
+    },
+    "actual-keda-scaler-auth.json": {
+      "bytes": 1088,
+      "sha256": "5708a0cb251b021f2cf59bb6b95f8db2d009837134307f62e60d84914449141a"
+    },
+    "actual-keda-scaler-auth-final.json": {
+      "bytes": 1088,
+      "sha256": "51c07415e94b8d9a0abe838b80f3bf3eb79ce6d06b06c2fa55631013c59581fd"
+    },
+    "keda-identity-binding.json": {
+      "bytes": 438,
+      "sha256": "3c27d4fef7512be3f9568f54393146ff50ee8d48e145d44ee0759999af04e097"
+    },
+    "before-stable.json": {
+      "bytes": 16699,
+      "sha256": "19f157ffde6e074905fdfb5b2f1d59b982a23cd773ad6f472564fa7fcee63024"
+    },
+    "after-stable.json": {
+      "bytes": 16699,
+      "sha256": "19f157ffde6e074905fdfb5b2f1d59b982a23cd773ad6f472564fa7fcee63024"
+    },
+    "negative-replay-with-resource-guard.json": {
+      "bytes": 96824,
+      "sha256": "ad47be5321e96f515866d86310f91384a77f8fb5c95397fc363acbaccb5fc557"
+    }
+  },
+  "files": [
+    {
+      "path": "actual-keda-scaler-auth-final.json",
+      "bytes": 1088,
+      "sha256": "51c07415e94b8d9a0abe838b80f3bf3eb79ce6d06b06c2fa55631013c59581fd"
+    },
+    {
+      "path": "actual-keda-scaler-auth.json",
+      "bytes": 1088,
+      "sha256": "5708a0cb251b021f2cf59bb6b95f8db2d009837134307f62e60d84914449141a"
+    },
+    {
+      "path": "actual-plan.json",
+      "bytes": 527,
+      "sha256": "ab1f79a9b62ce06f4bb8aeece130541b6e611ef05a6af3a5b8af018371582a1b"
+    },
+    {
+      "path": "admitted-actual.json",
+      "bytes": 2307,
+      "sha256": "e19aef0e7e8d364fbf40b877524083357a5dc25dc34932f68207d1811bf45640"
+    },
+    {
+      "path": "admitted-target-stage.json",
+      "bytes": 1850,
+      "sha256": "9c3f1c32b7d7a7bc6c197b43f2cdad8ac329a439cd602cfe349a041c0dc930a0"
+    },
+    {
+      "path": "after-stable.json",
+      "bytes": 16699,
+      "sha256": "897f3ab7fd3f0dc7b24030308811c390dd20c1ce5cc6ac9c0e23e64ca70b2535"
+    },
+    {
+      "path": "approval-healthy.json",
+      "bytes": 1442,
+      "sha256": "c4064088362c82bf994b7104f3ffbef16af95e797811cf9af04d25ab1a309622"
+    },
+    {
+      "path": "approval-initial.json",
+      "bytes": 1444,
+      "sha256": "21661ace13b9daccbd79dd40962c485c1ec777d0b0d3b97fb854522ef18503eb"
+    },
+    {
+      "path": "approval-normal.json",
+      "bytes": 1443,
+      "sha256": "e40a53dcb6b8a026183f806828cb825032b4b8b4468db4d842357ace55524f0d"
+    },
+    {
+      "path": "approval-runtime.json",
+      "bytes": 1441,
+      "sha256": "8eb2a8b2dabf178e134aab6b640d23c7ea46badb1adee82296bdd71c94fa4a8c"
+    },
+    {
+      "path": "before-stable.json",
+      "bytes": 16699,
+      "sha256": "897f3ab7fd3f0dc7b24030308811c390dd20c1ce5cc6ac9c0e23e64ca70b2535"
+    },
+    {
+      "path": "calibration-C3-1/before.json",
+      "bytes": 58,
+      "sha256": "3b8456308f29c3c3efe82d57d9192a4309d5b09dc51d35e440c23608f4b19aad"
+    },
+    {
+      "path": "calibration-C3-1/configuration.json",
+      "bytes": 13164,
+      "sha256": "e3829253c38d8566864e78a905e2e8f0d580a05740377fd074d09e3ba9f86874"
+    },
+    {
+      "path": "calibration-C3-1/events.jsonl",
+      "bytes": 19188371,
+      "sha256": "a82027a0c4514727a8569d547672863ea0ece85213152bbbe1fce0e7ab6ed9c5"
+    },
+    {
+      "path": "calibration-C3-1/invocation-failure.json",
+      "bytes": 193,
+      "sha256": "573577f0d4c2fd762ada1a846e89cc79dc6f439c599b1e660ed118f16eede69e"
+    },
+    {
+      "path": "cleanup.json",
+      "bytes": 1462,
+      "sha256": "61e40c2e0c05b02a886eb71ae79f75139c9772a6df1a7e69259345133bee6522"
+    },
+    {
+      "path": "context-healthy.json",
+      "bytes": 1191,
+      "sha256": "f9363c02b4b61e12518ea444efb715fa710a18f9731d45d329b66e73c2c79c96"
+    },
+    {
+      "path": "context.json",
+      "bytes": 1185,
+      "sha256": "a08a8e159aa1ed4be50b99a4cbc8508bc8cb7f092f3d0c66367793c908a1d5c3"
+    },
+    {
+      "path": "full-runtime-preflight.json",
+      "bytes": 1091324,
+      "sha256": "f6a15a76eeb754a50510d25e3e103b432eb43b6bc6f56a319598fa0160c13025"
+    },
+    {
+      "path": "identity.json",
+      "bytes": 889,
+      "sha256": "ec01e6aafaf961f57e8adae6a1c70c5e200dbcd9aaf4fedd711cf39b634c8a6b"
+    },
+    {
+      "path": "initial-probes.json",
+      "bytes": 1630,
+      "sha256": "8dc8bdd9b0dd5f21ad6bce40805c7c242902eced107194245614365a9fed03ea"
+    },
+    {
+      "path": "initialization-ledger.jsonl",
+      "bytes": 139818,
+      "sha256": "07f2cd971eaf77b7b723ab0dc58514b5a0cc597c321578e75fb14c3e2c10d9a1"
+    },
+    {
+      "path": "initialize/events.jsonl",
+      "bytes": 139818,
+      "sha256": "07f2cd971eaf77b7b723ab0dc58514b5a0cc597c321578e75fb14c3e2c10d9a1"
+    },
+    {
+      "path": "initialize/journey/20261102183443-904492/events.jsonl",
+      "bytes": 13142,
+      "sha256": "1083c5a8f830cb4f6e8ee3f91677e6b14c6fb6f6fa886e3a052f8fb12ab45fe9"
+    },
+    {
+      "path": "keda-identity-binding.json",
+      "bytes": 438,
+      "sha256": "3c27d4fef7512be3f9568f54393146ff50ee8d48e145d44ee0759999af04e097"
+    },
+    {
+      "path": "native-before-calibration.json",
+      "bytes": 193,
+      "sha256": "21148ed0c3ccd25b00907bbb5e2d64ce3e8e061a1d9af21a246f24836a1fe0a6"
+    },
+    {
+      "path": "negative-replay-with-resource-guard.json",
+      "bytes": 96824,
+      "sha256": "ad47be5321e96f515866d86310f91384a77f8fb5c95397fc363acbaccb5fc557"
+    },
+    {
+      "path": "normal-validation.json",
+      "bytes": 10356,
+      "sha256": "3a3496d9bde00781395072a768b1788790ac4bf93809b2196c2ac10fef86b677"
+    },
+    {
+      "path": "normal/20261102182353-b43c19/events.jsonl",
+      "bytes": 12879,
+      "sha256": "70b7265624763d28182594b3556487ad029424bd159082676dbdafc52859d920"
+    },
+    {
+      "path": "operator-events.jsonl",
+      "bytes": 2347870,
+      "sha256": "c640e0a038e721405118e07916710497f8c3307b5d9e21d65f3e37ab2adf89be"
+    },
+    {
+      "path": "preparation-plan.json",
+      "bytes": 527,
+      "sha256": "e9984138e83278ff805f48adbcb1f31608975a0e76629dadcd8e180d48d56d23"
+    },
+    {
+      "path": "run-ledger.jsonl",
+      "bytes": 232,
+      "sha256": "5cea806899be076bd1e94bda9b6e84af27fb69e90e990d2f2ada763bfe19fc7e"
+    },
+    {
+      "path": "target-headroom.json",
+      "bytes": 248,
+      "sha256": "943e30e912523aa273a7c09d829dae89e9c6e6d584db1fa69b9ff43c038e0251"
+    }
+  ],
+  "archive_sha256": "928b83f57b9146d1cce80821fbfc9e9ed03a092e2c8287e7c8f27847eddf1763"
+}

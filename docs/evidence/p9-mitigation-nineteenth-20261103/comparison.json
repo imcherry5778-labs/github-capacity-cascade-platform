@@ -1,0 +1,53 @@
+{
+  "source_sha": "7ee476d01eea6d5df68e7d237bf9ae07c1b1eb72",
+  "acceptance": "not met",
+  "valid_measured_arms": [],
+  "freeze": null,
+  "primary_blocker": {
+    "failure_offset_seconds": 271.5725127919577,
+    "rate_response": "HTTP200/success/vector/[]",
+    "active_rows": 2,
+    "timestamp_rows": 2,
+    "sample_count_rows": 1,
+    "sample_count_values": [
+      1
+    ],
+    "both_existing_uids_missing_rate": true,
+    "source_replay_rejection": "unapproved missing telemetry",
+    "fifth_request_issued_in_failed_cycle": false
+  },
+  "additional_saved_guard": {
+    "rejection": "stale resource metric",
+    "samples": [
+      {
+        "snapshot_offset_seconds": 70.70394137478434,
+        "pod_uid": "2e6d9a60-2506-4dda-86c4-f6d3721af4ff",
+        "metric_age_seconds": 35.126401,
+        "source_limit_seconds": 24.639516672,
+        "metric_timestamp_utc": "2026-11-02T18:56:33Z",
+        "guard_timestamp_utc": "2026-11-02T18:57:08.126401+00:00"
+      },
+      {
+        "snapshot_offset_seconds": 88.7888751248829,
+        "pod_uid": "2e6d9a60-2506-4dda-86c4-f6d3721af4ff",
+        "metric_age_seconds": 53.185661,
+        "source_limit_seconds": 24.639516672,
+        "metric_timestamp_utc": "2026-11-02T18:56:33Z",
+        "guard_timestamp_utc": "2026-11-02T18:57:26.185661+00:00"
+      }
+    ]
+  },
+  "envelope_actual_amw": {
+    "responses": 13,
+    "all_guarded_rows_present": true,
+    "same_response_epoch_extraction_and_clocks_validated": true,
+    "backend_transaction_atomicity": false
+  },
+  "runtime_unknown": [
+    "why current AMW rate/sample availability temporarily disappeared",
+    "scrape versus ingestion/backend origin not established",
+    "campaign18 original guarded-empty predicate remains unknown",
+    "valid C0-C3/recovery/accounting/confounder comparison absent"
+  ],
+  "next_boundary": "No cause-directed same-source correction established. No second calibration or measured run; source/acceptance/freshness/query timeouts unchanged."
+}
