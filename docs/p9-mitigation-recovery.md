@@ -20,6 +20,20 @@ Latest bounded cost 관측은06:22 UTC의 posted Two-RG KRW150,587.6256921,
 재사용했고 이번에는 회전하지 않았다. Admin/DB Secret UID·data와 admin CSI 버전은 보존됐다.
 Session/output unknown은 유지한다. 아래 제15차·이전 절의 미승인/회전 미수행/비용 문구는 당시 이력이다.
 
+## 제16차 후속 cost-free telemetry cadence 교정
+
+[독립 결과 review](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#pullrequestreview-5733327125) 뒤
+telemetry loop의 대기를 collection 시작 기준으로 맞췄다. 결과 사이31.857초에서 고정 sleep15초를 뺀16.857초는
+전체 순차 작업의 추정치이며 개별 API latency가 아니다. 새 간격은 `collection + scrape` 대신 최소 `max(collection, scrape)`다.
+CPU settling loop는 변경하지 않는다. `healthy_telemetry_poll.collection_started_at` 하나를 추가해 이후 실제 collection 시간을 구분한다.
+
+시작 간격은 여전히 scrape 이상이므로 전역 window 내 이론적 poll 상한 `ceil((ingestion + 3*scrape) / scrape)`는 유지된다.
+Candidate75초/15초는 최대5회, poll당 Prometheus query 최대5개로 최대25개다. 각 poll의 configuration/guard/signal과
+추가 probe·journey는 늘리지 않는다. 명령별 budget·collection30초·전역75초·CPU freshness30초·최종 동시 positive와 모든 invariant는 유지한다.
+0–29.9초 synthetic 작업비용·scrape1/15/60초에서 cadence/조회 상한/deadline/실패를 검증했다.
+별도 synthetic 30–45초 availability는 기존 고정 sleep에서 놓치고 교정 뒤33.714초에 관측하지만, 실제16차를 재현한 성공은 아니다.
+기존 raw/archive·카운터·16차 실패 판정은 그대로다. 새 source는 ChatGPT exact-head 독립 review와 별도 paid campaign 승인 전 실행하지 않는다.
+
 ## 제15차 실제 결과와 후속 교정
 
 [사용자 명시 승인](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6567553025)으로

@@ -1137,6 +1137,7 @@ def healthy_initialize(runtime, v, journey, emit, *, clock=time.monotonic, wait=
         window_end = p8.p7.utc(journey_rows[-1]['ended_at_utc']) + timedelta(seconds=1)
         while True:
             stage, stage_started = 'telemetry_configuration', clock()
+            poll_started = stage_started
             require(clock() < deadline, 'healthy initialization polling timeout; do not repeat journey')
             collection_end = min(clock() + 30, deadline)
             runtime.collection_deadline.at = collection_end
@@ -1163,7 +1164,7 @@ def healthy_initialize(runtime, v, journey, emit, *, clock=time.monotonic, wait=
             pods = runtime.targets()
             require({p['metadata']['uid'] for p in pods} == initial, 'initialization live UID drift')
             signal = runtime.signal(pods, initializing=True)
-            emit({'record': 'healthy_telemetry_poll', 'at': clock(), 'configuration': actual,
+            emit({'record': 'healthy_telemetry_poll', 'at': clock(), 'collection_started_at': poll_started, 'configuration': actual,
                   'admin_stats': runtime.admin_observations, 'signal': signal, 'deadline': deadline})
             if signal['status'] == 'observed' and cpu_positive and clock() <= cpu_fresh_until:
                 require(clock() <= deadline, 'healthy initialization polling timeout')
@@ -1216,7 +1217,10 @@ def healthy_initialize(runtime, v, journey, emit, *, clock=time.monotonic, wait=
                 return result
             stage, stage_started = 'telemetry_configuration', clock()
             require(clock() < deadline, 'healthy initialization polling timeout; do not repeat journey')
-            wait(min(v['scrape_seconds'], deadline - clock()))
+            # Keep starts at least one scrape interval apart without adding a
+            # full interval after collection. The same global deadline still
+            # bounds starts to ceil((ingestion + 3*scrape) / scrape).
+            wait(max(0, min(poll_started + v['scrape_seconds'], deadline) - clock()))
     except BaseException as error:
         at = clock()
         emit({'record': 'healthy_initialization_failure', 'source_sha': runtime.value['source_sha'],

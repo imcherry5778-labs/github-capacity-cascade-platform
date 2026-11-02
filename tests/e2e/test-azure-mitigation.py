@@ -2382,6 +2382,99 @@ class MetricInitializationTests(unittest.TestCase):
                 self.assertEqual(journeys, [90])
                 self.assertTrue(finished.is_set() or calls.count('signal'))
 
+    def test_healthy_poll_cadence_reaches_synthetic_overlap_without_added_scrape_wait(self):
+        # Actual result spacing minus the source's fixed sleep gives aggregate
+        # work, not individual command latency or a replay of Azure availability.
+        with tarfile.open(ROOT / 'docs/evidence/p9-mitigation-sixteenth-20261102/raw-evidence.tar.gz') as archive:
+            recorded = [json.loads(line) for line in archive.extractfile('initialize/events.jsonl')]
+        polls = [row for row in recorded if row['record'] == 'healthy_telemetry_poll']
+        cost = polls[1]['at'] - polls[0]['at'] - plan()['scrape_seconds']
+        self.assertAlmostEqual(cost, 16.857066803990165)
+        f, now, rows, starts, waits, journeys = self.preparation(), [0.0], [], [], [], []
+        positive, _, _ = self.positive_journey(f)
+        configure, signal = f.runtime.configuration, f.runtime.signal
+        def configuration(*args, **kwargs):
+            if journeys: starts.append(now[0])
+            return configure(*args, **kwargs)
+        def target_signal(*args, **kwargs):
+            remaining = f.runtime.collection_deadline.at - now[0]
+            if cost > remaining:
+                now[0] += remaining
+                raise m.p8.subprocess.TimeoutExpired('synthetic telemetry read', remaining)
+            now[0] += cost
+            # Explicit synthetic overlap only: old sleep skips this window.
+            f.missing = set() if 30 <= now[0] < 45 else {'target'}
+            return signal(*args, **kwargs)
+        def journey(timeout):
+            journeys.append(timeout); f.no_admin.clear()
+            return positive(timeout)
+        def wait(seconds):
+            waits.append(seconds); now[0] += seconds
+        f.runtime.configuration, f.runtime.signal = configuration, target_signal
+        with patch.object(m.time, 'monotonic', side_effect=lambda: now[0]), \
+             patch.object(m.time, 'time', side_effect=lambda: 1000 + now[0]):
+            result = m.healthy_initialize(f.runtime, plan(), journey, rows.append, clock=lambda: now[0], wait=wait)
+        self.assertEqual(journeys, [90])
+        self.assertEqual(starts, [0, cost])
+        self.assertEqual(waits, [0])
+        observed = [row for row in rows if row['record'] == 'healthy_telemetry_poll']
+        self.assertEqual([row['signal']['status'] for row in observed], ['uninitialized', 'observed'])
+        self.assertEqual([row['collection_started_at'] for row in observed], starts)
+        self.assertAlmostEqual(now[0], 2 * cost)
+        self.assertEqual(len(f.queries), 9)  # Four per-Pod queries, then also the guarded query.
+        self.assertTrue(result['ready_for_keda_authentication'])
+        self.assertFalse(result['runtime_preflight_passed'])
+
+    def test_healthy_poll_cadence_keeps_poll_query_and_deadline_upper_bounds(self):
+        for scrape, ingestion in ((1, 1), (15, 30), (60, 20)):
+            for cost in (0, 5, 15, 16.857066803990165, 29.9):
+                with self.subTest(scrape=scrape, ingestion=ingestion, collection_cost=cost):
+                    f, now, rows, starts, waits, journeys, guards = self.preparation(), [0.0], [], [], [], [], []
+                    v = plan() | {'scrape_seconds': scrape, 'ingestion_seconds': ingestion,
+                                  'mitigation_seconds': 300, 'freshness_seconds': max(60, scrape + ingestion)}
+                    m.plan(v); f.runtime.v = v
+                    bound = ingestion + 3 * scrape
+                    cap = (bound + scrape - 1) // scrape
+                    positive, _, _ = self.positive_journey(f)
+                    configure, guard, signal = f.runtime.configuration, f.runtime.guard, f.runtime.signal
+                    def configuration(*args, **kwargs):
+                        if journeys: starts.append(now[0])
+                        return configure(*args, **kwargs)
+                    def safety():
+                        if journeys: guards.append(1)
+                        return guard()
+                    def target_signal(*args, **kwargs):
+                        self.assertEqual(f.runtime.collection_deadline.at, min(starts[-1] + 30, bound))
+                        remaining = f.runtime.collection_deadline.at - now[0]
+                        if cost > remaining:
+                            now[0] += remaining
+                            raise m.p8.subprocess.TimeoutExpired('synthetic telemetry read', remaining)
+                        now[0] += cost
+                        return signal(*args, **kwargs)
+                    def journey(timeout):
+                        journeys.append(timeout); f.no_admin.clear(); f.missing = {'target'}
+                        return positive(timeout)
+                    def wait(seconds):
+                        waits.append(seconds); now[0] += seconds
+                    f.runtime.configuration, f.runtime.guard, f.runtime.signal = configuration, safety, target_signal
+                    with patch.object(m.time, 'monotonic', side_effect=lambda: now[0]), \
+                         patch.object(m.time, 'time', side_effect=lambda: 1000 + now[0]):
+                        with self.assertRaises((ValueError, m.p8.subprocess.TimeoutExpired)):
+                            m.healthy_initialize(f.runtime, v, journey, rows.append, clock=lambda: now[0], wait=wait)
+                    self.assertEqual(journeys, [90])
+                    self.assertLessEqual(now[0], bound)
+                    self.assertLessEqual(len(starts), cap)
+                    self.assertEqual(len(guards), len(starts))
+                    self.assertLessEqual(len(f.queries), 5 * cap)
+                    self.assertTrue(all(0 <= seconds <= scrape for seconds in waits))
+                    for previous, current in zip(starts, starts[1:]):
+                        self.assertAlmostEqual(current - previous, max(scrape, cost))
+                    polls = [row for row in rows if row['record'] == 'healthy_telemetry_poll']
+                    self.assertEqual([row['collection_started_at'] for row in polls], starts[:len(polls)])
+                    self.assertFalse(any(row['record'] == 'healthy_initialization_complete' for row in rows))
+                    self.assertEqual(rows[-1]['record'], 'healthy_initialization_failure')
+                    self.assertFalse(rows[-1]['runtime_preflight_passed'])
+
     def test_initialize_process_group_timeout_covers_internal_budgets_and_retention(self):
         v = plan()
         self.assertEqual(m.initialization_process_seconds(v), 840)
