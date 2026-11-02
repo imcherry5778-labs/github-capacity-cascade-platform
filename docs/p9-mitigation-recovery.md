@@ -9,8 +9,10 @@ source `7fc49ad391cddf70d9c901046901ed24917a2095`를 단일 실행했다.
 [제15차 evidence](evidence/p9-mitigation-fifteenth-20261102/README.md)와
 [incident](incidents/p9-mitigation-fifteenth.md)에 actual GET·DB verify-full·target-stage headroom·normal9,
 initialize1/exit1·CPU poll9/fresh1/ready0·settling300초 실패와 owned cleanup을 보존했다.
-Healthy intent0/calibration0/measured 각0이며 public initialize1 한도 소진으로 같은 승인을 재사용하지 않는다.
+Healthy intent0/calibration0/measured 각0이며 public initialize1 한도 소진으로 같은 승인을 재사용하지 않는다. Healthy intent0은 initialize 재호출 승인이나 미사용 calibration 횟수의 전환을 뜻하지 않는다.
 누적 campaign15/initialize12/healthy3/started-invalid calibration2/measured 각0/KEDA apply·restore 각3이다.
+
+제15차 첫 fresh CPU poll은 settling 시작 약286초에 기록됐고 300초 deadline까지 두 advancing sample의 최소15초 간격을 채울 수 없었다. 실제 export/cache 지연과 local collection 지연의 기여율은 아직 미분리다.
 
 원복 뒤 cost-free source 교정은 CPU 준비 metrics GET을 다른 관측 뒤로 옮기는 것과
 poll의 exact UTC/age/Ready-window 진단이다. Freshness30초·settling300초·두 advancing sample·모든 횟수/상한은 유지한다.
@@ -581,7 +583,7 @@ normal/native-auth/TLS evidence, 같은 actual identity/plan hash/limits/retenti
 
 CPU HPA 준비는 별도 **read-only settling** 경계를 사용한다. `healthy_initialize` 시작부터 configuration을 포함한
 monotonic hard cap **300초**, positive proof 확보 즉시 완료하며 성공 보장이나 고정 대기 시간이 아니다.
-poll 간격 최대15초이며 매 collection의 기존30초/명령별15초 budget은 유지한다. 추가 traffic/journey 반복은 없다.
+연속 수집 사이의 **sleep 상한이 15초**이며, configuration/guard collection 시간이 더해진 실제 poll 완료 간격이 15초 이하라는 보장은 없다. 각 collection의 기존30초/명령별15초 budget과 전체 settling300초를 유지한다. 실제 sample age·window는 guard 판정 시점에 확인하며 추가 traffic/journey 반복은 없다.
 Configuration/image/hostname/owner 및 Pod/DB/node/admission/headroom은 매 poll에서 즉시 검사한다.
 첫 fresh positive CPU/HPA recovery 전까지 허용하는 Warning은 정확히 같은 namespace·UID의
 `HorizontalPodAutoscaler/hpa-app-cpu`에 속한 `FailedGetContainerResourceMetric`/`FailedComputeMetricsReplicas`뿐이다.
