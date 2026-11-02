@@ -1296,6 +1296,14 @@ class MetricInitializationTests(unittest.TestCase):
                 sample.update(timestamp=stamp(epoch), window='15s')
             return guard
         f.runtime.guard = cpu_guard
+        def cpu_metrics(guard):
+            # Legacy fixtures retain their exported sample, including stale or
+            # malformed data; a later GET never fabricates a fresh timestamp.
+            guard.setdefault('safety_timestamp_utc', guard['timestamp_utc'])
+            with patch.object(f.runtime, 'j', return_value={'items': copy.deepcopy(guard['pod_metrics'])}), \
+                 patch.object(m.p8, 'utc', side_effect=lambda: m.datetime.fromtimestamp(m.time.time(), m.timezone.utc).isoformat()):
+                return m.p8.Runtime.collect_cpu_metrics(f.runtime, guard)
+        f.runtime.collect_cpu_metrics = cpu_metrics
         return f
 
     def test_initializing_target_reuses_bootstrap_and_keeps_metric_checks(self):
@@ -1495,6 +1503,182 @@ class MetricInitializationTests(unittest.TestCase):
         runtime.j = j
         with self.assertRaisesRegex(ValueError, 'metric unavailable'):
             m.p8.Runtime.guard(runtime, event_timestamps=True, cpu_preparation=True)
+
+    def test_deferred_cpu_get_keeps_all_other_guard_observations_and_default_order(self):
+        for deferred in (False, True):
+            with self.subTest(deferred=deferred):
+                r, _ = self.archived_cpu_runtime()
+                original, calls = r.j, []
+                def j(*args): calls.append(args); return original(*args)
+                r.j = j
+                r.collection_deadline = threading.local()
+                r.collection_deadline.defer_cpu_metrics = deferred
+                g = m.Runtime.guard(r)
+                cpu = ('get', '--raw', '/apis/metrics.k8s.io/v1beta1/pods')
+                preserved = copy.deepcopy({k: v for k, v in g.items() if k not in {'pod_metrics', 'timestamp_utc'}})
+                if deferred:
+                    self.assertEqual(calls.count(cpu), 0)
+                    self.assertEqual(g['pod_metrics'], [])
+                    m.p8.Runtime.collect_cpu_metrics(r, g)
+                self.assertEqual(calls.count(cpu), 1)
+                self.assertEqual(calls[-1], cpu)
+                self.assertEqual(len(calls), 8)  # SQL uses the separate existing k boundary.
+                self.assertEqual({k: v for k, v in g.items() if k not in {'pod_metrics', 'timestamp_utc'}}, preserved)
+                self.assertTrue(g['pod_metrics'])
+        with self.assertRaisesRegex(ValueError, 'only CPU preparation'):
+            m.p8.Runtime.guard(r, defer_cpu_metrics=True)
+
+    def test_initialization_tail_cpu_with_recorded_epochs_and_bounded_availability(self):
+        # Actual phase durations/CPU epochs. CPU GET/path costs and publication
+        # points within the observed OLD->NEW interval are SYNTHETIC unknowns.
+        # This is not a successful replay of #17; its fourth poll stays stale.
+        import statistics
+        with tarfile.open(ROOT / 'docs/evidence/p9-mitigation-seventeenth-20261102/raw-evidence.tar.gz') as archive:
+            raw = [json.loads(line) for line in archive.extractfile('initialize/events.jsonl')]
+        cpu = [r for r in raw if r['record'] == 'cpu_preparation_poll']
+        polls = [r for r in raw if r['record'] == 'healthy_telemetry_poll']
+        epoch = lambda s: m.p8.p7.utc(s).timestamp()
+        offset = statistics.median(epoch(r['guard_timestamp_utc']) - r['at'] for r in cpu[:4])
+        origin = epoch(cpu[3]['guard_timestamp_utc'])
+        lower, upper = [epoch(cpu[i]['guard_timestamp_utc']) for i in (6, 7)]
+        availability = (lower + .001, (lower + upper) / 2, upper)
+        self.assertEqual([cpu[i]['sample_epoch'] - cpu[j]['sample_epoch'] for i, j in ((1, 0), (3, 1), (7, 3))], [62, 56, 63])
+        scenarios = [(phase, publish, cost, 'normal') for phase in (2, 3) for publish in availability for cost in (0, .5, 5, 15)]
+        scenarios += [(2, availability[0], .5, mode) for mode in ('missing', 'error', 'cpu-timeout', 'collection-timeout', 'path-stale', 'target-stale')]
+        for phase, publish, cost, mode in scenarios:
+            with self.subTest(phase=phase + 1, publish=publish, cpu_cost=cost, mode=mode):
+                f, rows, journeys, starts, reads, waits = self.preparation(), [], [], [], [], []
+                r, main, now = f.runtime, threading.get_ident(), [0.0]
+                clocks, cycle = {}, [0.0]
+                configured, guarded = threading.Event(), threading.Event()
+                configure, safety, signal, original_j = r.configuration, r.guard, r.signal, r.j
+                positive, _, _ = self.positive_journey(f)
+                logs = r.logs
+                p, c = polls[phase], cpu[phase + 4]
+                config_cost = c['at'] - p['collection_started_at']
+                signal_cost = p['at'] - c['at']
+                guard_cost = epoch(c['guard_timestamp_utc']) - (p['collection_started_at'] + offset)
+                def clock(): return now[0] if threading.get_ident() == main else clocks[threading.get_ident()]
+                def configuration(*args, **kwargs):
+                    if journeys:
+                        cycle[0] = now[0]; starts.append(now[0]); configured.set()
+                        self.assertTrue(guarded.wait(1))
+                    value = configure(*args, **kwargs)
+                    if journeys:
+                        if mode == 'collection-timeout':
+                            now[0] = r.collection_deadline.at
+                            raise m.SnapshotBudgetExceeded('synthetic configuration timeout')
+                        completed = max(cycle[0] + config_cost, max(clocks.values()))
+                        now[0] = min(completed, r.collection_deadline.at)
+                        if completed > r.collection_deadline.at:
+                            raise m.SnapshotBudgetExceeded('synthetic configuration deadline')
+                    return value
+                def guard():
+                    if journeys:
+                        self.assertTrue(configured.wait(1))
+                        clocks[threading.get_ident()] = min(cycle[0] + guard_cost, r.collection_deadline.at)
+                    g = safety()
+                    ready = cpu[3]['ready_since_epoch']
+                    stamp = lambda t: m.datetime.fromtimestamp(t, m.timezone.utc).isoformat()
+                    g['cpu_preparation_pods'][0].update(creationTimestamp=stamp(ready - 20), ready_conditions=[{'status': 'True', 'lastTransitionTime': stamp(ready)}])
+                    g['cpu_hpa']['metadata']['creationTimestamp'] = stamp(ready - 30)
+                    for condition in g['cpu_hpa']['status']['conditions']: condition['lastTransitionTime'] = stamp(ready + 10)
+                    sample = copy.deepcopy(g['pod_metrics'][0])
+                    sample.update(timestamp=stamp(cpu[3]['sample_epoch']), window=str(cpu[3]['sample']['window_seconds']) + 's')
+                    sample['containers'][0]['usage']['cpu'] = cpu[3]['sample']['app_cpu']
+                    g['pod_metrics'] = [sample]
+                    if journeys:
+                        try:
+                            if getattr(r.collection_deadline, 'defer_cpu_metrics', False):
+                                g['safety_timestamp_utc'] = g['timestamp_utc']
+                                g['pod_metrics'] = []
+                            else:
+                                g = m.p8.Runtime.collect_cpu_metrics(r, g)  # Old early-read path for A/B regression.
+                        finally:
+                            guarded.set()
+                    return g
+                def j(*args):
+                    if '/apis/metrics.k8s.io/v1beta1/pods' not in args: return original_j(*args)
+                    reads.append(clock())
+                    def advance_read(seconds):
+                        if threading.get_ident() == main: now[0] += seconds
+                        else: clocks[threading.get_ident()] += seconds
+                    allowed = min(15, r.collection_deadline.at - clock())
+                    wanted = 15.001 if mode == 'cpu-timeout' else cost
+                    if wanted > allowed:
+                        advance_read(max(0, allowed))
+                        raise m.p8.subprocess.TimeoutExpired('synthetic CPU GET', max(0, allowed))
+                    advance_read(wanted)
+                    if mode == 'error': raise ValueError('synthetic CPU response failure')
+                    if mode == 'missing': return {'items': []}
+                    observed = cpu[7] if origin + clock() >= publish else cpu[3]
+                    return {'items': [{'metadata': {'namespace': m.NS, 'name': f.pods[0]['metadata']['name']},
+                        'timestamp': m.datetime.fromtimestamp(observed['sample_epoch'], m.timezone.utc).isoformat(),
+                        'window': str(observed['sample']['window_seconds']) + 's',
+                        'containers': [{'name': 'app', 'usage': {'cpu': observed['sample']['app_cpu']}}]}]}
+                def target_signal(*args, **kwargs):
+                    now[0] += min(signal_cost, max(0, r.collection_deadline.at - now[0]))
+                    result = signal(*args, **kwargs)
+                    if mode == 'target-stale':
+                        for pod in result['pods']: pod['timestamp'] = origin + now[0] - 59.5
+                    configured.clear(); guarded.clear()
+                    return result
+                def path(actual):
+                    if any(row['record'] == 'healthy_telemetry_poll' for row in rows): now[0] += 16 if mode == 'path-stale' else .5
+                    return logs(actual)
+                def journey(timeout):
+                    journeys.append(timeout); f.no_admin.clear()
+                    now[0] = p['collection_started_at'] + offset - origin
+                    self.assertLess(now[0], timeout)
+                    return positive(timeout)
+                def wait(seconds): waits.append(seconds); now[0] += seconds
+                r.configuration, r.guard, r.signal, r.j, r.logs = configuration, guard, target_signal, j, path
+                r.collect_cpu_metrics = lambda g: m.p8.Runtime.collect_cpu_metrics(r, g)
+                passed = phase == 2 and publish < upper and cost < 15 and mode == 'normal'
+                with patch.object(m.time, 'monotonic', side_effect=clock), \
+                     patch.object(m.time, 'time', side_effect=lambda: origin + clock()), \
+                     patch.object(m.p8, 'utc', side_effect=lambda: m.datetime.fromtimestamp(origin + clock(), m.timezone.utc).isoformat()):
+                    if passed:
+                        result = m.healthy_initialize(r, plan(), journey, rows.append, clock=clock, wait=wait)
+                        self.assertTrue(result['ready_for_keda_authentication'])
+                        self.assertFalse(result['runtime_preflight_passed'])
+                        self.assertLessEqual(origin + now[0] - cpu[7]['sample_epoch'], 30)
+                        self.assertLessEqual(now[0] - starts[-1], 30)
+                    else:
+                        with self.assertRaises((ValueError, m.p8.subprocess.TimeoutExpired)):
+                            m.healthy_initialize(r, plan(), journey, rows.append, clock=clock, wait=wait)
+                        self.assertFalse(any(row['record'] == 'healthy_initialization_complete' for row in rows))
+                self.assertEqual(journeys, [90])
+                self.assertLessEqual(now[0], p['collection_started_at'] + offset - origin + 75)
+                self.assertLessEqual(len(starts), 5)
+                self.assertLessEqual(len(f.queries), 25)
+                self.assertLessEqual(len(reads), len(starts))
+                self.assertTrue(all(read - start + 1e-9 >= config_cost + signal_cost for read, start in zip(reads, starts)))
+                self.assertTrue(all(0 <= value <= 15 for value in waits))
+                self.assertTrue(all(b - a >= 15 for a, b in zip(starts, starts[1:])))
+
+    def test_late_cpu_time_does_not_advance_captured_hpa_or_warning_quiet_time(self):
+        stamp = lambda t: m.datetime.fromtimestamp(t, m.timezone.utc).isoformat()
+        for case in ('quiet', 'future-hpa', 'future-safety'):
+            with self.subTest(case=case):
+                f = self.preparation()
+                with patch.object(m.time, 'time', return_value=1000): g = f.runtime.guard()
+                g.update(safety_timestamp_utc=stamp(1000), timestamp_utc=stamp(1015))
+                g['pod_metrics'][0]['timestamp'] = stamp(1013)
+                active = next(c for c in g['cpu_hpa']['status']['conditions'] if c['type'] == 'ScalingActive')
+                if case == 'quiet':
+                    g['events'] = [{'uid': 'startup-warning', 'type': 'Warning', 'reason': 'FailedGetContainerResourceMetric', 'count': 1,
+                        'first_timestamp_utc': stamp(994), 'timestamp_utc': stamp(995),
+                        'owner': {'kind': 'HorizontalPodAutoscaler', 'namespace': m.NS, 'name': 'hpa-app-cpu', 'uid': 'cpu-hpa'}}]
+                    active['lastTransitionTime'] = stamp(996)
+                elif case == 'future-hpa': active['lastTransitionTime'] = stamp(1001)
+                else: g['safety_timestamp_utc'] = stamp(1016)
+                startup = m.CPUStartup(f.baseline)
+                if case == 'future-safety':
+                    with self.assertRaisesRegex(ValueError, 'observation order'): startup.observe(g, lambda _: None, 15)
+                else:
+                    self.assertFalse(startup.observe(g, lambda _: None, 15))
+                    self.assertIsNone(startup.candidate)
 
     def test_cpu_poll_retains_exact_age_and_ready_window_without_relaxing_freshness(self):
         runtime, actual, _ = self.startup_archive()

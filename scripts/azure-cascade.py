@@ -451,7 +451,8 @@ class Runtime:
                     proxies[label][pod['uid']].append({k: row[k] for k in ('status', 'detail', 'duration_ms', 'cluster')})
         return {'checks': checks, 'proxies': proxies}
 
-    def guard(self, hpa_name='hpa-app-cpu', event_timestamps=False, cpu_preparation=False):
+    def guard(self, hpa_name='hpa-app-cpu', event_timestamps=False, cpu_preparation=False, defer_cpu_metrics=False):
+        require(not defer_cpu_metrics or cpu_preparation, 'only CPU preparation may defer metrics')
         owned = self.j('-n', NS, 'get', 'pods', '-o', 'json')['items']
         admitted = admission(self.value, owned)
         pods = [self.pod('forgejo', 'app.kubernetes.io/name=forgejo')] + owned
@@ -509,15 +510,21 @@ class Runtime:
                        ((e.get('series', {}).get('lastObservedTime') or e.get('lastTimestamp') or e.get('eventTime') or e['metadata']['creationTimestamp']) >= self.since or
                         cpu_preparation and e.get('involvedObject', {}).get('kind') == 'HorizontalPodAutoscaler' and
                         e.get('involvedObject', {}).get('name') == hpa_name)]}
-        if cpu_preparation:
+        if cpu_preparation and not defer_cpu_metrics:
             # Read CPU samples after the other preparation observations. SQL,
             # Argo, HPA and event reads must not age a sample before its <=30s
             # freshness check. Keep the same one GET and collection deadline.
-            metric = self.j('get', '--raw', '/apis/metrics.k8s.io/v1beta1/pods')
-            result['pod_metrics'] = [{k: p[k] for k in ('metadata', 'timestamp', 'window', 'containers')}
-                                     for p in metric['items'] if p['metadata']['namespace'] in {NS, 'forgejo'}]
-            result['timestamp_utc'] = utc()
+            return self.collect_cpu_metrics(result)
+        if defer_cpu_metrics:
+            result['safety_timestamp_utc'] = utc()
         return result
+
+    def collect_cpu_metrics(self, guard):
+        metric = self.j('get', '--raw', '/apis/metrics.k8s.io/v1beta1/pods')
+        guard['pod_metrics'] = [{k: p[k] for k in ('metadata', 'timestamp', 'window', 'containers')}
+                                for p in metric['items'] if p['metadata']['namespace'] in {NS, 'forgejo'}]
+        guard['timestamp_utc'] = utc()
+        return guard
 
 
 def request(path, headers, expected=None, direct=False):

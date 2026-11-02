@@ -742,7 +742,8 @@ class Runtime(p8.Runtime):
 
     def guard(self):
         return super().guard(hpa_name=self.hpa_name, event_timestamps=True,
-                             cpu_preparation=getattr(self, 'preparation', False))
+                             cpu_preparation=getattr(self, 'preparation', False),
+                             defer_cpu_metrics=getattr(getattr(self, 'collection_deadline', None), 'defer_cpu_metrics', False))
 
     def haproxy(self):
         import csv
@@ -890,6 +891,8 @@ class CPUStartup:
 
     def observe(self, guard, emit, at):
         epoch = p8.p7.utc(guard['timestamp_utc']).timestamp()
+        safety_epoch = p8.p7.utc(guard.get('safety_timestamp_utc', guard['timestamp_utc'])).timestamp()
+        require(safety_epoch <= epoch, 'CPU preparation observation order invalid')
         hpa = guard['cpu_hpa']; meta = hpa['metadata']
         require(meta['name'] == 'hpa-app-cpu' and meta['namespace'] == NS and isinstance(meta.get('uid'), str) and
                 re.fullmatch(r'[A-Za-z0-9-]{1,64}', meta['uid']) and
@@ -913,7 +916,7 @@ class CPUStartup:
         require((self.hpa_uid, self.ready_at) == (meta['uid'], ready_at), 'CPU preparation UID/Ready transition drift')
         created = p8.p7.utc(meta['creationTimestamp']).timestamp()
         pod_created = p8.p7.utc(pod['creationTimestamp']).timestamp()
-        require(created <= epoch and ready_at <= epoch, 'CPU preparation future lifecycle timestamp')
+        require(created <= safety_epoch and ready_at <= safety_epoch, 'CPU preparation future lifecycle timestamp')
         if self.created is None:
             self.created = (pod_created, created)
         require(self.created == (pod_created, created), 'CPU preparation creation timestamp drift')
@@ -933,7 +936,7 @@ class CPUStartup:
             first, last = [p8.p7.utc(e[k]).timestamp() for k in ('first_timestamp_utc', 'timestamp_utc')]
             require(isinstance(e.get('uid'), str) and re.fullmatch(r'[A-Za-z0-9-]{1,64}', e['uid']) and
                     e['uid'] not in events and type(e.get('count')) is int and e['count'] > 0 and
-                    max(pod_created, created) <= first <= last <= epoch, 'CPU preparation warning identity/time invalid')
+                    max(pod_created, created) <= first <= last <= safety_epoch, 'CPU preparation warning identity/time invalid')
             # Pre-recovery metric warnings share healthy_initialize's monotonic
             # settling deadline. Object age is not a separate warning deadline.
             signature = (e['timestamp_utc'], e['count'], e['first_timestamp_utc'], e['reason'])
@@ -995,7 +998,7 @@ class CPUStartup:
         last = max((p8.p7.utc(e['timestamp_utc']).timestamp() for e in guard['events']), default=0)
         transition = p8.p7.utc(active[0]['lastTransitionTime']).timestamp() if active else None
         recovered = (len(active) == 1 and active[0]['status'] == 'True' and
-                     last <= transition <= epoch)
+                     last <= transition <= safety_epoch)
         if active and active[0]['status'] != 'True':
             require(active[0].get('reason') in self.reasons, 'CPU HPA non-startup failure')
         generation = hpa['status'].get('observedGeneration')
@@ -1003,8 +1006,8 @@ class CPUStartup:
         hpa_positive = bool(able) and status and recovered
         positive = hpa_positive and metric
         self.recovery_seen = self.recovery_seen or positive  # Latch before quiet/two-sample waiting, even across metric gaps.
-        positive = positive and epoch - last >= self.quiet_seconds
-        stale = (hpa_positive and ready_window and age > 30 and epoch - last >= self.quiet_seconds and
+        positive = positive and safety_epoch - last >= self.quiet_seconds
+        stale = (hpa_positive and ready_window and age > 30 and safety_epoch - last >= self.quiet_seconds and
                  transition == self.validated_transition)
         if self.completed:
             # Telemetry may wait for a structurally valid stale export under its
@@ -1028,6 +1031,7 @@ class CPUStartup:
         emit({'record': 'cpu_preparation_poll', 'at': at, 'target_uid': self.target, 'hpa_uid': self.hpa_uid,
               'ready_since_epoch': ready_at, 'sample_epoch': stamp, 'valid_ready_window': bool(metric),
               'guard_timestamp_utc': guard['timestamp_utc'], 'sample_age_seconds': age,
+              'safety_timestamp_utc': guard.get('safety_timestamp_utc', guard['timestamp_utc']),
               'sample_window_after_ready': bool(ready_window),
               'sample': sample_evidence, 'hpa_current_cpu': current_evidence, 'hpa_spec': self.spec,
               'scaling_active': bool(active and active[0]['status'] == 'True'), 'hpa_transition_epoch': transition,
@@ -1144,26 +1148,31 @@ def healthy_initialize(runtime, v, journey, emit, *, clock=time.monotonic, wait=
             def collect_guard():
                 # Independent reads; the worker needs its own thread-local cap.
                 runtime.collection_deadline.at = collection_end
-                guard = runtime.guard()
-                return guard, clock()
+                runtime.collection_deadline.defer_cpu_metrics = True
+                return runtime.guard()
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as worker:
                 guard_result = worker.submit(collect_guard)
                 actual = runtime.configuration(config, initializing=True)
                 require({t['uid'] for t in actual['targets']} == initial and actual == before, 'initialization config/UID drift')
+                stage, stage_started = 'telemetry_signal', clock()
+                pods = runtime.targets()
+                require({p['metadata']['uid'] for p in pods} == initial, 'initialization live UID drift')
+                signal = runtime.signal(pods, initializing=True)
                 stage, stage_started = 'telemetry_resource_guard', clock()
-                guard, guard_end = guard_result.result(timeout=max(0, collection_end - clock()))
+                guard = guard_result.result(timeout=max(0, collection_end - clock()))
             require(clock() <= collection_end, 'healthy initialization collection timeout')
+            # The SAME one CPU GET now follows configuration/signal and all
+            # guard reads, under the SAME collection/global deadline.
+            guard = runtime.collect_cpu_metrics(guard)
+            guard_end = clock()
+            require(guard_end <= collection_end, 'healthy initialization collection timeout')
             require({p['uid']: p['name'] for p in guard['pods'] if p['name'].startswith('ext-authz-sim-')} ==
                     {t['uid']: t['name'] for t in actual['targets']}, 'initialization guard target inventory differs')
             cpu_positive = initialization_safety(guard, cpu_startup=cpu_startup, emit=emit, at=clock())
-            # A fresh guard can age while configuration, signal or path reads
-            # finish. Translate its sample age to the same monotonic clock.
+            # Preserve the sample's actual age; only acquisition moved. Path
+            # accounting still has to finish before this monotonic expiry.
             cpu_fresh_until = (guard_end + 30 - (p8.p7.utc(guard['timestamp_utc']).timestamp() -
                                cpu_startup.validated_sample['timestamp_epoch'])) if cpu_positive else guard_end
-            stage, stage_started = 'telemetry_signal', clock()
-            pods = runtime.targets()
-            require({p['metadata']['uid'] for p in pods} == initial, 'initialization live UID drift')
-            signal = runtime.signal(pods, initializing=True)
             emit({'record': 'healthy_telemetry_poll', 'at': clock(), 'collection_started_at': poll_started, 'configuration': actual,
                   'admin_stats': runtime.admin_observations, 'signal': signal, 'deadline': deadline})
             if signal['status'] == 'observed' and cpu_positive and clock() <= cpu_fresh_until:
@@ -1199,6 +1208,8 @@ def healthy_initialize(runtime, v, journey, emit, *, clock=time.monotonic, wait=
                 else:
                     require(total == len(logs_after['proxies']['target'][uid]), 'healthy target lifetime counter/log mismatch')
                 journey_sha256 = hashlib.sha256(Path(journey_path).read_bytes()).hexdigest()
+                telemetry(signal['pods'], {p['metadata']['uid']: p['metadata']['name'] for p in pods},
+                          time.time(), v['freshness_seconds'])
                 completed_at = clock()
                 require(completed_at <= deadline, 'healthy initialization polling timeout')
                 require(completed_at <= collection_end, 'healthy initialization collection timeout')

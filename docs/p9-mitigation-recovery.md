@@ -1,522 +1,13 @@
 # P9-W1 Mitigation & Recovery
 
-현재 상태: **제17차 단일 campaign 종료 / normal·healthy journey positive / CPU 준비·새 cadence 관측 / 최종 CPU freshness·telemetry budget 실패 / KEDA·calibration·measured 미도달 / owned 원복14개 check / P9 acceptance 미충족**.
-
-## 제17차 실제 결과
-
-[명시 실행 승인](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6572646532)의
-고정 source `daeaff99cfddd33dd2409b2dfa15f25af56a2635`를 실행했다.
-[결과·진단·raw·원복 evidence](evidence/p9-mitigation-seventeenth-20261102/README.md)에
-initialize1/exit1·CPU poll9/fresh3/ready2, healthy journey1의 warmup9 성공과 초기화 미완료를 구분했다.
-완료 telemetry4회 시작 간격은 약15초이며 signal observed2회다. 네 번째의 guard ready 후 최종 CPU freshness 미충족은
-source 분기 추론이고, 결과 시점 sample age 약30.448초는 clock offset 추정이다. 다섯 번째 수집에서21개 query 응답 뒤
-다음 요청 전에 budget이 소진됐다. Source correctness bug·runtime remediation을 주장하지 않는다.
-
-누적 campaign17/initialize14/healthy5/started-invalid calibration2/measured 각0/KEDA apply·restore 각3이다.
-제17차는 closed이며 미사용 횟수/allowance는 이월하지 않는다. Source·freshness·timeout·acceptance를 변경하지 않았다.
-Latest bounded cost 관측은08:53:39 UTC의 posted Two-RG KRW152,794.6734891,
-누적 planning USD275.0294931431/승인 세전 review cap290이다. 이번 allowance10을 한 번만 포함했고
-P9 단독 실비는 unknown/shared/delayed다. 기존 보존기한과 admin 회전/CSI version을 유지했다.
-다음 paid campaign은 별도 exact-SHA 승인이 필요하며, source 변경 시 ChatGPT 독립 review가 필요하다.
-아래 제16차·이전 절의 당시 승인 전/비용/회전 미수행 문구는 역사 기록이다.
-
-## 제17차 후속 cost-free bootstrap 중복 조회 제거
-
-[독립 결과 review](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#pullrequestreview-5736393763) 뒤
-initializing configuration의 같은 target bootstrap GET2회를1회로 줄였다. 기존 P8 callback으로 동일 응답의 matcher와
-metric binding을 검증하고 native exposition도1회 그대로 검증한다. C3 두-target 경로는 이미 이 방식을 썼으며,
-initializing 이외의 경로는 유지한다. 새 API/probe·worker·계측은 추가하지 않았다.
-Null bootstrap 응답도 재조회 없이 기존 metric binding 검증에서 거부한다.
-Focused synthetic regression은 bootstrap/tag·native 검증과 짧은 CPU freshness overlap을 확인한다.
-Synthetic bootstrap I/O1초·잔여 CPU freshness1.5초 조건에서 기존 중복 조회는 실패하고 교정 뒤 path까지1.25초에 완료한다.
-이는 제17차 API별 latency나 성공 replay가 아니다. 실제 guard 종료/fresh-until/평가 clock은 미기록이며 sample epoch62/56/63초의
-export/cache 원인은 unknown이다. CPU30초·두 advancing sample/quiet/HPA/Warning/UID·collection30초·telemetry75초·
-명령/조회/시작간격 상한과 실패·횟수 계수는 유지한다. 제17차 raw·판정·누적 소비는 변경하지 않는다.
-**새 source의 Azure 효과는 NOT VERIFIED**이며 ChatGPT 독립 exact-head source review와 별도 사용자 결정 전 paid 경로는 보류한다.
-
-## 제16차 실제 결과
-
-[명시 실행 승인](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6570216466)의
-동일 source `de600e4d5f439be2f65c087b136ee221290b317d`를 실행했다.
-[결과·진단·raw·원복 evidence](evidence/p9-mitigation-sixteenth-20261102/README.md)에
-initialize1/exit1·CPU poll6/fresh3/ready2, healthy journey1의 warmup9 성공과
-최종 telemetry collection 실패를 구분했다. Initialize를 재호출하지 않았고 KEDA IAM/SA 변경·calibration·measured는0이다.
-Source/timeout/freshness/acceptance는 변경하지 않았다.
-
-누적 campaign16/initialize13/healthy4/started-invalid calibration2/measured 각0/KEDA apply·restore 각3이다.
-Latest bounded cost 관측은06:22 UTC의 posted Two-RG KRW150,587.6256921,
-누적 planning USD263.1902866455/승인 review cap275이며 P9 단독 실비는 unknown/shared/delayed다.
-기존 보존기한과 allowance를 중복 추가하지 않았다. 제16차는 closed이며 미사용 횟수는 이월하지 않는다.
-
-이전 [admin 회전·KV/Secret/CSI 검증 결과](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6569049379)를
-재사용했고 이번에는 회전하지 않았다. Admin/DB Secret UID·data와 admin CSI 버전은 보존됐다.
-Session/output unknown은 유지한다. 아래 제15차·이전 절의 미승인/회전 미수행/비용 문구는 당시 이력이다.
-
-## 제16차 후속 cost-free telemetry cadence 교정
-
-[독립 결과 review](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#pullrequestreview-5733327125) 뒤
-telemetry loop의 대기를 collection 시작 기준으로 맞췄다. 결과 사이31.857초에서 고정 sleep15초를 뺀16.857초는
-전체 순차 작업의 추정치이며 개별 API latency가 아니다. 새 간격은 `collection + scrape` 대신 최소 `max(collection, scrape)`다.
-CPU settling loop는 변경하지 않는다. `healthy_telemetry_poll.collection_started_at` 하나를 추가해 이후 실제 collection 시간을 구분한다.
-
-시작 간격은 여전히 scrape 이상이므로 전역 window 내 이론적 poll 상한 `ceil((ingestion + 3*scrape) / scrape)`는 유지된다.
-Candidate75초/15초는 최대5회, poll당 Prometheus query 최대5개로 최대25개다. 각 poll의 configuration/guard/signal과
-추가 probe·journey는 늘리지 않는다. 명령별 budget·collection30초·전역75초·CPU freshness30초·최종 동시 positive와 모든 invariant는 유지한다.
-0–29.9초 synthetic 작업비용·scrape1/15/60초에서 cadence/조회 상한/deadline/실패를 검증했다.
-별도 synthetic 30–45초 availability는 기존 고정 sleep에서 놓치고 교정 뒤33.714초에 관측하지만, 실제16차를 재현한 성공은 아니다.
-기존 raw/archive·카운터·16차 실패 판정은 그대로다. 새 source는 ChatGPT exact-head 독립 review와 별도 paid campaign 승인 전 실행하지 않는다.
-
-## 제15차 실제 결과와 후속 교정
-
-[사용자 명시 승인](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6567553025)으로
-source `7fc49ad391cddf70d9c901046901ed24917a2095`를 단일 실행했다.
-[제15차 evidence](evidence/p9-mitigation-fifteenth-20261102/README.md)와
-[incident](incidents/p9-mitigation-fifteenth.md)에 actual GET·DB verify-full·target-stage headroom·normal9,
-initialize1/exit1·CPU poll9/fresh1/ready0·settling300초 실패와 owned cleanup을 보존했다.
-Healthy intent0/calibration0/measured 각0이며 public initialize1 한도 소진으로 같은 승인을 재사용하지 않는다. Healthy intent0은 initialize 재호출 승인이나 미사용 calibration 횟수의 전환을 뜻하지 않는다.
-누적 campaign15/initialize12/healthy3/started-invalid calibration2/measured 각0/KEDA apply·restore 각3이다.
-
-제15차 첫 fresh CPU poll은 settling 시작 약286초에 기록됐고 300초 deadline까지 두 advancing sample의 최소15초 간격을 채울 수 없었다. 실제 export/cache 지연과 local collection 지연의 기여율은 아직 미분리다.
-
-원복 뒤 cost-free source 교정은 CPU 준비 metrics GET을 다른 관측 뒤로 옮기는 것과
-poll의 exact UTC/age/Ready-window 진단이다. Freshness30초·settling300초·두 advancing sample·모든 횟수/상한은 유지한다.
-실행 SHA와 후속 source/evidence HEAD를 구분하며 새 source의 runtime 성공은 미검증이다.
-독립 review·새 SHA/image/plan binding·별도 명시 실행 승인 전 paid 경로는 보류한다.
-제14차 forwarding/monitor 원인·인과는 여전히 unknown이며 이번에는 forwarding 단계 미도달이다.
-
-Final native verify/원복28개 check와 보호 사본296개 제거를 확인했다.
-다만 parent 종료 시 REPL 반환값으로 stable 관리자 credential이 local tool output에 노출됐다.
-값은 공개 artifact에 없고 stable credential 회전은 미수행이다. **별도 노출 처리/회전 권한 판단이 필요**하다.
-
-현재 비용 근거는11월2일 bounded GET의 posted two-RG KRW144,123.7793191074,
-보수적 모델 USD242.8037480503와 **승인된 누적 세전 review envelope USD275**다.
-실비·잔액·시장 환율을 뜻하지 않으며 P9 실비는 unknown/shared/delayed다.
-Environment11월5일10:30 KST/Foundation·Bootstrap11월6일00:33 KST를 유지한다.
-Run/drain/rollback2220초·candidate initialization 포함3065초·전체8045초와 strict cutoff를 유지한다.
-제16차·추가 비용/권한·retention 연장·merge/P10 승인은 없다.
-
-아래 제14차 후속/source-only/준비 절의 “제15차 미승인·미실행”, “이번 작업은 source-only”, USD180과 이전 날짜는
-각 작업 당시 이력이다. 현재 실행 결과와 승인·비용·기한은 이 절과 제15차 evidence를 따른다.
-
-## 이전 추가 72시간 보존과 source-only gate 정합화
-
-[보존기간 PR #44](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/44)가
-main `cbb1a222478b867167b5572f103ab23139c308dc`에 병합됐다. 같은 P9 branch에 일반 merge로 반영하며
-[Paid Azure boundary](implementation-plan.md#paid-azure-boundary--p6p11)의 승인된 기한을 실행 gate에 맞춘다.
-
-| 대상 | 현재 승인 기한 (KST) | UTC |
-| --- | --- | --- |
-| Environment / P8 Runtime / P9 DEADLINE | **2026-11-05 10:30** | `2026-11-05T01:30:00Z` |
-| Foundation/Bootstrap | **2026-11-06 00:33** | `2026-11-05T15:33:00Z` |
-
-Foundation/Bootstrap 기한은 Environment 실행 한도가 아니다. P8 hard deadline의 strict `<`와 P9의
-run+drain60초+rollback1800초, 실제 initialization timeout+kill5초+run/drain/rollback reserve의 strict `<`를 유지한다.
-Raw deadline 직전이어도 reserve가 부족하면 거부한다. 기존 initialization/settling/command/run 상한과
-전체 campaign의8045초 준비 기준, 횟수·acceptance·resource/권한 경계는 바꾸지 않는다.
-
-[이전 준비 snapshot](evidence/p9-resume-preparation-20261102/README.md)과
-[당시 결과 comment](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6565270761)의
-11월2일 기한·08:15:55 시작 한계·미승인 +6h 대안·USD180 요청은 당시 판단이다. README/JSON과 과거 raw/archive/
-incident/실행·비용·누적 소비를 소급 수정하지 않는다. 현재 기한은 위 추가72h 결정이 대체하며 보존기간을 재승인 요청하지 않는다.
-
-#44의 저장 모델상 추가 보존 Two-RG 부분은 약USD75.97이며, 다음 campaign variable USD5를 제외한
-이전 누적 모델에 이 부분만 더해도 약USD225.40이다. Foundation/Bootstrap 추가분·미반영비·세금·다음 실행비는
-구분해야 하며 실제 환율/현재 청구액/새 비용상한이 아니다. **종전 USD180을 새 승인이나 잔액으로 쓰지 않는다.**
-
-이번 작업은 source-only다. 이전 GET 준비와 변경 없는 `owned_forward()` 검증을 재사용하고 Azure GET/preflight도
-반복하지 않는다. 제15차 승인량0이며 mutation/credential·RBAC 변경/refresh/image publish/port-forward/
-normal/healthy/calibration/measured/load/teardown은 미실행이다. 새 exact HEAD의 독립 review 뒤 필요한 bounded
-current cost/resource/RBAC/quota 및 새 SHA/기한/비용을 반영한 통합 실행 승인은 별도로 남는다.
-`owned_forward()`를 포함한 `d0d16cf..f4ffab6` delta와 이번 deadline delta는 최종 exact HEAD의 독립 review 대상이다.
-Single-SHA ledger/calibration≤2/measured arm별≤1/healthy intent 소비·freeze 조건을 유지한다.
-Source-changing same-ledger recovery와 measured retry는 여전히 미지원이며 P9 acceptance도 미충족이다.
-
-직접 검증은 기존 P8/P9 test surface에서 raw deadline과 각 유효 시작 cutoff의 직전/정각/직후를 다룬다.
-현재 source/test 변경의 정확한 SHA·local/static 결과·자동 exact-head CI URL은 기존 PR 결과 comment에 연결한다.
-작성자 self-review는 독립 review를 대신하지 않는다.
-
-## 제14차 실제 실행과 finalization
-
-[제14차 evidence](evidence/p9-mitigation-fourteenth-20261102/README.md)와
-[incident](incidents/p9-mitigation-fourteenth.md)는 승인 source
-`69bace6cdb3dabe047a71454528c27111f706c05`의 단일 실제 campaign 기록이다.
-DB `verify-full`의 hostname/CA 검증과 HAProxy 생성 전 target-stage live headroom을 적용했다.
-Normal1·healthy journey1은 각각 valid/success/warmup9, public initialize1은 exit0이다.
-실제 두 advancing fresh CPU/HPA와 target telemetry, 같은-window ingress/check/target 각30을 확인했다.
-그 뒤에만 KEDA IAM/필요한 SA annotation·apply restart1회와 실제 scaler auth·단일 owner를 검증했다.
-Full P9 C3 exact configuration·snapshot15.860679s도 통과했으며 measured scale-out/recovery와 구분한다.
-
-C3 calibration1은 첫 snapshot16.953282s 뒤 direct sentinel15회 모두 transport error,
-`monitor_failure`/`run_failure`와 `ValueError: direct native-auth sentinel preflight`로 exit1이었다.
-Preflight에서200이었던 소유 forwarding process는 중단 후 없었다. Operator lifecycle invalid이며
-소멸 원인과 별도 monitor exception은 unknown이다. Public demand 발행0, saved validator 거부다.
-두 번째 calibration·freeze·네 measured arm·continuing-demand recovery로 진행하지 않았다.
-Source/시간/acceptance 교정이나 자동 제15차 실행은 없다.
-
-CUSTOM/shared CM·KEDA SA/deployment·owned IAM/FIC/UAMI·namespace·PAT27/28·image·임시 AKS role을 정리하고
-stable/owned33개 check, final native verify1/exit0, 보호 사본224개 제거를 확인했다.
-KEDA apply/restore 각1회·historical 누적 각3회, 이전13개 raw archive byte/hash를 보존했다.
-전후 posted two-RG ActualCost는 KRW130,403.0455542038, 단일 사전 비용 검토 projection은 세전USD140.3372743432다.
-기존 누적USD180 review envelope를 유지하며 P9 단독 실비는 shared/delayed/unknown이다.
-기존 retention과 stable Azure Environment를 P11 재사용을 위해 보존한다. 후속 docs/evidence HEAD는 실행 source가 아니다.
-P9 acceptance 미충족이며 merge/P10은 수행하지 않는다.
-
-## 이전 제15차 승인 전 최소 재개 준비
-
-[당시 준비 evidence와 단일 통합 승인안](evidence/p9-resume-preparation-20261102/README.md)에
-bounded Azure GET의 actual cost/resource/management RBAC/quota 관측, 기존 operator의
-`owned_forward()` 연결과 local process/mock 검증, 누적 횟수·비용·retention 계산을 정리했다.
-당시 TARGET의 read-only 승인을 사용했으며 아래 과거 문서 작업의 “Azure 조회/변경 없음”은 당시 이력이다.
-그 준비에서도 cloud mutation/load/실제 port-forward는 없었으며 제15차는 **미실행·미승인**이다.
-실행 source/실제 image·plan binding과 새 delta의 독립 review는 별도 gate다.
-기존 Environment 기한 내 전체8045초 reserve를 요구하며 준비 결과는 P9 acceptance가 아니다.
-
-## 제14차 후속 cost-free 원인 검토
-
-시작 HEAD `caee78d986582771dafdf19fc5a6d4c277060d2c`의 기존 archive240개 member를 index의
-size/SHA256와 대조했다. Direct preflight200은15:36:28 UTC, calibration sentinel15개는 모두
-status null / transport / semantic false이고 각 curl 시간은0.004783–0.006709초다.
-`request()`는 curl의 nonzero/non28 종료를 모두 transport로 기록하며 종료 코드/stderr를 보존하지 않는다.
-따라서 connection refusal, tunnel 단절, process 종료 등 세부 원인은 unknown이다.
-중단 후15:39:13 UTC의 PID 부재와 forwarding/connection만 있는100-byte log는 실행 중 사망 시각이나 원인을 입증하지 않는다.
-위 historical lifecycle invalid는 직접 경로가 유지되지 않았다는 관측이며 process 사망의 확정 진단이 아니다.
-
-기존 제14차 operator 실행 기록에서 별도 Python 명령의 `Popen`으로 `kubectl port-forward`를 시작하고
-PID/Pod UID/port를 저장한 것을 확인했다. Session 분리와 campaign 동안의 `poll()`/종료 상태 회수 기록은 없다.
-Tool/부모 lifecycle에 의한 종료 가능성은 있지만 실제 종료 원인으로 단정하지 않는다.
-다음 별도 승인 실행에서는 기존 operator의 campaign 부모가 `Popen` handle을 끝까지 보유하고
-stdin 분리·`start_new_session=True`로 실행 경계를 분리한다. PID와 시작 시각/Pod UID, 단계 전환 및 실행 중
-`poll()` liveness, 종료 시 `wait()` return code와 의도한 stop 여부를 민감정보 없이 기록해야 한다.
-Fault 수렴 후 measure 직전 같은 loopback 경로의 non-admin native-auth semantic200을 확인한다.
-Process 종료/직접 경로 실패의 복구와 campaign 종료 판단은 [AGENTS.md §5의 공통 복구 규칙](../AGENTS.md#복구와-실행-중단-경계)을 따른다.
-다음 실행 승인에는 이 bounded recovery 정책이 명시적으로 포함되어야 한다. Measure 전 operator 오류는
-복구 후 영향받는 native/signal gate만 재확인하고, 시작한 invalid calibration은 그대로 계수한다.
-이는 기존 operator process 관리의 최소 보완이며 새 harness/controller/runbook을 추가하지 않는다.
-
-별도 `monitor_failure` 직전 마지막 scale query는 HTTP200/success/empty vector다.
-Source는 이 응답을 거부할 수 있으나 실제 exception type/실패 지점을 발행하지 않았으므로
-제14차 monitor의 최종 원인과 sentinel 오류와의 인과는 unknown으로 유지한다.
-입증된 source 결함은 `monitor()`가 exception을 버리는 진단 누락이다. 기존 `initialization_error()`의
-고정 allowlist를 재사용하여 `exception_class`/`error_code`만 추가한다. Exception message/chain,
-argv/stderr/response/private path와 사용자 정의 class 이름은 발행하지 않는다.
-실패 flag·demand 취소·invalid 판정·deadline·acceptance는 유지하며 과거 raw/incident는 수정하지 않는다.
-
-다음 paid campaign은 새 exact-source CI/독립 review, 별도 명시적 승인과 current cost/resource/RBAC/quota·
-보존 기한 확인, 위 forwarding 소유/liveness/exit 관측 및 직전 native-auth200을 충족하기 전까지 **NO-GO**다.
-충족 후에도 기존 normal/healthy/KEDA/collection gate를 그대로 적용해야 하며 runtime 성공은 미검증이다.
-현재 제15차는 승인되지 않았으며 이번 문서 정합화는 Azure 실행 승인이 아니다.
-Azure 조회/변경·새 calibration·제15차 실행·merge/P10은 수행하지 않는다.
-
-## 제13차 historical 실행
-
-[제13차 evidence](evidence/p9-mitigation-thirteenth-20261101/README.md)는 승인 source
-`453841d4274d6777073a0ed1d5282e3e784461c8`의 실제 실행 기록이다. Normal1과 healthy journey1은 각각
-valid/success/warmup9, CPU ready와 target signal observed2회는 부분 관측이다. Public initialize1회는
-최종 healthy gate 전에 telemetry configuration의 남은 deadline에서 command timeout/exit1로 종료했다.
-임시 DB client의 `PGSSLMODE=require`와 target 단계 live headroom 수집 순서는 승인된 준비 계약을
-충족하지 못했다. Source 실패와 operator 준비 오류를 분리하며 뒤의 positive로 소급 충족시키지 않는다.
-KEDA·calibration/freeze·네 measured arm·continuing-demand recovery는 모두 미도달이다.
-Owned cleanup·stable 보존26항목을 확인했고 source 수정·자동 제14차·merge/P10은 없다.
-Before posted ActualCost KRW123,029.5838968907, 누적 세전 USD180 review 범위의 보수적 추정 USD134.192723이다.
-Final 비용 요청은 실패해 unknown이며 P9 단독 비용 귀속도 unknown이다. 기존 보존 기한을 유지한다.
-
-## 제13차 후속 cost-free telemetry 수집 교정
-
-제13차 raw `initialize/events.jsonl`의 후반 서로 다른 CPU sample timestamp 간격은59초씩3회다.
-Telemetry poll은2개뿐이며 간격34.757031242초, 그 사이 CPU guard 관측 간격은35.945945376초다.
-두 target signal은 모두 observed지만 CPU는 stale/pending이었다. 다음 `telemetry_configuration`은
-전체 deadline 잔여0.144983690초의 command timeout으로 끝났다. 개별 명령 latency·API 지연 원인은 unknown이며
-이2개 poll만으로 일반 cadence/성능이나 병렬화의 Azure 성공을 단정하지 않는다.
-
-교정은 `healthy_initialize`의 **journey 이후 telemetry configuration/guard**만 겹치는 것으로 한정한다.
-추가 worker1개에 thread-local 절대 `min(poll 시작+30초, 기존 telemetry deadline)`을 직접 전달하고 두 결과를 기다린다.
-Configuration 실패 때도 worker 종료를 기다리며 guard 실패를 성공으로 바꾸지 않는다. 두 수집의 target UID/name과
-기존 CPU HPA UID/owner·Warning/resource 조건을 검증한 뒤 기존 inventory/signal/path 순서를 유지한다.
-Guard 종료 시각과 raw CPU sample age를 monotonic freshness 만료 시각으로 연결한다. Configuration/signal을
-기다리는 동안 stale이 되면 pending이며, 최종 log/counter/journey hash 확인 뒤에도 freshness≤30초를 요구한다.
-최종 path에서 stale이 되거나 collection30초를 넘으면 성공을 발행하지 않는다. Mandatory read는 생략하지 않는다.
-Settling300초·command15초·전체 telemetry `ingestion+3×scrape`·outer840초·acceptance/resource 조건은 유지한다.
-
-기존 테스트에서 제13차 actual CPU/HPA/Warning projection을 replay하면 ready1회 뒤 stale/pending2회가 유지된다.
-Full guard/UTC가 미기록이라 command-end UTC로 시간을 재구성하며 auxiliary safety 응답은 synthetic이다.
-별도 synthetic configuration10초/guard8초/signal2초/path2초 모델의 완료는14초다(순차 합계22초).
-Freshness30초는 허용하고 config/signal 대기 중 stale, 최종 path 중 stale, timeout·UID/owner/Warning/resource·signal 실패는 차단한다.
-이 결과는 source 회귀이며 실제 제13차 negative·13개 raw archive나 P9 acceptance 미충족을 변경하지 않는다.
-실제 Azure 동시 API contention·CPU freshness와 target telemetry의 동시 충족·후속 measured/recovery는 unknown이다.
-다음 별도 승인 실행에서는 기존 계약의 DB TLS `verify-full`과 target 단계 live headroom 선행 순서를 적용해야 한다.
-제13차 operator 준비 오류는 source bug로 재분류하지 않으며 이번 교정으로 새 Azure 실행을 승인하지 않는다.
-
-## 제12차와 후속 cost-free source 교정 이력
-
-아래 제12차 negative 및 cost-free source 결과는 역사적 기록이며 제13차 runtime 성공을 뜻하지 않는다.
-
-제12차 실행 결과는 normal valid / 첫 guard collection30초 command timeout / CPU poll·healthy·KEDA·calibration·C0–C3 measured0이다.
-
-승인·실제 source `dfdfaabe03d56a5ec9f1dd6f8cffc6627c621d6f`의
-[제12차 actual raw·비용·cleanup](evidence/p9-mitigation-twelfth-20261101/README.md)을 연결한다.
-Ordered live preparation과 normal1 valid/success/warmup9 뒤 public initialize1회/exit1이었다.
-내부 elapsed30.006590초, `readiness_resource_guard`의 `TimeoutExpired / command_timeout`이다.
-Source의 마지막 `kubectl … get events -A -o json`은 첫 configuration/guard 공유30초 budget의 잔여0.452934343초에서 timeout했다.
-Source guard가 반환하지 않아 CPU poll/Warning 내용 판정은0회이며 valid-stale candidate 수정의 실제 결과는 미도달이다.
-Settling300초/outer840초 timeout이나 operator-only Warning 검사로 분류하지 않는다. Healthy/KEDA/C3 canonical configuration/calibration/freeze/measured/recovery도 미도달이다.
-CUSTOM/shared mesh/namespace/PAT24/image/임시 IAM/보호 사본을 정리하고 stable 보존24항목과 final native verify1/exit0을 확인했다.
-준비/원복 누적12회, before/final posted two-RG ActualCost KRW112,982.43859335 → KRW115,421.7153009966, P9 incremental unknown이다.
-첫 단일 비용 검토 예측USD121.8181787은 승인된 합산 세전 USD140 안이었으며 hard cap/확정 잔액이 아니다.
-Source·timeout·acceptance·retention은 변경하지 않았다. 제13차 자동 실행·새 source 수정·merge/P10은 없다.
-
-## 제12차 후속 collection budget source 교정
-
-`healthy_initialize`의 configuration과 뒤따르는 resource guard가 같은30초 countdown을 소모하던 계약은
-실제 순차 명령 latency를 수용하지 못했다. 제12차 archive의 pre-guard elapsed21.972324808초(configuration·초기 setup 포함),
-guard stage8.034264953초와 마지막 events allocation0.452934343초를 기존 fixture와 실제 `Runtime.k` timeout 경계에서 replay한다.
-공유 budget 경로는 동일 allocation에서 `TimeoutExpired`이며 CPU 관측 전에 실패한다.
-각 선행 command latency와 정상 events 응답 시간은 archive에 없으므로 회귀의 command 분할·성공 응답 및 CPU/journey/target positive는
-명시적 synthetic이다. 실제 제12차 negative나 제10차 positive·제11차 negative evidence를 변경하지 않는다.
-
-Source 변경은 initialization의 guard 진입 두 곳에서 deadline을 다시 지정하는 것으로 한정한다.
-첫/반복 CPU poll의 configuration과 guard는 각각 최대30초이며 같은 settling300초에 포함된다.
-Telemetry에서도 configuration 다음 guard 진입 시 최대30초를 부여한다. Guard·target inventory/signal·최종 path evidence는
-그 budget을 계속 공유하고 전체 `ingestion+3×scrape` deadline을 넘을 수 없다. Command15초, final fresh CPU/HPA·positive target telemetry,
-Warning/UID/resource safety, valid-stale pending, C3 canonical spec, outer840초와 run600초는 그대로다.
-Cost-free replay는 초기 pending → 반복 fresh positive → 단일 synthetic journey → 후속 fresh CPU/target positive를 완료하며,
-미회복은 settling300초, target telemetry 미확보는 기존 telemetry deadline에서 실패한다.
-
-Initialization 교정 시점에는 측정 snapshot latency 위험이 미해결이었다. 기존 `collect_snapshot`의 순차
-configuration/guard에 같은 phase latency를 주입하면 마지막 guard events 명령에서 실패하여
-snapshot/convergence를 내보내지 못한다. Configuration 전후와 실패 guard의 합계만 이미30.006590초이며 이후 collector latency는 unknown이다.
-이는 실제 measured 관측이 아닌 bounded synthetic latency 회귀다. Guard 뒤 모든 수집에 budget을 새로 주거나 30초를 늘리는 방법은
-gap≤35초 증거를 보장하지 못하므로 적용하지 않았다. 당시 직접 P9 regression75개·P8 regression38개와 `make static`을 통과했다.
-
-## Measured snapshot 시간·관측 계약
-
-[독립 review](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#pullrequestreview-5726349799)에서 확인한
-`snapshot.end` 선기록을 교정한다. 모든 필수 조회, 마지막 HAProxy stats 조회까지 끝난 뒤 `end`/`epoch`를 기록한다.
-전체 `end-at≤30초`를 검사한 후에만 snapshot/convergence를 발행한다. 마지막 조회4.5초의 합성 지연에서 실제 완료9.5를 기록하며,
-30초 경계는 허용하고30.001초 overrun 또는 마지막 조회 실패는 발행을 차단한다. Saved gap35초 허용/35.001초 거부는 그대로다.
-
-최소 최적화는 독립적인 configuration과 guard를 겹치는 것이다. 추가 worker는1개로 한정하고 둘 다 동일한 절대 `at+30`을 사용한다.
-`collection_deadline`이 thread-local이므로 guard worker에도 같은 deadline을 직접 지정한다. Guard는 configuration의
-admin observations/lifecycle을 사용하거나 변경하지 않는다. 두 결과를 모두 기다린 뒤 config/target UID 정합성을 검사하고,
-admin stats → logs → Prometheus signal → HAProxy stats는 기존 의존 순서를 유지한다. 실패 시 worker 종료를 기다리며 snapshot을 발행하지 않는다.
-HPA/Pod/bootstrap 중복 read는 provenance·drift 관측을 줄일 수 있어 생략하거나 cycle 밖 cache로 대체하지 않았다.
-모든 mandatory guard/UID/HPA/log/counter/native metric/Prometheus query 및 C3 raw spec provenance를 보존한다.
-명령15초·query5초·전체 collection30초·관측 gap35초·측정 acceptance·run600초는 늘리지 않는다.
-
-기존 C0/C3 fixture의 각1 Ready target에서 configuration21.972324808초/guard8.034264953초를 겹쳐 replay한다.
-나머지 inventory0.5초, logs1.5초, Prometheus5query 합계1초, 마지막 HAProxy4.5초는 **명시적 synthetic latency**다.
-각 arm의 연속3개 snapshot은 전체29.472324808초, 실제 end 간격30.472324808초(기존 poll wait1초 포함)다.
-기존 순차 경로의0.452934343초 allocation timeout도 negative replay로 보존한다. Configuration/guard/query 실패,
-guard worker의 잔여0.25초 command timeout, UID drift, missing signal, 마지막 조회 overrun은 snapshot을 차단한다.
-이 단계에서는 C3 두 Ready target의 전체 latency를 검증하지 않았다. 아래 후속 source 회귀로 범위를 확장한다.
-이 결과는 bounded source 회귀이며 Azure measured 성공이나 제13차 실행 승인이 아니다. 실제 cadence/scale-out은 후속 runtime gate로 남는다.
-직접 P9 regression77개·P8 regression38개와 `make static`을 통과했다. 과거12개 P9 raw archive의 byte/SHA256는 시작 HEAD와 동일하다.
-
-### C3 두 Ready target 수집
-
-[후속 독립 review](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#pullrequestreview-5727302776)에 따라
-기존 `LiveFixture`에 실제 source가 읽는 두 Ready target 객체를 넣고 호출별 latency를 적용한다.
-제12차 pre-guard21.972324808초를 one-target configuration의 admin9/kubectl3회에 균등 배분한 **합성 비용1.831027067초/request**다.
-실제 Azure 개별 명령 latency를 측정한 값은 아니다. Guard8.034264953초와 기존 inventory0.5초/log당0.375초/query당0.2초/HAProxy4.5초를 유지한다.
-기존 source는 두 target에서 admin16/kubectl5회와 추가 app/proxy logs를 순차 수집하여 전체46.701568414초로30초를 초과한다.
-
-P8 adapter는 per-target 수집을 local result로 반환하고 선택적 executor/observer를 받는다. 기본 P8/C0/one-target 경로는 순차 호출을 유지한다.
-P9의 C3 **Ready2개일 때만** target worker를2개로 제한하고 같은 절대 collection deadline을 thread-local에 전달한다.
-Target별 matcher/native sample/hold/counter/mapping 검증을 worker 안에서 끝내고 성공 결과만 메인 경로에서 UID별로 합친다.
-두 target 각각의 이미 읽은 bootstrap 응답을 matcher와 metric-binding 검증에 함께 사용하여 중복 read1회씩만 제거한다.
-다른 target의 응답이나 이전 cycle cache를 재사용하지 않는다. HPA/owner/config/UID/Warning/log/counter/signal 및 raw ScaledObject provenance는 유지한다.
-
-같은 호출별 모델에서 C3 Ready2개 configuration은 admin14/kubectl5회이며 target2개 read가 겹친다.
-각 target의 app·proxy logs와 ingress·HAProxy logs **6회**, Prometheus5query, HAProxy 실제 CSV parser까지 포함한 연속3snapshot의
-전체 완료는 **28.391297741초**, end 간격은 **29.391297741초**다. C0 Ready1개는 기존 **29.472324808초 / 30.472324808초**다.
-Collection30초 허용/30.001초 발행 차단, 기존 saved gap35초 허용/35.001초 거부를 유지한다.
-두 번째 target read/native 실패·worker 잔여0.25초 timeout·UID/owner drift·missing/failed signal은 snapshot을 내보내지 않는다.
-Target 실패 때 기존 admin observations를 부분 결과로 덮어쓰지 않는 것도 검증한다.
-실제 Azure의 명령별 latency·동시 API contention·scale-out/recovery 성능은 여전히 runtime gate다. 합성 회귀를 실제 measured PASS로 분류하지 않는다.
-직접 P9 regression78개·P8 regression38개와 `make static`을 통과했고 과거12개 raw archive의 byte/SHA256를 보존했다.
-
-## 제11차 historical 실행
-
-상태: **normal valid / CPU settling300초 timeout / 후속 measured0 / 원복 완료**.
-
-승인·실제 source `94deb6d7b51ab61091f90ee9ad281c4a9afb56cb`의
-[제11차 actual raw·비용·cleanup](evidence/p9-mitigation-eleventh-20261101/README.md)을 연결한다.
-Normal1 valid/success/warmup9 뒤 public initialize1회/exit1, 내부300.000103초에
-`ValueError: CPU preparation settling timeout`으로 중단했다. Actual8poll 중 fresh CPU/HPA positive는 poll2·5·8이다.
-동일 stale sample poll3·6은 candidate를 보존했지만 새 timestamp의 stale poll4·7은 실행 source 분기상 candidate를 지운다.
-첫 positive 이후 Warning history는 count4로 유지됐고 outer840초 timeout은 발생하지 않았다.
-Healthy/KEDA/C3 normalized configuration/calibration/freeze/measured/recovery는 미도달이다.
-CUSTOM/shared mesh/namespace/PAT23/image/임시 IAM/보호 사본을 정리하고 stable 보존24항목과 final native verify1/exit0을 확인했다.
-준비·원복 누적11회, final two-RG posted ActualCost KRW107,878.1372733931, P9 incremental unknown이다.
-승인된 합산 세전 USD115 범위의 단일 비용 검토 예측은 USD112.5645943였으며 hard cap/확정 잔액 주장이 아니다.
-Retention·resource·source acceptance를 변경하지 않았고 제12차 자동 실행·source 수정·merge/P10은 없다.
-
-## 제11차 후속 candidate source 계약
-
-[제11차 독립 review](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#pullrequestreview-5725463943)에 따라
-`CPUStartup.observe`의 candidate 보존 조건만 `stale_duplicate`에서 기존 structurally valid `stale`로 확장한다.
-이전 fresh sample과 동일하거나 timestamp가 새로워진 stale 모두 pending/false이며, candidate·검증된 fresh sample을 advancing시키지 않는다.
-실제 준비 완료와 최종 healthy telemetry 성공에는 그 시점의 fresh positive가 필요하다. Warning/HPA/lifecycle/sample history 및
-DB/node/resource guard, freshness30초/window90초/quiet15초/settling300초와 전체 timeout은 그대로다.
-
-제11차 actual8poll을 기존 P8 guard adapter로 cost-free replay하면 poll2 candidate → poll3·4 stale pending/후보 보존
-→ **poll5 두 번째 advancing fresh에서 offline ready** → poll6·7 stale pending → poll8 fresh positive다.
-Full per-poll guard/UTC는 미기록이므로 archived command-end UTC/failure monotonic anchor와 actual sample/HPA/Warning/Pod projection을 재사용한다.
-DB 응답 등 기존 adapter I/O는 synthetic이며 새로운 Azure 성공 proof가 아니다. 제10차 actual-positive8poll과 제8차 duplicate9poll 경로도 함께 검증한다.
-제11차 실제 timeout·준비/원복11회·비용·raw/checksum과 measured0은 변경하지 않는다.
-직접 CPU 초기화 회귀41개, P9 전체72개, P8 전체38개와 `make static`을 통과했다.
-제12차 유료 실행은 새 exact-source 독립 검토와 별도 비용 승인 대상이며 이번 변경은 source-only다.
-
-## 제10차 historical 실행
-
-상태: **실제 CPU/HPA·healthy telemetry·KEDA 인증/ownership positive / calibration1 invalid / C0–C3 measured0 / 원복 완료**.
-승인·실제 execution source는 `d23e1629d0206db914088a54c6378d17237b67c8`다.
-[제10차 통합 승인](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6513440879),
-[actual/negative/원복 evidence](evidence/p9-mitigation-tenth-20261101/README.md), [incident](incidents/p9-mitigation-tenth.md)를 연결한다.
-승인된 mesh/admission 준비 순서를 따르고 Warning 판단을 source에 맡겼다. Normal1 valid/warmup9와 public initialize1/exit0,
-실제 fresh→stale pending→advancing fresh, journey 이후 최종 fresh CPU/HPA+target telemetry를 확인했다. Healthy journey1,
-ingress/check/target30과 실제 KEDA scaler Ready/currentMetrics/owner UID를 관측했다. Healthy completion은 실제 source event이며 synthetic 입력은 없다.
-Operator preflight assertion과 full P9 C3 configuration은 구분한다. Calibration1은 ledger 계수 뒤 configuration/run_start 전에
-22.081829초/exit1로 중단됐다. 직접 exception은 unknown이며 admitted `advanced.scalingModifiers: {}`와 source exact-spec 계약 충돌을 보존했다.
-Calibration1 invalid/후속0, freeze 없음, mitigation/recovery not measured다. P9-owned 원복과 stable 보존22항목을 확인했다.
-준비/원복 누적10회, KEDA apply/restore 누적 각2회, 과거9개 archive/비용을 보존한다. 최신 two-RG ActualCost KRW104,099.2492616492,
-P9 incremental unknown이다. 기존 세전 USD100 검토 총액 안에서만 검토했고 신규 USD100·retention 연장/전체 teardown은 없다.
-추가 paid retry/source 변경·merge/P10 없이 같은 Draft PR에 결과를 보존한다.
-
-## C3 ScaledObject 후속 source 계약
-
-[제10차 독립 리뷰](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#pullrequestreview-5724382088)에 따라
-`Runtime.configuration`의 C3 비교 한 곳에서 source가 `advanced.scalingModifiers`를 정의하지 않았고
-actual 값이 빈 dict `{}`인 경우에만 absent와 동등하게 처리한다. 비교용 spec 복사본만 정규화하며 나머지 spec 전체는 exact equality다.
-Nonempty/null/list/scalar modifiers, unknown field·trigger·threshold·controller/owner drift의 실패 경계는 유지한다.
-[KEDA2.19 specification](https://keda.sh/docs/2.19/reference/scaledobject-spec/#scalingmodifiers)은 이 field를 선택 사항으로 설명하며
-설정할 때 formula/target을 요구한다. 이번 허용 범위는 archived generation1→generation2의 빈 field 차이에 한정한다.
-
-반환된 `scaledobject_spec`은 canonical 형태라 같은 run의 후속 configuration 비교에서 불필요한 drift를 만들지 않는다.
-관측한 원본 metadata/UID/generation/resourceVersion/spec은 기존 emitter의 `scaledobject_configuration` event에 별도로 보존한다.
-Emitter가 없는 baseline 관측은 첫 collection 때 함께 기록하며 원본 Kubernetes 응답이나 archive를 수정하지 않는다.
-Cost-free regression은 actual 제10차 identity/plan/spec과 기존 runtime fixture를 사용한다. Auxiliary I/O와 calibration 경계의
-의도적 pre-workload stop은 synthetic이며 실제 calibration 성공으로 해석하지 않는다.
-제10차 calibration1 invalid·measured0과 직접 exception unknown을 유지한다. 제11차 유료 실행은 별도 exact-source/비용 승인 대상이다.
-Cost-free 검증: archived 직접 회귀5개, P9 전체71개·P8 전체38개와 `make static`을 통과했다. Azure 호출/변경은 없다.
-
-## 제9차 historical 실행
-
-현재 상태: **제9차 normal valid / initialize 전 operator 검사 오류로 중단 / P9-owned 원복 완료 / P9 acceptance 미충족**.
-승인·실제 preparation source는 `ee75e3a336326ec5567b5f399ec08028169b02f1`다.
-[제9차 통합 승인](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6510384906),
-[actual/negative/원복 evidence](evidence/p9-mitigation-ninth-20261030/README.md), [incident](incidents/p9-mitigation-ninth.md)를 연결한다.
-승인 source보다 넓은 전체 retained Warning 검사를 operator가 추가해 startup/readiness 이력에서 멈췄다.
-Source initialize/CPUStartup은 호출되지 않았으며 CPU 계약 실패로 분류하지 않는다. Shared mesh를 실제 admission 전에
-dry-run 근거로 적용한 순서 이탈도 별도 기록했다. Initial/post-stop Pod3 Ready/restart0과 actual 자원 상한은 확인했다.
-Normal1 valid/success/warmup 9operations/9attempts, initialize·CPU 관측·healthy·KEDA·calibration·각 measured arm0,
-freeze 없음, mitigation/recovery not measured다. CUSTOM/shared/namespace·PAT20/image/role·보호 사본을 정리하고 stable을 보존했다.
-준비/원복 누적9회·과거8회 archive와 비용은 유지한다. 최신 two-RG ActualCost KRW49,306.6929280465,
-P9 incremental actual unknown이다. 사용자는 기존 누계와 별도인 추가 세전 USD100 검토 한도를 기존 +72h 유지·제9차1회에
-승인했다. USD5 계획/USD10 검토 기준은 초기화하지 않으며 USD100도 billing hard cap이 아니다.
-기존 승인 retention 계약을 유지한다. 추가 Azure 실행/기한 연장/전체 teardown·merge/P10은 없다.
-
-## 제8차 historical 실행
-
-현재 상태: **제8차 normal valid·무재시작 Pod 준비 통과 / CPU 준비300초 경계 중단 / P9-owned 원복 완료 / P9 acceptance 미충족**.
-승인·실제 execution source는 `98e95e5850f2442e08a6306bf955aa12c0427b17`다.
-[제8차 통합 승인](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6505956066),
-[actual/negative/원복 evidence](evidence/p9-mitigation-eighth-20261030/README.md), [incident](incidents/p9-mitigation-eighth.md)를 연결한다.
-Warning은 생성 후121초 count8까지 보존·허용됐고 첫 fresh CPU/HPA 관측 뒤 이력이 변하지 않았다.
-Fresh CPU/HPA 관측은 실제 poll3·5에 있었으나 중간/후속 stale poll과 source의 candidate 해제 경로로 ready는0이었다(후보 해제는 source 판독 추론).
-Initialize1회는300.004초에 반복 내부 ingress Envoy config 수집 command_timeout으로 중단했다. CPU poll9 모두 pending이며
-healthy journey·KEDA 변경·fault·calibration·각 measured arm0, freeze 없음이다. Synthetic/자동 retry/source 수정은 없다.
-CUSTOM/shared/namespace·PAT19/image/AKS role·보호 사본 cleanup과 stable/KEDA/storage 보존을 확인했다.
-준비/원복 누적8회·two-RG ActualCost KRW44,295.3701043718·P9 incremental unknown·과거 raw/checksum을 보존한다.
-Source CI 성공과 actual positive preparation/mitigation/recovery 미완료를 구분한다. 제9차 자동 실행·merge/P10은 없다.
-제8차 실행 당시 보존 기한은 당시 evidence를 따르며, 현재 보존 계약은 아래 승인된 +72h 기한을 따른다.
-
-## CPU preparation source 계약
-
-현재 source 계약: **제8차 freshness/candidate 교정 후 제10차 실제 CPU/healthy positive 관측 / measured·recovery 미완료 / P9 acceptance 미충족**.
-[제8차 독립 리뷰](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#pullrequestreview-5704588146)에 따라
-검증한 동일 CPU sample의 stale duplicate는 positive로 세지 않고 후보를 보존한다. 준비 완료 뒤 telemetry에서도
-구조가 유효한 stale export는 기존 bounded polling 안에서 pending이며, 최종 완료에는 현재 fresh CPU/HPA와 target telemetry 모두 필요하다.
-[독립 리뷰](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#pullrequestreview-5698170608)에 따라
-첫 fresh positive CPU/HPA recovery 전에는 정확한 CPU HPA metric Warning의 count/time 증가를 기존 monotonic settling300초 안에서 허용한다.
-별도 Warning 발생90초 상한은 제거하며300초 발생 상한으로 치환하지 않는다. 첫 recovery 관측 이후 새 Warning·count/time 증가와 history 유실은 계속 실패한다.
-Sample window90초/freshness30초, snapshot30초/command15초, quiet15초·두 advancing valid sample, outer840초/kill5초는 유지한다.
-과거 actual negative·비용·raw/checksum·원복 기록은 바꾸지 않는다. 이 교정 자체는 Azure 실행 승인이 아니며 새 exact-head 독립 review와 사용자 통합 승인이 필요하다.
-
-## 제7차 historical 실행
-
-현재 상태: **제7차 valid normal·무재시작 Pod 준비 통과 / CPU Warning 발생 경계 중단 / P9-owned 원복 완료 / P9 acceptance 미충족**.
-승인·실제 execution source는 `1ce291523ecddb3918e3879f322e45dfca122ee6`다.
-[제7차 통합 승인](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6496347488),
-[실행·negative·원복 evidence](evidence/p9-mitigation-seventh-20261029/README.md),
-[incident](incidents/p9-mitigation-seventh.md)를 연결한다.
-Backend Service/config·실제 ClusterIP/selector·Ready endpoint를 HAProxy 생성 전에 확인했고 initial Pod3는 Ready/restart0이었다.
-Warmup·fresh kubectl v1.36.4 path/hash·context와 normal9 operations/attempts valid를 유지했다.
-Initialize1회/57.649초는 같은 CPU HPA Warning의 count3→5·마지막 발생 Pod+91초/HPA+90초로
-`CPU warning outside startup lifetime`에서 중단했다. Retained history age 또는 settling300초 timeout 실패가 아니다.
-CPU poll1/pending, healthy journey·fault·KEDA 변경·calibration·각 measured arm0, freeze 없음이다.
-Post-stop HPA/metric을 positive proof로 바꾸지 않았다. CUSTOM/shared/namespace·PAT18/image/AKS role·보호 사본을 정리하고 stable/KEDA/storage를 보존했다.
-준비/원복 누적7회·two-RG ActualCost KRW38,284.28956189241·P9 incremental unknown·과거 raw/checksum을 유지한다.
-당시 source 수정/paid replay 없이 중단했다. 위 후속 source-only 교정은 historical 실패를 성공으로 바꾸지 않는다. 추가 Azure 실행은 별도 통합 승인 대상이다.
-
-## 제6차 historical 실행
-
-현재 상태: **제6차 valid normal 통과 / initialization Pod restart guard 중단 / P9-owned 원복 완료 / P9 acceptance 미충족**.
-승인·실제 execution source는 `30271ea59c4824b9bf4455ec038528891692d434`다.
-[제6차 통합 승인](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6494902133),
-[실행·negative·원복 evidence](evidence/p9-mitigation-sixth-20261029/README.md),
-[incident](incidents/p9-mitigation-sixth.md)를 연결한다.
-Warmup·실제 kubectl v1.36.4 path/hash 사전 대조와 fresh normal context를 사용했고 normal9 operations/attempts가 valid였다.
-Initialize1회는 `pod_not_ready_or_restarted`로 중단했다. HAProxy는 initial snapshot부터 restart3/Error였고
-previous container log에 backend DNS 해석 실패가 기록됐다. Ready=True를 무재시작 proof로 사용하지 않는다.
-CPU poll·healthy journey·fault·calibration·각 measured arm0, freeze 없음이다. Pod/history reset이나 initialize 반복은 없다.
-CUSTOM/shared/namespace·PAT17/image/AKS role·보호 사본 cleanup과 stable/KEDA/storage 보존을 확인했다.
-과거5회를 포함한 준비/원복 누적6회·비용·raw/checksum을 유지한다. Source 수정/새 Task 없이 실행 순서를 교정해야 하며
-별도 통합 재승인 전 자동 반복하지 않는다. 후속 evidence HEAD는 실제 execution source와 구분한다.
-
-## 제5차 historical 실행
-
-현재 상태: **제5차 승인 실행 normal result metadata invalid / P9-owned cleanup 완료 / P9 acceptance 미충족**.
-승인·실제 execution source는 `50aac4a9fab0881dfba41340f4a6ef0f5c4e0142`다.
-[제5차 통합 승인](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6493316821),
-[실행·negative·원복 evidence](evidence/p9-mitigation-fifth-20261029/README.md),
-[incident](incidents/p9-mitigation-fifth.md)를 연결한다.
-Operator가 normal create에 `RESULT_PHASE=baseline`을 지정해 structured validator가 `invalid phase`로 거부했다.
-Developer operations/attempts9개 성공·exit0과 valid provenance를 구분한다. Raw 수정/normal create 반복/flag 승격은 없다.
-Initialize·CPU preparation·healthy journey·fault·calibration·각 measured arm0이며 namespace/CUSTOM/KEDA 변경 전 중단했다.
-최종 native verify1과 PAT16/image/AKS 임시 role·보호 credential cleanup, stable/shared/KEDA/storage 보존을 확인했다.
-준비/원복 누적5회·비용·과거 raw/checksum을 보존한다. 후속 evidence HEAD는 실행 승인 source가 아니다.
-정상 경로 phase는 validator의 기존 `warmup` 계약을 사용해야 하며 재승인 전 자동 반복하지 않는다.
-
-## 제4차 historical 실행
-
-상태: **제4차 승인 실행 CPU preparation 실패 / P9-owned 원복 완료 / P9 acceptance 미충족**.
-승인·실제 execution source는 `b484160cc0bf13af93d234a5ba30c4013f1d8e00`다.
-[통합 승인](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6490726245),
-[독립 source review](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#pullrequestreview-5694111880),
-[제4차 실제 실행·negative·원복 evidence](evidence/p9-mitigation-fourth-20261029/README.md)를 연결한다.
-Initialize1회는 `readiness_resource_guard / ValueError / validation_failed`, private source error
-`CPU warning outside startup lifetime`로 중단했다. CPU poll2개는 pending, healthy journey·fault·calibration·각 measured arm0,
-freeze·mitigation/recovery 결과 없음이다. Later-read HPA 회복 status를 완료된 준비 proof로 승격하지 않는다.
-Cleanup 뒤 실제 CPU window `1m5.166s` 표현만 cost-free source correction했다. 새로운 Azure 실행은 없으며
-후속 HEAD는 실행 승인 source가 아니다. 아래 시간 계약은 추가 source-only correction이며 Azure 재실행은 없다.
-과거 네 차례 준비/원복·비용·raw/checksum과 measured 상한·acceptance를 보존한다.
-이전 제3차 `ffea5cb`의 [실행/원복](evidence/p9-mitigation-third-20261029/README.md)은 별도 historical evidence다.
-
-이전 제2차 이력:
-상태: **새 승인 source의 healthy initialization 준비 gate 중단 / P9-owned controls 원복 완료 / P9 acceptance 미충족**.
-새 승인·실제 execution source는 `9c7b4be942e534dff2e36fe069e144bfa96d045a`다.
-[사용자 통합 재개 승인](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6486166268),
-[독립 source gate](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#pullrequestreview-5692094220),
-[실제 재개·negative·원복 evidence](evidence/p9-mitigation-resume-20261029/README.md)를 연결한다.
-새 정상 create1/final verify1은 성공했고 initialize1회는 journey intent 전에 실패했다. Healthy journey·fault·calibration·measured는0,
-freeze·mitigation/recovery 결과는 없다. Causal exception은 CLI가 노출하지 않아 unknown이며 경고/시간 초과로 단정하지 않는다.
-이전 `c06ce67b2d438c7affde6b6934368b43afa4c1f4`의
-[승인](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6483350700)과
-[preflight/negative/cleanup](evidence/p9-mitigation-preflight-20261029/README.md)은 historical로 보존한다.
-아래 C0–C3 contract/상한을 유지하며 추가 workload를 자동 반복하지 않는다. 후속 evidence HEAD는 실행 승인 SHA가 아니다.
-P8 [reviewed evidence](evidence/p8-controlled-cascade-20261029/README.md)와
-[incident](incidents/p8-controlled-cascade.md)를 재사용하며 historical raw/validator는 보존한다.
-P6/P7 drill, P8 전체 실험, factorial/조합 최적화, P10은 범위 밖이다.
+목표는 동일 fault/demand의 C0–C3 비교, continuing-demand recovery, 실제 request accounting과 P9-owned 원복 evidence다.
+P9 acceptance는 아직 미충족이다. 제17차는 CLOSED이며 새 paid campaign 승인은 없다.
+누적 campaign17 / public initialize14 / healthy5 / started-invalid calibration2 / measured 각0 / KEDA restart3/3을 보존한다.
+현재 source-only 교정의 Azure 효과는 NOT VERIFIED다. Source CI나 synthetic 성공을 runtime 성공으로 승격하지 않는다.
+
+현재 실행 권한·비용·보존은 [Paid Azure boundary](implementation-plan.md#paid-azure-boundary--p6p11)와 별도 실제 사용자 결정을 따른다.
+Environment 기한은 2026-11-05 10:30 KST, Foundation/Bootstrap은 11월6일00:33 KST다. 자동 연장·전체 teardown·merge/P10은 없다.
+P6/P7 drill, P8 전체 실험, factorial/조합 최적화, 다른 architecture 구현은 범위 밖이다.
 
 ## 비교와 동결
 
@@ -557,7 +48,7 @@ hostname, Argo revision과 나머지 drift 검사는 유지한다. Arm마다 ini
 `max(120s, 3×(scrape+ingestion+controller))` 이상, 10초 배수로 **measured 전에** 고정한다.
 코드는 mitigation≤300s, recovery120–240s, 두 구간 합계≤540s, arm 계획≤600s를 제한한다.
 Kubernetes 명령은 최대15s, 한 snapshot의 Kubernetes 수집 budget30s, Prometheus query는
-각5s다. Deadline/관측 부족은 raw로 보존하며 복구/다음 run 판단은 위 공통 복구 규칙을 따른다.
+각5s다. Deadline/관측 부족은 raw로 보존하며 복구/다음 run 판단은 AGENTS.md의 복구 경계을 따른다.
 
 | 상한 | 후보360s / run | 최대로 승인 요청하는540s / run |
 | --- | ---: | ---: |
@@ -590,7 +81,7 @@ Issue12/Git1 worker와 최대49 pending으로 client backlog를 제한한다. �
 version별 실제 image/CRD/operator/SA 상태를 먼저 보존한다. 읽을 수 없으면 필수 실행 gate다.
 기록된 actual `2.19.0-25`에 맞춰 [2.19 scaler](https://keda.sh/docs/2.19/scalers/prometheus/)와
 [identity override](https://keda.sh/docs/2.19/authentication-providers/azure-ad-workload-identity/)를 참조한다.
-재개 시 actual version이 다르면 중단하고 matching contract를 확인한다. 이전 source correction 당시 runtime 조회/upgrade는 없었고, 이번 승인 재개에서 같은 image를 read-only 재확인했다. 실제 scaler 인증은 미검증이다.
+재개 시 actual version이 다르면 중단하고 matching contract를 확인한다. 과거 확인 결과는 현재 scaler 인증 proof가 아니다.
 Managed controller의 Helm/resource/spec 임의 변경이나 self-managed 대체는 하지 않는다.
 
 실험 소유 `azmonitoring.coreos.com/v1 PodMonitor/p9-envoy`는 기존 scraper를 사용한다.
@@ -603,8 +94,6 @@ Actual ORIGINAL_DST inbound cluster `inbound|8080||`, listener destination port8
 `use_all_default_tags=false`, `cluster_name` tag regex `^cluster(\.(.+);)`를 확인한다.
 Native exposition의 overflow counter/active gauge type과 label, 같은 Pod의 ingested sample을 대조한다.
 Mapping/tag/label ambiguity나 drift는 신규 Pod warmup 중에도 실패한다.
-보존 archive의 positive sample은 bootstrap cluster뿐이며 **target inbound positive sample은 없다**.
-이를 inbound 초기화 또는 query 성공으로 재해석하지 않는다.
 `sum(rate(...[1m]))`의 unit은 rejected checks/s이며 raw cumulative counter를 threshold에
 연결하지 않는다. 후보 threshold0.5, calibration 허용0.25–1.0이다. 이는 rejection을 낮추려는
 반응 후보이며 capacity2가 SLO를 복원한다는 가정이 아니다. Gauge의 짧은 peak는 scrape가
@@ -641,133 +130,65 @@ unknown series/UID, startup timeout은 중단 사유이며 inventory query guard
 
 ## 최초 healthy 초기화 순서
 
-준비용 gate는 fault/측정용 full telemetry gate와 분리한다. `initialize`도 새 exact-source Azure 승인과
-normal/native-auth/TLS evidence, 같은 actual identity/plan hash/limits/retention을 요구한다.
-`healthy_gate_passed`/`runtime_preflight_passed`를 초기화 시작을 위해 true로 만들지 않는다.
+1. 실제 source/image digest·cluster/Pod UID·Argo revision·plan/approval hash를 결합하고 normal/native-auth/TLS를 먼저 확인한다.
+   Dedicated Entra user kubeconfig, exact CUSTOM hostname/provider/selector, fail-closed path, pinned image/controller,
+   hold0/capacity1024, app CPU HPA, Ready/무재시작·DB verify-full/read-only SQL·node headroom/admission을 검증한다.
+   `healthy_gate_passed`/`runtime_preflight_passed`를 초기화를 위해 미리 true로 만들지 않는다.
+2. CPU 준비는 configuration을 포함한 monotonic300초 안에서 read-only settling한다. Configuration/guard 각각30초,
+   명령15초와 poll 사이 sleep≤15초를 지킨다. 실제 poll 완료 간격이15초 이하라는 보장은 없다.
+   같은 Pod/HPA UID/spec·unowned CPU owner·Ready transition과 양수 `app` CPU, Ready 이후 전체 sample window≤90초,
+   sample age≤30초, AbleToScale/ScalingActive와 양수 `ContainerResource/cpu/app` currentMetrics를 요구한다.
+   Pod/HPA 생성≤Warning first≤last≤안전 관측 시각이며 first/reason 불변, count/time 단조 증가·동시 변경과 history를 보존한다.
+   첫 positive 전 허용 Warning은 exact CPU HPA namespace/UID의 `FailedGetContainerResourceMetric`/
+   `FailedComputeMetricsReplicas`뿐이다. 다른 Warning/owner/미귀속·lifecycle/UID/Ready drift는 즉시 실패한다.
+   첫 positive에서 recovery latch를 고정하고 이후 새 Warning/count/time 증가·history 유실을 거부한다. `since`를 재설정하지 않는다.
+   Retained Warning은 마지막 Warning 이후 ScalingActive 회복, quiet15초와15초 이상 떨어진 두 advancing valid sample이 필요하다.
+   Warning 없는 이미 정상인 baseline은 별도 대기 없이 통과할 수 있다. Timestamp 역행·같은 timestamp의 window/CPU 변경은 실패한다.
+   구조적으로 유효한 stale export와 positive HPA만 후보를 보존하며 advancing/fresh proof로 세지 않는다.
+   다른 누락/invalid/HPA 미회복은 후보를 취소하거나 실패한다. 완료 후에도 current stale poll은 pending이며 target observed만으로 완료하지 않는다.
+3. 기존 healthy journey1회만 사용한다. Append-only init ledger intent를 먼저 기록하고 timeout90초/TERM·kill-after5초를 적용한다.
+   기존 validator로 exact source·clean context·HTTPS transport와 warmup9 operations/9 attempts를 검증한다.
+   기존 fixture/settle/anonymous/Git 보조 요청도 auxiliary correlation으로 귀속한다. 측정 분모에 섞거나 telemetry 때문에 재호출하지 않는다.
+4. Journey 이후 `ingestion+3×scrape` 안에서 같은 UID/config/admin/native·target series·guarded query를 read-only 수집한다.
+   Candidate는75초/시작 간격≥15초, 최대5poll·Prometheus 최대25query다. Configuration과 CPU 외 guard 관측을 기존 worker로 겹치고,
+   signal과 guard 완료 뒤 기존 CPU metrics GET1회를 수행한다. 같은 collection30초/global deadline·명령15초를 재시작하지 않는다.
+   같은 target bootstrap 응답1회로 matcher/metric binding을 검증하며 null 응답을 재조회하지 않는다.
+   이전 poll의 UID/HPA/Warning/resource/DB 관측을 대신 쓰지 않는다. CPU age는 늦은 취득 시각에 계산하되,
+   HPA/Warning quiet·선후관계는 따로 보존한 안전 관측 시각으로 판정한다. 늦은 CPU 시각으로 quiet를 부풀리지 않는다.
+   Final native-path/log accounting 뒤 CPU≤30초와 target freshness를 모두 확인한다. P8 기본/측정·C3 경로는 이 opt-in을 사용하지 않는다.
+5. 같은 journey window의 신규 ALLOW check·target inbound200·ingress native response가 양수이고 수가 일치해야 한다.
+   모든9 attempt의 operation/attempt ID와 auxiliary ID, check ID/시간 범위, credential/body exclusion·HAProxy hop을 대조한다.
+   Target cluster/status, ingress Forgejo route/status, actual target counter와 logs를 검증한다. Anonymous401/404는 gate ALLOW 이후 native auth 결과다.
+   Proxy format에는 correlation ID가 없으므로 proxy 대응은 같은-window count/cluster/status 수준이다. Git1회=HTTP/check1회를 가정하지 않는다.
+   초기 stat 없는 UID는 lifetime counter/전체 UID log, 나머지는 before/after delta로 대조한다. Zero/missing/mismatch/rotation/deny/unattributed는 실패다.
+   성공은 `ready_for_keda_authentication=true`, **`runtime_preflight_passed=false`**다. 필수 query/stat 부재는 deadline까지 pending,
+   invariant/unknown/query 오류는 즉시 실패하며 성공 flag나 소비 횟수를 되돌리지 않는다.
+6. 그 뒤 승인된 KEDA IAM/SA 변경과 actual scaler auth/cadence/full gate를 통과해야 calibration에 진입한다.
+   Operator 자신의 query 성공은 scaler 인증 proof가 아니다. CLI `initialize`/`transition`/`measure ... calibration`은 이 순서를 대체하지 않는다.
 
-CPU HPA 준비는 별도 **read-only settling** 경계를 사용한다. `healthy_initialize` 시작부터 configuration을 포함한
-monotonic hard cap **300초**, positive proof 확보 즉시 완료하며 성공 보장이나 고정 대기 시간이 아니다.
-연속 수집 사이의 **sleep 상한이 15초**이며, configuration/guard collection 시간이 더해진 실제 poll 완료 간격이 15초 이하라는 보장은 없다. 각 collection의 기존30초/명령별15초 budget과 전체 settling300초를 유지한다. 실제 sample age·window는 guard 판정 시점에 확인하며 추가 traffic/journey 반복은 없다.
-Configuration/image/hostname/owner 및 Pod/DB/node/admission/headroom은 매 poll에서 즉시 검사한다.
-첫 fresh positive CPU/HPA recovery 전까지 허용하는 Warning은 정확히 같은 namespace·UID의
-`HorizontalPodAutoscaler/hpa-app-cpu`에 속한 `FailedGetContainerResourceMetric`/`FailedComputeMetricsReplicas`뿐이다.
-이 Warning의 반복/count·last timestamp 증가는 별도 객체 age/발생 시간 제한 없이 기존 monotonic settling300초 안에서 허용한다.
-Pod/HPA 생성≤first≤last≤snapshot 시각을 요구한다. First timestamp/reason 불변, count/time 단조 증가·동시 변경과 history 보존을 검증한다.
-다른 Warning/owner/미귀속 event, timestamp 선후관계 위반·history drift/유실은 즉시 실패한다.
-첫 fresh positive CPU/HPA recovery 관측에서 recovery latch를 고정하며 이후 새로운 Warning 또는 기존 Warning의 count/time 증가는
-quiet15초/두 번째 sample을 기다리는 중이나 중간 metric 누락 뒤에도 즉시 실패한다.
-Runtime.since를 재설정하거나 warning 이력을 삭제하지 않는다.
+Admin은 `stats?format=json`, native는 `stats/prometheus`를 사용하고 `usedonly`/filter를 추가하지 않는다.
+Deferred/absent counter를0으로 만들거나 임의 traffic으로 보완하지 않는다. 신규 UID의 부재만 bounded warmup으로 관측하며
+기존/이미 observed UID의 series 소실·unknown label/UID·startup timeout은 실패다. Full guard·numeric0과 부재를 구분한다.
+실패는 safe class/code·stage·elapsed로 기록하며 secret/argv/message/body를 공개하지 않는다. 상세 trace는 기존0700 private 경계의
+0600 exclusive file로만 보존하고 owned cleanup에서 제거한다. Raw 실패·기존 file/write 오류·consumption은 덮어쓰지 않는다.
 
-`Runtime.guard(cpu_preparation=True)`는 이미 수집한 owned Pod 중 CPU target의 namespace/name/UID,
-creationTimestamp/deletionTimestamp와 Ready status/lastTransitionTime만 별도 `cpu_preparation_pods`로 제공한다.
-CPUStartup은 이 opt-in lifecycle을 사용한다. `admission.pods`의 name/uid/containers 자원 요약을 원본 Pod로 취급하지 않으며
-P8 admission accounting·기본 guard 계약은 유지한다. Lifecycle 필드 누락/UID·Ready transition drift는 fail-closed다.
+## Measured snapshot 시간·관측 계약
 
-준비 성공에는 고정 target UID의 실제 Ready/무재시작·변하지 않은 Ready transition, `app` CPU 양수 sample,
-sample window 전체가 Ready 이후이며 sample age≤30초인 관측을 요구한다. 실제 `38.03s`/`1m5.166s` 표현을 초로 해석하되 window≤90초를 유지한다. CPU HPA spec/UID/unowned CPU controller가
-일치하고 AbleToScale=True/ScalingActive=True 및 `ContainerResource/cpu/app`의 양수 currentMetrics averageValue/averageUtilization도 있어야 한다.
-ObservedGeneration이 있으면 actual generation과 대조한다. 필드가 없는 actual HPA에 generation을 합성하지 않는다.
-Startup 실패의 실제 placeholder `currentMetrics=[{type:""}]`는 알려진 ScalingActive=False 상태에서만 pending이며 정상 metric이 아니다.
-누락/stale/pre-Ready sample 또는 HPA 회복 미확인은 준비를 통과하지 못하고 bounded timeout에서 실패한다.
-Zero/unknown을 positive metric으로 승격하지 않는다. Pod/HPA UID·Ready transition/owner drift는 기다리지 않고 실패한다.
-첫 후보 이후 **기존 `stale` 조건을 만족하는 구조적으로 유효한 sample**이며 positive HPA와 ScalingActive transition,
-Warning history·Pod/UID·DB/node/resource invariant가 유지되면 timestamp가 같거나 새로워져도 후보를 보존한다.
-이 poll은 pending/false이며 sample 수나 마지막 검증 fresh sample을 advancing시키지 않는다.
-다른 metric 누락/invalid sample/HPA 미회복은 기존대로 후보를 취소하거나 실패한다. 새 fresh advancing sample은 매번 기존 window/freshness/quiet/HPA 조건을 만족해야 한다.
-마지막 검증 sample보다 timestamp가 역행하거나 같은 timestamp의 window/app CPU가 바뀌면 실패한다.
+모든 mandatory 조회와 마지막 HAProxy stats 뒤에 실제 end/epoch를 기록하고 end-at≤30초일 때만 snapshot/convergence를 발행한다.
+명령15초/query5초·saved observation gap≤35초·run≤600초를 유지한다. 실패 시 기존 worker 종료를 기다리고 partial snapshot을 발행하지 않는다.
+Configuration/guard는 동일 absolute deadline을 쓰며 서로의 admin observations/lifecycle을 변경하지 않는다.
+두 결과의 config/UID를 대조한 뒤 admin stats→logs→Prometheus signal→HAProxy stats 의존 순서를 지킨다.
+매 UID lifetime의 image/build/mapping/hold/counter/log·HPA owner·Warning·원본 ScaledObject metadata/spec provenance를 보존한다.
+CPU 초기화의 stale/Warning 예외를 measured/C3의 strict guard에 적용하지 않는다.
 
-Warning의 safe reason/time/owner·event UID/count를 append-only `cpu_preparation_warning`으로 보존한다.
-`cpu_preparation_poll`에는 실제 CPU timestamp/window/value, HPA spec/UID/current metric·ScalingActive/transition 및 pending/ready를 기록한다.
-원문 warning message/body/argv는 넣지 않으며 unknown reason/owner는 안전한 분류로만 남긴 뒤 실패한다.
-Startup warning이 있으면 HPA ScalingActive 회복 transition이 마지막 warning 이후여야 하고, 최소15초 quiet와
-15초 이상 떨어진 두 번의 advancing valid CPU sample·변하지 않은 warning UID/count/time을 확인한 뒤에만 준비를 통과한다.
-이미 양수 metric/HPA가 정상이고 warning이 없는 baseline은 별도 대기 없이 통과할 수 있다.
-회복 뒤 healthy journey/telemetry polling에서 새 warning·count/time 증가·history 유실·HPA/invalid·missing metric 상태 악화는 실패한다.
-완료된 CPU 준비 proof와 현재 poll의 fresh 판정은 구분한다. Telemetry에서는 Ready 전체 window와 양수 CPU 구조가 유효하고
-HPA positive/ScalingActive transition이 유지되는 stale export(새 timestamp 포함)만 기존 `ingestion+3×scrape` deadline 안에서 pending으로 관측한다.
-Stale poll은 `CPUStartup.completed`를 보존해도 return/status는 false/pending이다. `healthy_initialize`는 target signal이 observed여도
-그 poll의 CPU/HPA가 fresh positive가 아니면 완료하지 않는다. Fresh CPU/HPA만 있고 target telemetry가 없을 때도 완료하지 않는다.
-최종 shared-path ALLOW/correlation·native auth·target inbound log/counter·per-Pod freshness/rate 검증은 그대로이며 journey를 반복하지 않는다.
-Measured/C3의 기존 strict warning/controller/telemetry guard와 P8 기본 호출은 이 예외를 사용하지 않는다.
+### C3 두 Ready target 수집
 
-300초 선택 근거는 4차 생성07:39:10·Ready07:39:26·later-read HPA transition07:40:40과
-post-stop sample07:41:31/window65.166초다. 이 window를 참고한 synthetic 다음 sample 간격65초와
-poll≤15초·수집≤30초를 포함하는 bounded 후보이며 실측 성공 시간은 아니다. 실제 sample cadence는 미확정이다. [Kubernetes HPA 문서](https://kubernetes.io/docs/concepts/workloads/autoscaling/horizontal-pod-autoscale/#pod-readiness-and-autoscaling-metrics)의
-Ready 전체 sample window/default CPU initialization period5분도 재확인했다. 해당 AKS flag 값은 미확인이다.
-제7차 Pod+91초의 실제 Warning count3→5는 첫 positive 전 pending으로 replay한다.
-실제 실패 시 full guard는 archive에 없어 마지막으로 관측한 pending HPA/sample을 유지한 reconstruction임을 명시한다.
-P8 `guard()`→P9 `CPUStartup`에 실제 UID/owner/reason/count/time·Pod lifecycle을 통과시키고,
-post-stop HPA/currentMetrics·stale CPU만으로 준비 완료를 주장하지 않는다. 후속 fresh advancing CPU sample2개는 명시적 synthetic이다.
-미회복 replay는 monotonic300초에 timeout하며 Warning 이력/첫 candidate 이후 재발·기타 safety negative와 제4차 관련 회귀를 유지한다.
-CPU sample window≤90초, freshness≤30초는 settling300초와 별개이며 별도 Warning 발생 deadline은 없다.
-제8차9-poll도 같은 P8 guard adapter를 거쳐 replay한다. Full guard/UTC poll 시각은 미기록이므로 command-end UTC/failure monotonic anchor로
-wall clock을 재구성하고, 실제 sample/HPA/Warning projection·poll 간격·archived lifecycle을 유지한다. DB 응답은 기존 adapter의 synthetic이다.
-원래60개 회귀와 함께 Poll3 후보→Poll4 동일 stale pending/후보 유지→Poll5 fresh advancing에서 offline 준비 완료,
-Poll6–9 stale는 모두 pending/false임을 확인한다. **이는 수정 class의 cost-free replay이며 제8차 actual ready0을 변경하지 않는다.**
-전체 healthy_initialize 회귀는 실제 준비5 polls와 stale poll6 뒤 명시적 synthetic journey/server/Prometheus·fresh CPU 후속 sample을 사용한다.
-Target signal observed+stale CPU만으로 완료하지 않으며 fresh CPU와 positive target path가 함께 있을 때만 완료한다.
-Stale-only는 settling300초 또는 기존 telemetry deadline에서 실패하고 HPA/Warning/owner·UID·sample history·DB/node/resource negative도 유지한다.
-Cost-free 검증: P9 regression66개(제4·7·8차 archive와 synthetic 구분, quiet 완료 전 recovery latch 및 보존 기한 reserve 포함), P8 regression38개와 `make static`을 통과했다.
-동일 제7차 입력을 이전 source class에 넣으면 Pod+91초에서 거부하고 수정 class에서는 pending인 것을 대조했다.
-여덟 차례 raw archive의 기존 byte/SHA256를 보존했으며 final exact-head CI·독립 review는 GitHub에서 별도 확인한다.
-
-`initialize` CLI는 GNU `timeout --signal=TERM --kill-after=5s`의 process group 안에서 내부 `_initialize`를
-1회 호출한다. Operator는 public `initialize`를 사용하며 더 짧은 외부 wrapper를 씌우지 않는다.
-외부 TERM 시점은 `330 + 300 + 30 + 100 + ingestion + 3×scrape + 5`초다.
-330초는 기존 Runtime setup의60초 command4개(git2/Azure2)와15초 kubectl6개 합계이며 command 상한 증액이 아니다.
-이후 settling300초(configuration 포함), 별도 baseline stats/logs collection30초, journey90초+kill/wait 여유10초,
-telemetry `ingestion+3×scrape`, dispatch 여유5초를 합한다. 현재 후보는 **840초**, 허용 cadence 최대는1005초,
-각각 TERM 뒤 kill-after5초이며 measured run600초와 구분한다. 정상 시 바로 종료한다.
-Settling의 configuration과 guard는 각각 `min(now+30, settling deadline)`을 적용하며 command≤15초를 유지한다.
-제12차에서 configuration 전후21.972초가 guard budget을 소모한 공유 계약을 교정한 것이다. 전체 settling300초는 늘리지 않는다.
-Telemetry는 독립 configuration/guard를 worker1개로 겹치며 둘 다 같은 `min(poll 시작+30, telemetry deadline)`을 적용한다.
-이후 signal/최종 path 검증도 그 절대 budget을 공유한다. Guard 이후 대기/조회 시간을 CPU age에 반영하여
-최종 판단 시점의 freshness≤30초와 기존 safety gate를 유지한다.
-Baseline stats/logs는 완료된 settling collection과 분리한30초를 사용한다. Preparation 진입 시 외부 timeout+5초 kill 여유와
-기존 run/drain+30분 rollback reserve가 retention 전에 들어가는지도 검사한다.
-
-실패 event는 고정된 `stage`, 전체/단계 `elapsed_seconds`/`stage_elapsed_seconds`, 허용된
-`exception_class`와 제한된 `error_code`를 output 및 append-only initialization ledger에 기록하고 예외를 다시 전파한다.
-Journey intent 이전에는 `configuration` → `readiness_resource_guard` → `baseline_stats` → `baseline_logs`를 구분한다.
-이후 journey/accounting/validation·telemetry configuration/resource/signal·positive path도 별도 stage로 기록한다.
-Warning guard는 typed `warning_event`, 기존 snapshot command budget 소진은 `snapshot_command_budget_exceeded`,
-subprocess timeout은 `command_timeout`으로 구분하며 오류 문자열로 원인을 추정하지 않는다.
-공개 event에는 message/argv/stderr/body/path나 임의 exception class 이름을 넣지 않는다. 알려지지 않은 class는
-`BaseException`/`unknown_failure`로 기록한다. 상세 exception chain은 기존 mode0700 private directory의
-`initialization-failure.txt`를 mode0600/exclusive-create로 보존한다. 이 파일은 raw archive/publication 대상이 아니며
-승인된 보호 local cleanup 경계에서 제거한다. 기존 파일/쓰기 오류는 덮어쓰지 않고 안전한 별도 code를 남기며 원래 실패를 유지한다.
-실패 record는 `runtime_preflight_passed=false`이며 정상/healthy/runtime 승인 flag를 변경하지 않는다.
-이 source-only 진단 보완은 과거 unknown 원인을 소급 입증하거나 새 Azure 실행을 승인하지 않는다.
-
-1. 전용 kubeconfig/ownership/stable delta, exact CUSTOM hostname/provider/selector와 fail-closed/native auth/TLS,
-   pinned image/controller, hold0/capacity1024/readiness, 실제 sidecar/init/overhead 포함 resource/headroom을 확인한다.
-2. 이미 계획한 bounded healthy journey **1회**를 재사용한다. Intent를 append-only initialization ledger에 먼저 기록하고
-   90초에 process group에 TERM을 보내고 kill-after5초로 자식 명령도 제한한다. Journey raw는 기존 schema의 `phase=warmup`, 외부 initialization record는 `measured_denominator=false`로
-   측정 schedule/분모에 섞지 않되 API request intent/status/bytes와 실제 같은-window ingress/check log delta를 보존한다.
-   Git operation을 HTTP1회로 추정하지 않는다. Journey 실패·timeout도 사용된 행동이며 telemetry 때문에 재시도하지 않는다.
-3. Journey 이후 최대 `ingestion+3×scrape` 동안 scrape 간격의 **read-only** polling으로 동일 UID/config,
-   admin/native stat, ingested target series, freshness와 rate2 samples, guarded query를 확인한다.
-   성공 전에 같은 journey window의 신규 ALLOW check·target inbound200·ingress native response log가 양수이며
-   수가 일치해야 한다. 기존 validator로 warmup journey의 exact source/transport·9개 성공 attempt를 검증하고,
-   각 attempt마다 해당 operation/attempt ID의 check가 있어야 한다. 기존 fixture/settle/anonymous/Git 보조 요청도
-   opt-in auxiliary correlation으로 같은 run에 귀속한다. Git1회=HTTP1회/check1회를 가정하지 않는다.
-   Check ID/ALLOW·credential/body exclusion·HAProxy hop·시간 범위, proxy cluster/status와 실제 target counter를
-   대조하며 zero/missing/mismatch/rotation/denied/unattributed는 실패한다. 기존 private anonymous401/404는
-   shared gate ALLOW 이후의 native auth 결과이며 ext_authz deny/error와 구분한다. Proxy format에는 correlation ID가
-   없어 proxy 대응은 같은 window의 count/cluster/status 수준이며 이를 per-request trace라고 부르지 않는다.
-   초기 stat가 없던 UID는 마지막 누적 counter와 전체 UID target log를 대조하고 누락 snapshot을0으로 합성하지 않는다.
-   이미 존재하던 observed series는 이 positive-path proof를 대신하지 않는다.
-   두 gate를 통과하면 `ready_for_keda_authentication=true`이며 **`runtime_preflight_passed=false`는 유지**한다.
-   필수 query/stat 부재가 지속되면 timeout으로 중단한다. Invariant/unknown/query 오류는 즉시 전파한다.
-4. 위 target mapping/telemetry gate 뒤에만 KEDA UAMI/FIC/workspace role 및 필요한 SA annotation/rollout을 준비한다.
-   다른 ScaledObject 영향·원본 상태와 승인된 restart 횟수를 먼저 확인하고 실제 scaler 인증을 검증한다.
-   Operator identity의 query 성공은 KEDA scaler 인증 성공이 아니다. 이후 full runtime gate → fault/calibration/freeze/measured 순서다.
-
-P9 admin 요청은 `stats?format=json`, native 요청은 `stats/prometheus`이며 `usedonly`/filter를 추가하지 않는다.
-[Envoy admin](https://www.envoyproxy.io/docs/envoy/v1.38.0/operations/admin)의 JSON과 사용 여부/filter에 따른 누락을
-실제 numeric0과 구분한다. 관측 payload에 없는 counter는 deferred/unused일 수 있어도0으로 만들지 않고,
-인위적 counter 증가나 임의 traffic으로 보완하지 않는다. Archive의 filtered negative만으로 deferred option이
-실제 설정됐다고 주장하지 않는다. 기존 Pod 및 P8의 기본 strict stat 검사는 유지한다.
+C3 Ready2개에만 기존 target worker2개를 쓰고 같은 collection deadline을 thread-local에 전달한다.
+Target별 matcher/native/hold/counter/mapping을 검증한 local result만 UID별로 합친다. 같은 target의 같은 bootstrap 응답을
+matcher와 metric binding에 재사용하며 다른 UID·이전 cycle cache를 대신 쓰지 않는다. 실패 시 기존 admin observations를 부분 덮어쓰지 않는다.
+모든 Ready target app/proxy logs, ingress/HAProxy logs, Prometheus query와 HAProxy server/BACKEND를 수집한다.
+Full live inventory에는 Pending도 포함하며 Ready/initialized series 전까지 성공 replica로 세지 않는다.
+사라진 Pod의 final counter/log가 없거나 reset/restart/불완전 수집이면 invalid다. 수동 scale은 autoscaling 성공이 아니다.
 
 ## Recovery와 accounting
 
@@ -811,120 +232,43 @@ C2 queue는 측정 대상, 다른 arm에서는 경쟁 병목 guard다.
 같은 incident의 backoff/admission/proxy-scaling corrective action에 연결한다.
 결과가 없는 현재 corrective action은 검증 완료가 아니다.
 
-## 이전 통합 승인 범위 — c06 preflight 이력
+## 권한·자원·원복 경계
 
-이전 승인·실행 source는 **`c06ce67b2d438c7affde6b6934368b43afa4c1f4`**다. 승인 기록 URL과
-actual identity, plan hash, limits를 보호된 입력에 연결했고 `P9_AZURE_APPROVED`도 같은 SHA를 사용했다.
-Gate 중단·원복 상태와 실제 flag는 evidence의 `approval-binding.json`에 보존했다.
-아래는 그 승인 범위이며 후속 문서/evidence HEAD나 다른 SHA를 실행 승인으로 치환하지 않는다. Normal/healthy/live preflight의 실제
-evidence 없이 approval JSON의 flag를 true로 채우지 않는다.
+실제 승인 source/image/identity·scope·횟수와 current resource/권한/기한을 바인딩한다. 새 source의 paid 경로는 독립 review와 별도 사용자 결정 전 보류한다.
+기존 AKS/node/PG/ACR/AMW를 재사용하며 새 compute/node/server/Disk/PVC, autoscaling/DNS/Argo stable mutation은 없다.
+별도 승인된 임시 AKS RBAC Cluster Admin은 exact AKS1의 Entra user assignment ID와0600 user kubeconfig에 한정하고 원래 Owner를 보존한다.
+소유 ACR source-SHA tag/digest는 source/build와 결합하고 live reference0·공유 tag/digest 부재를 확인한 exact 객체만 정리한다.
+Mesh overlay는 revision shared ConfigMap의 provider/stat matcher만 UID/data guard로 변경하며 default CM/managed spec/Argo source는 바꾸지 않는다.
+Experiment는 Pod≤4, requests와 limits 각각 CPU≤1500m/memory≤2048Mi이며 init/native sidecar/overhead와 headroom을 포함한다.
+공유 managed controller 변경은 별도 승인·다른 ScaledObject 영향 확인이 필요하다. 필요할 때만 원본 SA annotation/template/UID를 보존하고 restart/restore한다.
+P9 전용 KEDA UAMI/FIC는 actual OIDC issuer, exact `system:serviceaccount:kube-system:keda-operator`, `api://AzureADTokenExchange`와
+existing AMW 한 resource의 Monitoring Data Reader에 한정한다. Actual SA/version/권한이 다르면 임의 확장하지 않는다.
 
-[승인 요청 시 management read](evidence/p9-source-20261029/management.json): subscription
-`e5a6bc91-44fb-46aa-90ee-badd6d197609`, Entra User object ID
-`6f750efc-cb1a-4a49-b6e7-23fc6061e25a`, Korea Central, `rg-ccp-environment-krc-p6`.
-AKS `aks-ccp-krc-p6`는 Running/Succeeded,1.36.4, asm-1-30, D4s_v4 node2/autoscaling OFF다.
-PG `pg-ccp-p6-krc-57781024`/ACR `acrccpp6krc57781024`/AMW `amw-ccp-krc-p6`/LAW
-`law-ccp-krc-p6`와 기존 Disk/PVC를 재사용한다. 이 사전 조회에서는 Cluster UID/Argo/CRD/operator/SA/admission을
-관측하지 않았다. 이후 실제 확인·미확인·중단 상태는 연결된 실행 evidence를 따른다.
-이들은 관련 **mutation 전 read-only gate**이며 mismatch 시 중단한다.
+Credential 경로는 action별 named allowlist·private env/stdin/0600 file로 한정한다. Generic Secret/raw Secret·불필요한 key를 읽지 않는다.
+Allowlist는 admin bootstrap/preserve의 `forgejo/forgejo-admin` username/password, DB prepare/preserve의 `forgejo/forgejo-db` password와 소유 `p8-shared-gate/p8-db-read`의 필요한 PG fields뿐이다.
+기존 Forgejo admin은 필요한 fixture bootstrap/폐기에만 사용하며 load는 non-admin disposable fixture/PAT≤2다.
+DB는 기존 app role만 owned client Secret에 임시 복사하고 hostname/CA verify-full·TLS·read-only SQL을 검증한다.
+Secret/credential·Authorization·private path·예외/cleanup 출력은 공개하지 않는다. PAT numeric ID를 mutation 전 보호 audit에 기록하고,
+exact-ID revoke/재사용401·token list0·fixture login 차단을 확인하며 DB record 보존 여부를 기록한다.
 
-이 source에 승인된 exact 외부 행동과 원복은 다음과 같다.
+같은 parent가 기존 `owned_forward` handle·watcher를 preparation부터 child 실행/cleanup까지 소유한다. Local13000 bind와 stable Pod UID를 확인하고
+의도한 close/wait와 실제 child exit를 확인한다. 조용한 재시작·주기적 새 tunnel·liveness만으로 native semantic200을 대체하지 않는다.
+각 run 전 authorized non-admin fixture의 direct native sentinel/path convergence를 확인한다.
+실패한 run은 invalid/소비로 보존한다. Source-changing same-ledger recovery·measured retry·카운터 초기화는 지원하지 않는다.
+같은 승인 안의 허용된 bounded recovery만 남은 횟수/비용/기한·원복 reserve 안에서 수행한다. Closed campaign의 잔여 권한은 이월하지 않는다.
 
-- 위 User에 AKS resource 하나의 임시 `Azure Kubernetes Service RBAC Cluster Admin` assignment.
-  전용 mode0600 kubeconfig의 Entra user auth를 사용하고 종료 시 소유 assignment ID만 삭제한다.
-  기존 Owner2개는 보존한다. Secret 읽기 전에 실제 identity/owner/Argo/정상성을 확인한다.
-- 기존 ACR의 `ext-authz-sim:<approved-source-sha>` 한 tag에 local source build/publish,
-  digest 확인·source/image 동결. 새 registry/ACR Tasks/새 publish IAM은 없다.
-  P9-owned tag/digest가 공유되지 않았음을 확인한 뒤 exact 객체만 cleanup한다.
-- `forgejo/forgejo-admin` version2의 이번 P9 한정 재사용·rotation 생략과 `forgejo/forgejo-db`
-  필요한 credential 읽기. 기존 stable Secret 변경 없이 non-admin disposable fixture2개/PAT2개,
-  private journey repo/Issue/PR를 준비한다. Administrator는 load에 사용하지 않는다.
-  `p8-shared-gate/p8-db-read` 하나에 기존 app DB role만 임시 복사, TLS verify-full/read-only SQL.
-  종료 시 Secret 삭제, exact PAT ID revoke/401 확인, 계정 login 차단, fixture 기록 보존 여부 기록.
-- Removed P8의 이름을 재사용한 **P9 campaign 소유** namespace `p8-shared-gate`, fixture,
-  Sidecar fault/hold, CPU HPA/ScaledObject/TriggerAuthentication/PodMonitor와 hostname exact CUSTOM policy.
-  Mesh overlay는 `scripts/azure-cascade.py mesh`로 revision shared ConfigMap의 provider/stat matcher만
-  추가한다. 실제 UID/data 보존·restore conflict guard를 적용한다. Default CM/managed spec/Argo source는 수정하지 않는다.
-- P9 전용 UAMI **`p9-keda-prometheus`**를 같은 RG에 생성하는 안을 요청한다. Resource ID는
-  `/subscriptions/e5a6bc91-44fb-46aa-90ee-badd6d197609/resourceGroups/rg-ccp-environment-krc-p6/providers/Microsoft.ManagedIdentity/userAssignedIdentities/p9-keda-prometheus`.
-  새 compute/server가 아니며 client/principal ID는 생성 뒤 보존한다. FIC 이름 `p9-keda-operator`,
-  issuer는 management.json의 actual OIDC URL, subject **`system:serviceaccount:kube-system:keda-operator`**,
-  audience **`api://AzureADTokenExchange`**다. Actual SA가 다르면 조용히 바꾸지 않고 중단한다.
-  최소 role **Monitoring Data Reader**를 기존 `Microsoft.Monitor/accounts/amw-ccp-krc-p6` resource
-  **하나**에만 부여한다. 기존 고권한 control-plane/Forgejo identity를 대신 재사용하지 않는다.
-- 위 [Microsoft managed 절차](https://learn.microsoft.com/en-us/azure/aks/keda-workload-identity)에 따라
-  실제 필요할 때만 `kube-system/keda-operator` SA client-id annotation과 **operator rollout restart1회**를
-  요청한다. 원래 annotation/UID/template fingerprint를 보존하고 workload-identity token/env 주입을 검증한다.
-  기존이 이미 올바른 경우 중복 변경하지 않는다. 원복은 원래 annotation 복귀와 restart1회, actual
-  controller ready 확인이다. 이 변경은 **experiment quota 밖의 shared managed controller 영향**이며
-  다른 ScaledObject/운영 workload 영향이 있으면 mutation 전에 보고한다. Helm/resources/임의 spec 변경은 없다.
-  끝나면 소유 workspace role assignment → FIC → UAMI를 exact ID로 제거한다.
-
-Experiment는 **Pod4 / requests와 limits 각각 CPU1500m / memory2048Mi** 상한이다.
-기존 P8 actual validation init/native sidecar를 보수적으로 합친 최대 예상은 CPU1450m /
-memory1664Mi다. 실제 주입/overhead와 node headroom을 다시 검증한다. 새 node/server/Disk/PVC,
-node autoscaling 변경은 없다. 부족하면 상한/acceptance를 임의 확대·완화하지 않는다.
-
-[승인 요청 시 비용](evidence/p9-source-20261029/cost.json)은 두 RG의2026-10-28 합계
-**KRW16,015.5402320629**다. 조회는 성공했지만 청구 지연/완전성 제한이 있고 P9 증가분은 unknown이다.
-[승인 요청 시 retail 입력](evidence/p9-source-20261029/prices.json)을 기준으로 추가 image0.2GB
-월 환산USD0.02 + logs1GB×USD3.11 + metrics100만×USD0.11/천만=USD0.011 + egress1GB×USD0.12,
-query/변동 여유USD1.739를 합친 **증가분 검토 예상USD5**, 추가 검토 예산USD10을 요청한다.
-이는 계측량 가정이며 billing hard cap이 아니다. 기존 node/server 유지비와 shared controller
-rollout 비용/영향을 포함한 정확한 P9 실비는 분리 unknown이다. 재시작 때문에 새 node는 만들지 않는다.
-Actual volume/cost·새 비용 근거가 budget을 넘으면 추가 run을 시작하지 않는다.
-
-[이전 사용자 +72h 보존 승인](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6509128514)에 따른
-당시 Environment 기한은 **2026-11-02 10:30 KST** (`2026-11-02T01:30:00Z`),
-Foundation/Bootstrap은 **2026-11-03 00:33 KST** (`2026-11-02T15:33:00Z`)다.
-P8 Runtime과 P9 DEADLINE은 같은 Environment 기한을 사용한다. 이전 기한 이후의 승인된 실행 진입을 허용하되
-새 기한 직전/정각/직후와 initialization840초+kill5초/run/drain60초/rollback30분 reserve 경계를 직접 회귀로 검증한다.
-이 source-only 변경은 Azure provider TTL 변경이나 제9차 실행 승인이 아니다. 과거8회 evidence의 당시 날짜·raw/checksum·비용은 그대로다.
-3일 보존에 따른 추가 운영 비용은 기존 USD5/누적USD10 검토 기준에 포함된 것으로 가정하지 않으며 P9 incremental actual은 unknown이다.
-Run+60s drain+**30분 원복 여유**가 남지 않으면 실행 gate가 새 run을 거부한다.
-자동 연장/삭제나 P11 이전 전체 teardown은 없다. Cleanup은 CUSTOM policy 우선 제거 → shared
-CM data fingerprint 원복 → experiment controllers/fixtures/monitor/Secret/namespace → 소유 image,
-IAM/FIC/UAMI, PAT/fixture login/보호 local 사본/port-forward 순으로 exact identity를 확인한다.
-KEDA annotation/rollout 원복은 FIC 삭제 전에 수행한다. 정상 HTTPS/native auth, Argo revision/spec,
-원래 PVC/PV/Disk/Secret 보존을 확인한다. P9-owned cleanup과 전체 environment finalization은 다르다.
-
-## 제2차 통합 재개 승인 delta와 실제 사용 이력
-
-새 exact source `9c7b4be942e534dff2e36fe069e144bfa96d045a`의 CI/source gate 뒤 위 통합 재개 승인을 받았다.
-아래 재준비 범위가 승인됐으며 실제 사용/미사용은 새 실행 evidence를 따른다. Normal proof만 실제 통과했고
-healthy/runtime-preflight flag는 false다. Initialize 준비 gate 실패 후 원복했으며 기존 승인 SHA를 다른 HEAD로 치환하지 않는다.
-이전·이번 준비/원복과 비용 unknown을 함께 보존하고 다음 유료 workload를 자동 시작하지 않는다.
-
-- 새 source/image digest의 재build/publish·cleanup, fixture/PAT 재준비와 version2 admin credential의 명시적 재사용,
-  전용 AKS 임시 권한/보호 kubeconfig, experiment Secret/fixture/shared overlay 재준비·원복.
-- 위 healthy 초기화 순서와 실제 request accounting, 그 뒤 새 UAMI/FIC/workspace RBAC 및 **실제 필요할 때만**
-  KEDA annotation/restart·원복. 이전 operator apply restart1/restore restart1은 이미 사용한 행동이며
-  새 승인에는 필요 시 apply/restore 각1회의 delta와 다른 workload 영향 확인이 포함됐으며 이번 실제 사용은0/0이다. 자동 반복 한도 확대는 없다.
-- 이전 normal create1(구조화된 developer attempts9)/final verify1, image publish/delete1, IAM/fixture 준비·원복은 사용된 행동이다.
-  이전 Healthy/CUSTOM/fault/calibration/measured는 각각0이었다. 이번 CUSTOM은 적용/제거했고 healthy journey·fault/calibration/measured는0, freeze·non-recovery 결과는 없다. 기존 ledger/raw/negative/checksum을 보존하고
-  새 preparation ledger와 연결한다. Calibration 총≤2와 measured 각 arm1회, resource/cost/retention 상한은 유지한다.
-- 이전 비용 관측 before/final **KRW18,845.545320581**, P9 증가분 unknown을 이어간다. USD5 예상/USD10 검토 예산을
-  0으로 초기화하지 않는다. 재개 전 기존 준비·원복을 포함한 누적 비용/사용량 근거를 다시 확인한다.
-- 과거 PAT numeric ID/DELETE status와 HTTP501 body 미보존은 historical limitation이다. 과거 credential 작업을 재실행하지 않는다.
-  다음 PAT 발급 시 numeric ID를 후속 mutation 전에 보호된 credential/audit에 기록한다. 기존 request helper는 method/path/expected status를
-  호출 전에 append하고 status와 response bytes를 body와 별도로 보존하여 빈204를 처리한다. 다음 exact-ID revoke에서도
-  동일한 기록 순서와 분리된 HTTP status/body 처리를 사용하며 401·login 차단 결과를 보존한다. 별도 cleanup harness는 없다.
-  Prometheus query는 intent/hash와 응답, HTTP failure status/body를 보호된 evidence에 보존한다(서버가 echo한 bearer는 redact).
-
-Environment/Foundation 기한 연장, 새 compute/Disk/PVC, node autoscaling/DNS 변경, P6/P7 drill/P8 전체 실험, P10은 요청하지 않는다.
-필수 gate 실패나 승인 초과이면 새 workload를 멈추고 기존 승인 문서의 안전 원복 순서를 따른다.
+Whole reserve는1800+실제 initialize timeout I+kill5+6×600+1800초이며 candidate I840이면8045초다.
+각 run/drain/rollback2220초와 initialize 포함3065초의 strict retention cutoff를 유지한다. 부족하면 새 위험 행동을 시작하지 않는다.
+Owned cleanup은 CUSTOM exact UID 제거→shared CM UID/data guarded 복원→experiment controls/Secret/namespace→정상 native/TLS 검증,
+fixture 폐기·소유 image exact tag/digest/로컬 tag·forward/권한 제거 순서다. KEDA 원본 SA/rollout을 복원한 뒤 소유 role/FIC/UAMI를 제거한다.
+Argo revision/spec/Pod·기존 PVC/PV/Disk/Secret/CSI·원래 Owner와 fixed inventory 보존을 실제 evidence로 확인한다.
+소유 객체/보호 사본만 제거하며 전체 environment finalization·물리적 secure erasure·외부 session 완전 containment를 주장하지 않는다.
 
 ## 실행 entrypoint와 남은 gate
 
-현재 [실행 source](../scripts/azure-mitigation.py)의 `approval_gate()`는 **ledger의 모든 run이 현재 source SHA와 동일**해야 하며, calibration≤2 / measured arm별≤1을 강제한다. `measure`는 workload 전에 횟수를 기록하므로 시작한 invalid run도 사용량에서 빠지지 않는다. Measured arm당1회에는 실패 후 같은 arm을 다시 실행할 여유가 없다.
-
-따라서 [AGENTS.md §5](../AGENTS.md#복구와-실행-중단-경계)의 공통 bounded recovery 정책만으로 **이전 SHA의 run을 보존한 채 다른 SHA로 같은 ledger에서 재개하는 기능**이 구현됐다고 보지 않는다. 이 복구가 실제 필요할 때만 승인·source gate·직접 영향 검증을 함께 정합화한다. `initialize()`의 healthy journey 소비 검사는 현재 source SHA별이다. 이는 source SHA 교정 때 새 journey 횟수가 승인된다는 뜻이 아니다. Raw/소비량을 지우거나 빈 ledger로 바꿔 한도를 우회하지 않는다.
-
-최종 비교는 같은 freeze/source/configuration 경계를 유지한다. 실행 중 필요한 독립 review는 최종 PR 검토로 미룰 수 없으며, 그 근거가 없으면 해당 paid 경로를 보류하고 안전한 독립 작업만 계속한다. 이 설명은 추가 시도·새 유료 실행·retention 연장 또는 gate 변경의 승인이 아니다.
-
-Source gate는 직접 회귀, P8 historical replay, `make static`, exact-head PR CI와 독립 review다.
-제7차 이후 Warning/freshness 계약을 교정했고 제10차에 실제 CPU/healthy·KEDA positive를 관측했다. C3 calibration configuration 이후 measured/recovery gate는 미완료다.
-아래는 entrypoint 사용 형식이며 성공한 campaign 기록이 아니다. 재개 전 새 source gate와 필요한 승인을 확인한다.
+현재 새 paid 실행 권한은 없다. 아래는 승인·binding·실제 gate를 통과한 operator의 기존 CLI 형태이며 자동 실행 순서가 아니다.
+실행과 분석의 append-only ledger/lock을 유지하고 `measure`는 workload 전에 invalid 포함 intent를 소비한다.
+`freeze`와 `review`의 실제 raw/window 검토, native auth/TLS·DB·UID/owner·resource/time·validity 조건은 생략하지 않는다.
 
 ```bash
 python3 scripts/azure-mitigation.py render "$IDENTITY" "$PLAN" C0 "$NEW_RENDER_DIR"
@@ -949,3 +293,12 @@ python3 scripts/azure-mitigation.py compare "$NEW_C0" "$NEW_C1" "$NEW_C2" "$NEW_
 SA/FIC/operator 영향·auth·CRD/PodMonitor schema·actual series labels/inventory/freshness,
 per-Pod traffic/normal healthy tests, admitted resource, timeout/queue 동작과 recovery 관측 cadence가
 **필수 실행 gate**로 남아 있다. Source 검증을 Azure runtime PASS 또는 recovered로 표시하지 않는다.
+
+## Evidence와 이전 기록
+
+[제17차 결과/raw/원복](evidence/p9-mitigation-seventeenth-20261102/README.md),
+[이전 실행 evidence](evidence/), [incident](incidents/)와 기존 PR commit/comment는 그대로 보존한다.
+[현재 source-only 판단](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6578609673)은 실행 승인이 아니다.
+
+<a id="이전-통합-승인-범위--c06-preflight-이력"></a>
+[과거 권한/원복 범위 원문](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/blob/44879f36c9e517acf2dfdd502a75f71946d48b76/docs/p9-mitigation-recovery.md#이전-통합-승인-범위--c06-preflight-이력)은 당시 이력이며 현재 권한으로 재사용하지 않는다.
