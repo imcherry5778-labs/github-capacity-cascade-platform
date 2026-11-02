@@ -1299,13 +1299,15 @@ class MetricInitializationTests(unittest.TestCase):
         return f
 
     def test_initializing_target_reuses_bootstrap_and_keeps_metric_checks(self):
-        for case in ('uninitialized', 'observed', 'bootstrap-drift', 'native-missing'):
+        for case in ('uninitialized', 'observed', 'bootstrap-drift', 'bootstrap-null', 'native-missing'):
             with self.subTest(case=case):
                 f, calls = self.preparation(), []
                 r, admin, command = f.runtime, f.runtime.admin, f.runtime.k
                 if case != 'uninitialized': f.no_admin.clear()
                 def target_admin(ns, name, path):
                     calls.append(path)
+                    if case == 'bootstrap-null' and path == 'config_dump?mask=bootstrap.stats_config' and calls.count(path) == 1:
+                        return None  # A second read would be valid; it must never be attempted.
                     value = admin(ns, name, path)
                     if case == 'bootstrap-drift' and path == 'config_dump?mask=bootstrap.stats_config':
                         value['stats_tags'][0]['regex'] = 'wrong'
@@ -1317,7 +1319,7 @@ class MetricInitializationTests(unittest.TestCase):
                     return command(*args)
                 r.admin, r.k = target_admin, target_command
                 config = f.config | {'hold_ms': 0, 'max_requests': 1024}
-                if case in {'bootstrap-drift', 'native-missing'}:
+                if case in {'bootstrap-drift', 'bootstrap-null', 'native-missing'}:
                     with self.assertRaises(ValueError): r.configuration(config, initializing=True)
                 else:
                     actual = r.configuration(config, initializing=True)
@@ -1329,7 +1331,7 @@ class MetricInitializationTests(unittest.TestCase):
                     self.assertEqual(observation['status'], 'uninitialized' if case == 'uninitialized' else 'observed')
                     self.assertEqual(bool(observation['native']), case == 'observed')
                 self.assertEqual(calls.count('config_dump?mask=bootstrap.stats_config'), 1)
-                self.assertEqual(calls.count('native'), 0 if case == 'bootstrap-drift' else 1)
+                self.assertEqual(calls.count('native'), 0 if case in {'bootstrap-drift', 'bootstrap-null'} else 1)
 
     def test_initializing_bootstrap_reuse_preserves_short_cpu_overlap(self):
         # Synthetic one-second bootstrap I/O and 1.5s remaining CPU freshness.

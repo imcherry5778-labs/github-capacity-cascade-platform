@@ -26,6 +26,7 @@ P9 단독 실비는 unknown/shared/delayed다. 기존 보존기한과 admin 회�
 initializing configuration의 같은 target bootstrap GET2회를1회로 줄였다. 기존 P8 callback으로 동일 응답의 matcher와
 metric binding을 검증하고 native exposition도1회 그대로 검증한다. C3 두-target 경로는 이미 이 방식을 썼으며,
 initializing 이외의 경로는 유지한다. 새 API/probe·worker·계측은 추가하지 않았다.
+Null bootstrap 응답도 재조회 없이 기존 metric binding 검증에서 거부한다.
 Focused synthetic regression은 bootstrap/tag·native 검증과 짧은 CPU freshness overlap을 확인한다.
 Synthetic bootstrap I/O1초·잔여 CPU freshness1.5초 조건에서 기존 중복 조회는 실패하고 교정 뒤 path까지1.25초에 완료한다.
 이는 제17차 API별 latency나 성공 replay가 아니다. 실제 guard 종료/fresh-until/평가 clock은 미기록이며 sample epoch62/56/63초의

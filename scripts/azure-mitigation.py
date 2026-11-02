@@ -688,7 +688,7 @@ class Runtime(p8.Runtime):
         def observe_target(target, observation, bootstrap):
             # Preparation and the two-target path validate matcher and binding
             # from the same bootstrap response, without a duplicate admin GET.
-            if bootstrap is None:
+            if not (parallel or initializing):
                 bootstrap = self.admin(NS, target['name'], 'config_dump?mask=bootstrap.stats_config')
             target['metric_binding'] = metric_mapping(target['mapping'], bootstrap)
             observation['native'] = native_samples(self.k('-n', NS, 'exec', target['name'], '-c', 'istio-proxy', '--',
