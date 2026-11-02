@@ -1027,6 +1027,8 @@ class CPUStartup:
         ready = self.completed and positive
         emit({'record': 'cpu_preparation_poll', 'at': at, 'target_uid': self.target, 'hpa_uid': self.hpa_uid,
               'ready_since_epoch': ready_at, 'sample_epoch': stamp, 'valid_ready_window': bool(metric),
+              'guard_timestamp_utc': guard['timestamp_utc'], 'sample_age_seconds': age,
+              'sample_window_after_ready': bool(ready_window),
               'sample': sample_evidence, 'hpa_current_cpu': current_evidence, 'hpa_spec': self.spec,
               'scaling_active': bool(active and active[0]['status'] == 'True'), 'hpa_transition_epoch': transition,
               'hpa_metric_recovered': bool(status and recovered), 'status': 'ready' if ready else 'pending',

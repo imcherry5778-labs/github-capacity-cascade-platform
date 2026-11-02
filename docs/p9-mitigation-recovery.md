@@ -1,8 +1,38 @@
 # P9-W1 Mitigation & Recovery
 
-현재 상태: **제14차 단일 campaign 종료 / normal·healthy·KEDA 인증·full C3 preflight positive / calibration1 invalid / freeze·C0–C3 measured·recovery 미도달 / P9-owned 원복 검증 / P9 acceptance 미충족**.
+현재 상태: **제15차 단일 campaign 종료 / normal positive / public initialize CPU settling timeout / healthy·KEDA·calibration·freeze·C0–C3 measured·recovery 미도달 / owned 원복28개 check / P9 acceptance 미충족**.
 
-## 승인된 추가 72시간 보존과 source gate 정합화
+## 제15차 실제 결과와 후속 교정
+
+[사용자 명시 승인](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6567553025)으로
+source `7fc49ad391cddf70d9c901046901ed24917a2095`를 단일 실행했다.
+[제15차 evidence](evidence/p9-mitigation-fifteenth-20261102/README.md)와
+[incident](incidents/p9-mitigation-fifteenth.md)에 actual GET·DB verify-full·target-stage headroom·normal9,
+initialize1/exit1·CPU poll9/fresh1/ready0·settling300초 실패와 owned cleanup을 보존했다.
+Healthy intent0/calibration0/measured 각0이며 public initialize1 한도 소진으로 같은 승인을 재사용하지 않는다.
+누적 campaign15/initialize12/healthy3/started-invalid calibration2/measured 각0/KEDA apply·restore 각3이다.
+
+원복 뒤 cost-free source 교정은 CPU 준비 metrics GET을 다른 관측 뒤로 옮기는 것과
+poll의 exact UTC/age/Ready-window 진단이다. Freshness30초·settling300초·두 advancing sample·모든 횟수/상한은 유지한다.
+실행 SHA와 후속 source/evidence HEAD를 구분하며 새 source의 runtime 성공은 미검증이다.
+독립 review·새 SHA/image/plan binding·별도 명시 실행 승인 전 paid 경로는 보류한다.
+제14차 forwarding/monitor 원인·인과는 여전히 unknown이며 이번에는 forwarding 단계 미도달이다.
+
+Final native verify/원복28개 check와 보호 사본296개 제거를 확인했다.
+다만 parent 종료 시 REPL 반환값으로 stable 관리자 credential이 local tool output에 노출됐다.
+값은 공개 artifact에 없고 stable credential 회전은 미수행이다. **별도 노출 처리/회전 권한 판단이 필요**하다.
+
+현재 비용 근거는11월2일 bounded GET의 posted two-RG KRW144,123.7793191074,
+보수적 모델 USD242.8037480503와 **승인된 누적 세전 review envelope USD275**다.
+실비·잔액·시장 환율을 뜻하지 않으며 P9 실비는 unknown/shared/delayed다.
+Environment11월5일10:30 KST/Foundation·Bootstrap11월6일00:33 KST를 유지한다.
+Run/drain/rollback2220초·candidate initialization 포함3065초·전체8045초와 strict cutoff를 유지한다.
+제16차·추가 비용/권한·retention 연장·merge/P10 승인은 없다.
+
+아래 제14차 후속/source-only/준비 절의 “제15차 미승인·미실행”, “이번 작업은 source-only”, USD180과 이전 날짜는
+각 작업 당시 이력이다. 현재 실행 결과와 승인·비용·기한은 이 절과 제15차 evidence를 따른다.
+
+## 이전 추가 72시간 보존과 source-only gate 정합화
 
 [보존기간 PR #44](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/44)가
 main `cbb1a222478b867167b5572f103ab23139c308dc`에 병합됐다. 같은 P9 branch에 일반 merge로 반영하며

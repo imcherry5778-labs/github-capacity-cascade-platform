@@ -1,0 +1,161 @@
+{
+  "campaign": "fifteenth",
+  "campaign_id": "p9b20261102",
+  "source_sha": "7fc49ad391cddf70d9c901046901ed24917a2095",
+  "main": "cbb1a222478b867167b5572f103ab23139c308dc",
+  "approval_url": "https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6567553025",
+  "source_review_url": "https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#pullrequestreview-5731350400",
+  "started_at_utc": "2026-11-02T02:32:05.719502+00:00",
+  "ended_at_utc": "2026-11-02T02:42:39.629176+00:00",
+  "image_digest": "sha256:458ecd8711c4fa75c29016bcda3c5385835edb25de76742e324c3bc2d9801abe",
+  "preparation_plan_sha256": "ec82078689d9d5df7e15a3315ceefbd6c82bb375a8c8efd1f9bab785a008958e",
+  "plan_sha256": null,
+  "freeze_sha256": null,
+  "normal": {
+    "validity": "valid",
+    "completion": "success",
+    "phase": "warmup",
+    "operation_count": 9,
+    "attempt_count": 9
+  },
+  "initialize": {
+    "at_utc": "2026-11-02T02:40:00.696673+00:00",
+    "invocations": 1,
+    "exit_code": 1,
+    "elapsed_seconds": 307.2872488400026
+  },
+  "cpu_poll_count": 9,
+  "fresh_cpu_poll_count": 1,
+  "ready_cpu_poll_count": 0,
+  "failure": {
+    "record": "healthy_initialization_failure",
+    "source_sha": "7fc49ad391cddf70d9c901046901ed24917a2095",
+    "at": 82092.90692213,
+    "stage": "readiness_resource_guard",
+    "elapsed_seconds": 300.00007672200445,
+    "stage_elapsed_seconds": 285.5484473090037,
+    "exception_class": "ValueError",
+    "error_code": "validation_failed",
+    "runtime_preflight_passed": false,
+    "ready_for_keda_authentication": false,
+    "measured_denominator": false
+  },
+  "healthy_journey_invocations": 0,
+  "healthy_initialization_complete": false,
+  "KEDA_apply_restore_restarts": [
+    0,
+    0
+  ],
+  "full_runtime_preflight": false,
+  "forward_started": false,
+  "fault_applied": false,
+  "calibration": {
+    "invocations": 0,
+    "approved_budget": 2,
+    "remaining_count": 2,
+    "usable_in_closed_campaign": false
+  },
+  "measured": {
+    "C0": 0,
+    "C1": 0,
+    "C2": 0,
+    "C3": 0
+  },
+  "recovery": "not reached; no valid-negative recovery measurement",
+  "comparison": "not performed",
+  "p9_acceptance_met": false,
+  "public_initialize_consumed": 1,
+  "public_initialize_remaining": 0,
+  "campaign_closed": true,
+  "historical_cumulative": {
+    "campaigns": 15,
+    "public_initialize": 12,
+    "healthy_journeys": 3,
+    "calibrations_started_invalid": 2,
+    "measured": {
+      "C0": 0,
+      "C1": 0,
+      "C2": 0,
+      "C3": 0
+    },
+    "KEDA_apply_restore_restarts": [
+      3,
+      3
+    ]
+  },
+  "retention": {
+    "environment": "2026-11-05T01:30:00Z",
+    "foundation_bootstrap": "2026-11-05T15:33:00Z",
+    "extended_during_campaign": false,
+    "whole_reserve_seconds": 8045,
+    "initialization_run_drain_rollback_reserve_seconds": 3065
+  },
+  "cost_before": {
+    "at_utc": "2026-11-02T02:27:13.979196+00:00",
+    "source_sha": "7fc49ad391cddf70d9c901046901ed24917a2095",
+    "approval_url": "https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6567553025",
+    "model_usd": "242.8037480503343245422583334",
+    "posted_two_rg_krw": "144123.779319107410027785",
+    "posted_daily_two_rg_krw": {
+      "2026-10-31T00:00:00Z": "30388.0207611083997291",
+      "2026-10-28T00:00:00Z": "30259.134049810791484025",
+      "2026-10-29T00:00:00Z": "30386.91303499192312276",
+      "2026-10-30T00:00:00Z": "30385.04851415730203991",
+      "2026-11-01T00:00:00Z": "22704.66295903899365199"
+    },
+    "peak_two_rg_krw": "30388.0207611083997291",
+    "ninth_baseline_krw": "49306.6929280465",
+    "planning_krw_per_usd": 1200,
+    "horizon_hours": 122,
+    "old_prior_variable_aux_usd": 20,
+    "new_aux_buffer_plus_campaign_expected_uncertainty_usd": 15,
+    "new_aux_72h_usd": "0.062477000310484",
+    "cumulative_review_ceiling_usd": 275,
+    "campaign_variable_allowance_usd": 10,
+    "billing_hard_cap": false,
+    "p9_actual": "unknown/shared/delayed",
+    "remaining_environment_seconds": 255766.020816,
+    "whole_reserve_seconds": 8045,
+    "no_external_mutation_before_review": true
+  },
+  "cost_final": {
+    "started_at_utc": "2026-11-02T02:42:03.855619+00:00",
+    "completed_at_utc": "2026-11-02T02:42:10.097822+00:00",
+    "method": "GET",
+    "api_version": "2024-08-01",
+    "row_count": 164,
+    "nextLink": false,
+    "currency": "KRW",
+    "per_rg_krw": {
+      "rg-ccp-environment-krc-p6": "60310.3613613232238",
+      "mc_rg-ccp-environment-krc-p6_aks-ccp-krc-p6_koreacentral": "83813.417957784186227785",
+      "rg-ccp-bootstrap-krc-p6": "0.0092803",
+      "rg-ccp-foundation-krc-p6": "116.2814649701077"
+    },
+    "daily_two_rg_krw": {
+      "2026-10-31T00:00:00Z": "30388.0207611083997291",
+      "2026-10-28T00:00:00Z": "30259.134049810791484025",
+      "2026-10-29T00:00:00Z": "30386.91303499192312276",
+      "2026-10-30T00:00:00Z": "30385.04851415730203991",
+      "2026-11-01T00:00:00Z": "22704.66295903899365199"
+    },
+    "posted_two_rg_krw": "144123.779319107410027785",
+    "model_usd": "242.8037480503343245422583334",
+    "review_ceiling_usd": 275,
+    "model_within_ceiling": true,
+    "planning_krw_per_usd": 1200,
+    "p9_actual": "unknown/shared/delayed",
+    "balance": "not verified",
+    "billing_hard_cap": false,
+    "current_campaign_variable_allowance_usd": 10,
+    "source_sha": "7fc49ad391cddf70d9c901046901ed24917a2095",
+    "normalized_private_response_sha256": "ba23167531a08f8bee961f1e68d20442dd9881461d2f7c8267a03d82e71536de"
+  },
+  "owned_cleanup_complete": true,
+  "stable_owned_checks": 28,
+  "private_files_removed": 296,
+  "source_changed_during_execution": false,
+  "local_tool_credential_output_incident": true,
+  "stable_admin_credential_rotation": "pending separate authority; value excluded",
+  "following_fix_evidence_head_is_not_execution_source": true
+}

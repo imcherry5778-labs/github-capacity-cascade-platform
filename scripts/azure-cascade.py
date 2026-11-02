@@ -472,7 +472,8 @@ class Runtime:
                 not any(t['effect'] in {'NoSchedule', 'NoExecute'} for t in node['spec'].get('taints', [])),
                 'cpu_free': quantity(node['status']['allocatable']['cpu']) - used['cpu'],
                 'memory_free': quantity(node['status']['allocatable']['memory']) - used['memory']})
-        metric = self.j('get', '--raw', '/apis/metrics.k8s.io/v1beta1/pods')
+        if not cpu_preparation:
+            metric = self.j('get', '--raw', '/apis/metrics.k8s.io/v1beta1/pods')
         node_metric = self.j('get', '--raw', '/apis/metrics.k8s.io/v1beta1/nodes')
         start = time.monotonic()
         sql = self.k('-n', NS, 'exec', 'p8-db-client', '-c', 'db', '--', 'psql', '-XAt', '-v', 'ON_ERROR_STOP=1', '-c', SQL)
@@ -496,7 +497,7 @@ class Runtime:
                 p['status'].get('containerStatuses', []) + p['status'].get('initContainerStatuses', [])} for p in pods},
             'node_headroom': headroom,
             'nodes': [{'name': n['metadata']['name'], 'conditions': {c['type']: c['status'] for c in n['status']['conditions'] if c['type'] in {'Ready', 'MemoryPressure', 'DiskPressure', 'PIDPressure'}}} for n in nodes],
-            'pod_metrics': [{k: p[k] for k in ('metadata', 'timestamp', 'window', 'containers')} for p in metric['items'] if p['metadata']['namespace'] in {NS, 'forgejo'}],
+            'pod_metrics': [] if cpu_preparation else [{k: p[k] for k in ('metadata', 'timestamp', 'window', 'containers')} for p in metric['items'] if p['metadata']['namespace'] in {NS, 'forgejo'}],
             'node_metrics': node_metric['items'], 'postgres': db,
             'hpa': hpa['status'],
             'events': [({'reason': e.get('reason'), 'type': e.get('type')} |
@@ -509,7 +510,13 @@ class Runtime:
                         cpu_preparation and e.get('involvedObject', {}).get('kind') == 'HorizontalPodAutoscaler' and
                         e.get('involvedObject', {}).get('name') == hpa_name)]}
         if cpu_preparation:
-            result['timestamp_utc'] = utc()  # Include the event read in the preparation observation window.
+            # Read CPU samples after the other preparation observations. SQL,
+            # Argo, HPA and event reads must not age a sample before its <=30s
+            # freshness check. Keep the same one GET and collection deadline.
+            metric = self.j('get', '--raw', '/apis/metrics.k8s.io/v1beta1/pods')
+            result['pod_metrics'] = [{k: p[k] for k in ('metadata', 'timestamp', 'window', 'containers')}
+                                     for p in metric['items'] if p['metadata']['namespace'] in {NS, 'forgejo'}]
+            result['timestamp_utc'] = utc()
         return result
 
 

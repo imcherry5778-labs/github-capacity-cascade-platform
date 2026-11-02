@@ -1365,6 +1365,66 @@ class MetricInitializationTests(unittest.TestCase):
                   'hpa_spec': guard['cpu_hpa']['spec']}
         return runtime, actual, guard
 
+    def test_preparation_cpu_sample_read_follows_other_observations(self):
+        # Synthetic export age/command latency, not a live freshness claim.
+        for preparation in (False, True):
+            with self.subTest(preparation=preparation):
+                runtime, _ = self.archived_cpu_runtime()
+                original_j, original_k = runtime.j, runtime.k
+                now, calls = [0.0], []
+                origin = m.datetime(2026, 11, 2, tzinfo=m.timezone.utc)
+                stamp = lambda seconds: (origin + m.timedelta(seconds=seconds)).isoformat()
+                def j(*args):
+                    calls.append(args)
+                    value = copy.deepcopy(original_j(*args))
+                    now[0] += .5
+                    if '/apis/metrics.k8s.io/v1beta1/pods' in args:
+                        for sample in value['items']:
+                            sample['timestamp'] = stamp(now[0] - 25)
+                    return value
+                def k(*args):
+                    calls.append(('sql',))
+                    now[0] += 8
+                    return original_k(*args)
+                runtime.j, runtime.k = j, k
+                with patch.object(m.p8, 'utc', side_effect=lambda: stamp(now[0])):
+                    guard = m.p8.Runtime.guard(runtime, event_timestamps=preparation, cpu_preparation=preparation)
+                metric = ('get', '--raw', '/apis/metrics.k8s.io/v1beta1/pods')
+                self.assertEqual(calls.count(metric), 1)
+                self.assertEqual(len(calls), 9)
+                sample_time = m.p8.p7.utc(guard['pod_metrics'][0]['timestamp'])
+                age = (m.p8.p7.utc(guard['timestamp_utc']) - sample_time).total_seconds()
+                if preparation:
+                    self.assertEqual(calls[-1], metric)
+                    self.assertEqual(age, 25)
+                    self.assertLess(now[0], 30)
+                else:
+                    self.assertLess(calls.index(metric), calls.index(('sql',)))
+                    self.assertGreater(age, 30)
+
+    def test_preparation_cpu_metric_failure_does_not_return_partial_guard(self):
+        runtime, _ = self.archived_cpu_runtime()
+        original = runtime.j
+        def j(*args):
+            if '/apis/metrics.k8s.io/v1beta1/pods' in args:
+                raise ValueError('metric unavailable')
+            return original(*args)
+        runtime.j = j
+        with self.assertRaisesRegex(ValueError, 'metric unavailable'):
+            m.p8.Runtime.guard(runtime, event_timestamps=True, cpu_preparation=True)
+
+    def test_cpu_poll_retains_exact_age_and_ready_window_without_relaxing_freshness(self):
+        runtime, actual, _ = self.startup_archive()
+        guard = self.valid_cpu_recovery(runtime, 40)
+        guard['timestamp_utc'] = '2026-10-29T05:57:11Z'
+        rows = []
+        self.assertFalse(m.CPUStartup(actual).observe(guard, rows.append, 0))
+        poll = rows[-1]
+        self.assertEqual(poll['guard_timestamp_utc'], guard['timestamp_utc'])
+        self.assertEqual(poll['sample_age_seconds'], 31)
+        self.assertTrue(poll['sample_window_after_ready'])
+        self.assertFalse(poll['valid_ready_window'])
+
     def valid_cpu_recovery(self, runtime, seconds):
         # Synthetic positive continuation, never historical/runtime recovery proof.
         stamp = f'2026-10-29T05:56:{seconds:02d}Z'

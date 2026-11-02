@@ -1,0 +1,16 @@
+{
+  "source_sha": "7fc49ad391cddf70d9c901046901ed24917a2095",
+  "status": "not-performed",
+  "reason": "initialization settling timeout; public initialize1 exhausted",
+  "calibration": 0,
+  "measured": {
+    "C0": 0,
+    "C1": 0,
+    "C2": 0,
+    "C3": 0
+  },
+  "freeze": null,
+  "continuing_demand_recovery": "not reached",
+  "hypothesis_support": "not assessed",
+  "p9_acceptance_met": false
+}
