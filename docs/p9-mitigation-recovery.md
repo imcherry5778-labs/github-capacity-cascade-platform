@@ -1,6 +1,24 @@
 # P9-W1 Mitigation & Recovery
 
-현재 상태: **제16차 단일 campaign 종료 / normal·healthy journey positive / CPU 준비 통과 / healthy initialization 최종 telemetry deadline 실패 / KEDA·calibration·measured 미도달 / owned 원복13개 check / P9 acceptance 미충족**.
+현재 상태: **제17차 단일 campaign 종료 / normal·healthy journey positive / CPU 준비·새 cadence 관측 / 최종 CPU freshness·telemetry budget 실패 / KEDA·calibration·measured 미도달 / owned 원복14개 check / P9 acceptance 미충족**.
+
+## 제17차 실제 결과
+
+[명시 실행 승인](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6572646532)의
+고정 source `daeaff99cfddd33dd2409b2dfa15f25af56a2635`를 실행했다.
+[결과·진단·raw·원복 evidence](evidence/p9-mitigation-seventeenth-20261102/README.md)에
+initialize1/exit1·CPU poll9/fresh3/ready2, healthy journey1의 warmup9 성공과 초기화 미완료를 구분했다.
+완료 telemetry4회 시작 간격은 약15초이며 signal observed2회다. 네 번째의 guard ready 후 최종 CPU freshness 미충족은
+source 분기 추론이고, 결과 시점 sample age 약30.448초는 clock offset 추정이다. 다섯 번째 수집에서21개 query 응답 뒤
+다음 요청 전에 budget이 소진됐다. Source correctness bug·runtime remediation을 주장하지 않는다.
+
+누적 campaign17/initialize14/healthy5/started-invalid calibration2/measured 각0/KEDA apply·restore 각3이다.
+제17차는 closed이며 미사용 횟수/allowance는 이월하지 않는다. Source·freshness·timeout·acceptance를 변경하지 않았다.
+Latest bounded cost 관측은08:53:39 UTC의 posted Two-RG KRW152,794.6734891,
+누적 planning USD275.0294931431/승인 세전 review cap290이다. 이번 allowance10을 한 번만 포함했고
+P9 단독 실비는 unknown/shared/delayed다. 기존 보존기한과 admin 회전/CSI version을 유지했다.
+다음 paid campaign은 별도 exact-SHA 승인이 필요하며, source 변경 시 ChatGPT 독립 review가 필요하다.
+아래 제16차·이전 절의 당시 승인 전/비용/회전 미수행 문구는 역사 기록이다.
 
 ## 제16차 실제 결과
 
