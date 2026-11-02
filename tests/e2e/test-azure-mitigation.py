@@ -855,6 +855,32 @@ class ArchivedScaledObjectTests(unittest.TestCase):
 
 
 class CollectionGateTests(unittest.TestCase):
+    def test_resource_warmup_missing_metric_exception_is_only_for_new_target(self):
+        archive = ROOT / 'docs/evidence/p9-mitigation-nineteenth-20261103/raw-evidence.tar.gz'
+        with tarfile.open(archive, 'r:gz') as raw:
+            manifest = json.load(raw.extractfile('calibration-C3-1/configuration.json'))
+            events = [json.loads(line) for line in raw.extractfile('calibration-C3-1/events.jsonl')]
+        # Only isolate the guards before the actual stale samples; this is not
+        # a valid-run replay or a promotion of campaign19's negative result.
+        snapshots = [e for e in events if e['record'] == 'snapshot'][:5]
+        self.assertEqual(snapshots[-1]['signal']['status'], 'warming-new-pod')
+        m.common_guards(snapshots, manifest['baseline'], 'C3')
+        existing = {p['name'] for p in snapshots[0]['guard']['pods']}
+        new = {p['name'] for p in snapshots[-1]['guard']['pods']} - existing
+        self.assertEqual(len(new), 1)
+        for name in sorted(existing | new):
+            with self.subTest(pod=name, new_target=name in new):
+                changed = copy.deepcopy(snapshots)
+                guard = changed[-1]['guard']
+                before = len(guard['pod_metrics'])
+                guard['pod_metrics'] = [p for p in guard['pod_metrics'] if p['metadata']['name'] != name]
+                self.assertEqual(len(guard['pod_metrics']), before - 1)
+                if name in new:
+                    m.common_guards(changed, manifest['baseline'], 'C3')
+                else:
+                    with self.assertRaisesRegex(ValueError, 'missing container metric'):
+                        m.common_guards(changed, manifest['baseline'], 'C3')
+
     def setUp(self):
         env = patch.dict(os.environ, {'FORGEJO_URL': 'https://forgejo.example.com'}, clear=True)
         env.start(); self.addCleanup(env.stop)

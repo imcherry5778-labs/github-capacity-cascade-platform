@@ -1551,7 +1551,7 @@ def common_guards(snapshots, baseline, arm):
             obs = [m for m in guard['pod_metrics'] if m['metadata']['name'] == p['name']]
             # A newly admitted C3 Pod can await its first resource metric. It
             # cannot contribute to recovery until full observations are present.
-            if not obs and warming and arm == 'C3' and p['uid'] not in first_targets:
+            if not obs and warming and new_target:
                 continue
             require(len(obs) == 1 and {c['name'] for c in p['containers']} <= {c['name'] for c in obs[0]['containers']}, 'missing container metric')
             age = (p8.p7.utc(guard['timestamp_utc']) - p8.p7.utc(obs[0]['timestamp'])).total_seconds()
