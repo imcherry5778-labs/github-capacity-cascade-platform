@@ -45,7 +45,7 @@ case "$url" in
     elif [[ "$TEST_MODE" == api_timeout ]]; then printf 000; exit 28
     elif [[ "$TEST_MODE" == api_status_then_timeout ]]; then printf 200; exit 28
     elif [[ "$TEST_MODE" == api_partial_real ]]; then exec "$REAL_CURL" "${original[@]}"
-    elif [[ "$TEST_MODE" == api_interrupt ]]; then kill -TERM "$PPID"; exit 143
+    elif [[ "$TEST_MODE" == api_interrupt ]]; then kill -TERM "$TEST_JOURNEY_PID"; exit 143
     elif [[ "$TEST_MODE" == api_semantic_failure ]]; then status=201; body="{\"private\":false,\"owner\":{\"login\":\"$DEV_USER\"},\"clone_url\":\"$CLONE_URL\"}"
     else status=201; body="{\"private\":true,\"owner\":{\"login\":\"$DEV_USER\"},\"clone_url\":\"$CLONE_URL\"}"
     fi ;;
@@ -215,7 +215,11 @@ def run_failure(mode, azure=False, shared_gate_endpoint=None):
             env["JOURNEY_GIT_KILL_AFTER_SECONDS"] = "0.2"
         started = time.monotonic()
         try:
-            proc = subprocess.run(["bash", str(SCRIPT), "create"], env=env, capture_output=True, text=True, timeout=15)
+            # Address the actual journey shell, independently of Bash's command
+            # substitution/exec optimization and the curl stub's immediate PPID.
+            proc = subprocess.run(["bash", "-c", 'export TEST_JOURNEY_PID=$$; exec bash "$@"',
+                                   "journey-test", str(SCRIPT), "create"],
+                                  env=env, capture_output=True, text=True, timeout=15)
         finally:
             if server:
                 server.shutdown()
@@ -307,6 +311,17 @@ def run_failure(mode, azure=False, shared_gate_endpoint=None):
             assert legacy.returncode != 0 and "unbound variable" not in legacy.stderr, legacy.stderr
             assert "private repository ready" in legacy.stdout, legacy.stdout
 
+
+# Exercise the actual host's clock path before any fixture/API operation. CI
+# keeps Linux /proc timing; Darwin uses Python monotonic without wall time.
+clock_source = SCRIPT.read_text().split('mono() {', 1)[1].split('\nduration_between()', 1)[0]
+clock = subprocess.run(['bash', '-euc', 'mono() {' + clock_source +
+                        '\na=$(mono); sleep 0.03; b=$(mono); printf "%s %s\\n" "$a" "$b"'],
+                       capture_output=True, text=True, timeout=5)
+assert clock.returncode == 0, 'host monotonic clock unavailable'
+a, b = map(float, clock.stdout.split())
+assert 0 <= a < b and 0.02 <= b - a < 2, 'host monotonic clock did not advance'
+print('PASS native journey monotonic clock')
 
 for scenario in ("api_failure", "api_timeout", "api_status_then_timeout", "api_partial_real",
                  "api_interrupt", "api_semantic_failure", "logger_delay", "command_delay",

@@ -59,7 +59,14 @@ fail() {
   exit 1
 }
 
-mono() { awk '{print $1}' /proc/uptime; }
+mono() {
+  if [[ -r /proc/uptime ]]; then
+    awk '{print $1}' /proc/uptime
+  else
+    # Darwin has no /proc. Use the existing Python dependency's monotonic clock.
+    python3 -c 'import time; print(time.monotonic())'
+  fi
+}
 duration_between() { awk -v start="$1" -v end="$2" 'BEGIN {printf "%.6f", end-start}'; }
 utc() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 emit() { jq -nc "$@" >>"$RESULT_FILE"; }
@@ -181,7 +188,8 @@ gate_curl() {
     if [[ "${OP_ACTIVE:-0}" == 1 && "${ATTEMPT_ACTIVE:-0}" == 1 ]]; then op="$OP_ID"; fi
     correlation=(-H "x-operation-id: $op" -H "x-attempt-id: $op-attempt-1")
   fi
-  curl "$@" "${correlation[@]}"
+  # Bash 3.2: an empty optional array must expand to zero arguments under nounset.
+  curl "$@" ${correlation[@]+"${correlation[@]}"}
 }
 
 # request CURL_CONFIG_LINE METHOD PATH EXPECTED_STATUS [JSON_BODY]
@@ -207,7 +215,7 @@ request() {
     printf '%s' "$(utc)" >"$RESULT_DIR/command_timestamp"
     printf '%s' "$(mono)" >"$RESULT_DIR/command_start"
   fi
-  if status="$(gate_curl "${CURL_TRANSPORT_ARGS[@]}" "${args[@]}")"; then
+  if status="$(gate_curl ${CURL_TRANSPORT_ARGS[@]+"${CURL_TRANSPORT_ARGS[@]}"} "${args[@]}")"; then
     rc=0
   else
     rc=$?
@@ -260,7 +268,7 @@ dev_git() {
   if [[ -n "${RESULT_FILE:-}" && "${OP_ACTIVE:-0}" == 1 && "${ATTEMPT_ACTIVE:-0}" == 1 ]]; then
     printf '%s' "$git_start" >"$RESULT_DIR/command_start"
   fi
-  if timeout --signal=TERM --kill-after="${GIT_KILL_AFTER_SECONDS}s" "${GIT_TIMEOUT_SECONDS}s" git "${GIT_TRANSPORT_ARGS[@]}" "${endpoint_config[@]}" "$@" 2>"$JOURNEY_DIR/git.stderr"; then
+  if timeout --signal=TERM --kill-after="${GIT_KILL_AFTER_SECONDS}s" "${GIT_TIMEOUT_SECONDS}s" git ${GIT_TRANSPORT_ARGS[@]+"${GIT_TRANSPORT_ARGS[@]}"} ${endpoint_config[@]+"${endpoint_config[@]}"} "$@" 2>"$JOURNEY_DIR/git.stderr"; then
     rc=0
   else
     rc=$?
@@ -289,7 +297,7 @@ expect_remote_ref() { # REPO_DIR REF SHA DESCRIPTION
 expect_anonymous_denied() {
   local status
   request "" GET "/repos/$DEV_USER/$REPO" 404 >/dev/null
-  status="$(gate_curl "${CURL_TRANSPORT_ARGS[@]}" -sS --max-time 60 -o /dev/null -w '%{http_code}' "$TRANSPORT_CLONE_URL/info/refs?service=git-upload-pack")"
+  status="$(gate_curl ${CURL_TRANSPORT_ARGS[@]+"${CURL_TRANSPORT_ARGS[@]}"} -sS --max-time 60 -o /dev/null -w '%{http_code}' "$TRANSPORT_CLONE_URL/info/refs?service=git-upload-pack")"
   [[ "$status" == 401 ]] || fail "anonymous Git HTTP read of private repository: expected 401, got $status"
 }
 
@@ -303,7 +311,7 @@ wait_initial_push_processed() {
   while (( SECONDS < deadline )); do
     remaining=$((deadline - SECONDS))
     curl_timeout=$((remaining < 5 ? remaining : 5))
-    if status="$(gate_curl "${CURL_TRANSPORT_ARGS[@]}" -sS --max-time "$curl_timeout" -o "$response" -w '%{http_code}' -X GET \
+    if status="$(gate_curl ${CURL_TRANSPORT_ARGS[@]+"${CURL_TRANSPORT_ARGS[@]}"} -sS --max-time "$curl_timeout" -o "$response" -w '%{http_code}' -X GET \
       -H 'Accept: application/json' -K <(printf '%s\n' "$DEV_AUTH") "$API/repos/$DEV_USER/$REPO" 2>/dev/null)"; then
       if [[ "$status" != 200 ]]; then
         fail "initial push settle: expected HTTP 200, got $status" http_status

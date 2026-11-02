@@ -11,6 +11,7 @@ import tarfile
 import unittest
 from unittest.mock import patch
 
+HOST_PATH = os.environ.get('PATH', os.defpath)
 ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location('mitigation', ROOT / 'scripts/azure-mitigation.py')
 m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
@@ -3293,7 +3294,7 @@ gate_curl -q https://example.invalid
 dev_git ls-remote https://example.invalid
 '''
             result = subprocess.run(['bash'], input=body + curl + git + calls, text=True, capture_output=True, check=True,
-                                    env=dict(os.environ, JOURNEY_DIR=directory, PATH=str(bindir) + ':' + os.environ.get('PATH', os.defpath)))
+                                    env=dict(os.environ, JOURNEY_DIR=directory, PATH=str(bindir) + ':' + HOST_PATH))
             lines = result.stdout.splitlines()
             self.assertNotIn('x-operation-id', lines[0]); self.assertEqual(lines[1], 'none|none')
             for i in (2, 3, 6, 7): self.assertIn('synthetic-run-auxiliary-attempt-1', lines[i])
