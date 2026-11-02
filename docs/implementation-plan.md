@@ -198,7 +198,22 @@ P11까지 기존 environment 재사용을 우선한다. Milestone 종료를 same
 
 P7-W1 시작 시 Environment 기한은 **2026-10-30 10:30 KST**, Foundation/Bootstrap은 **2026-10-31 00:33 KST**다. 이번 source 구현은 보존 기한을 변경하지 않는다. 실행 시 current state/승인과 기한을 다시 확인한다. 과거 6시간 비용 추정은 시간 무제한 비용 보장이 아니며 ActualCost는 조회 전 unknown이다.
 
-현재 P9-W1은 [사용자의 +72h 보존 승인](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6509128514)에 따라 Environment **2026-11-02 10:30 KST**, Foundation/Bootstrap **2026-11-03 00:33 KST**까지 보존한다. 위 P7 당시 기한과 과거 evidence는 소급 변경하지 않는다. 기존 inventory를 P11까지 재사용하며 추가 연장·전체 teardown은 승인되지 않았다. 보존 연장은 새 exact-source 유료 실행 승인이나 Azure provider TTL 변경을 뜻하지 않는다.
+이전 P9-W1은 [사용자의 +72h 보존 승인](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6509128514)에 따라 Environment **2026-11-02 10:30 KST**, Foundation/Bootstrap **2026-11-03 00:33 KST**까지 보존하는 계약이었다. 위 P7 당시 기한과 과거 evidence는 소급 변경하지 않는다. 당시의 추가 연장·전체 teardown 미승인 기록을 보존하며, 현재 추가 보존 결정은 아래를 따른다. 보존 연장은 새 exact-source 유료 실행 승인이나 Azure provider TTL 변경을 뜻하지 않는다.
+
+**추가 72시간 보존 — 2026-11-02 요청**
+
+사용자의 “3일 기간 연장 PR” 요청은 [기존 +72h 보존 승인](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6509128514)의 기한에 **각각 72시간을 추가**하는 것으로 기록한다. 요청 시각부터 3일을 세거나 과거 실행의 승인·기록을 소급 변경하지 않는다.
+
+| 대상 | 직전 승인 기한 (KST) | 추가 보존 기한 (KST) | 추가 보존 기한 (UTC) |
+| --- | --- | --- | --- |
+| Environment | 2026-11-02 10:30 | **2026-11-05 10:30** | `2026-11-05T01:30:00Z` |
+| Foundation/Bootstrap | 2026-11-03 00:33 | **2026-11-06 00:33** | `2026-11-05T15:33:00Z` |
+
+범위는 기존 inventory·operator·DNS/state ownership의 보존이다. 새 resource·권한·부하·제15차 또는 후속 campaign, 자동 연장·전체 teardown을 승인하지 않는다. 기존 DNS 복구·state 의존성과 owned cleanup 경계는 유지한다. 이 기록은 Azure provider TTL이나 삭제 예약을 변경한 결과가 아니다.
+
+비용은 [승인 전 준비의 저장된 비용 모델](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/blob/f4ffab693830ab1e29af27e86029a39fda35a6d7/docs/evidence/p9-resume-preparation-20261102/cost.json)을 재사용한 **추정**이다. Two-RG 최대 full-day KRW30,388.0207611084 × 3 = **KRW91,164.06**, 기존 planning 1,200KRW/USD로 약 **세전 USD75.97**의 추가 보존분이다. 실제 환율·청구액이 아니며 Foundation/Bootstrap 추가분·미반영 사용량·세금은 별도다. 다음 campaign variable USD5를 제외한 기존 누적 모델 USD149.4323에 이 부분만 더해도 약 **USD225.40**이므로 종전 USD180 review envelope 안이라고 가정하지 않는다. 현재 잔액·새 실행 비용상한은 미확인/미승인이고, 다음 유료 실행 승인은 연장 비용을 포함해 별도로 판단한다.
+
+문서의 보존기한과 실제 실행 gate를 구분한다. [P9 PR #41](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41)의 다음 실행 전에는 `scripts/azure-cascade.py`와 `scripts/azure-mitigation.py`의 hard deadline을 위 Environment 기한과 맞추고 직전/정각/직후 및 initialization/run/drain/rollback reserve 경계를 검증해야 한다. 기간 변경만으로 exact-source 승인·횟수·비용·독립 review gate를 우회하지 않는다. 이 문서 PR 자체는 실행 source를 변경하거나 P9 acceptance를 완료하지 않는다.
 
 P8–P10은 실제 Azure controlled experiment 단계다. 각 milestone 시작 시 existing environment를 이어 쓸지 P5 source에서 재생성할지 위 공통 gate에서 결정한다.
 
