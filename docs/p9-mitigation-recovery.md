@@ -1,6 +1,24 @@
 # P9-W1 Mitigation & Recovery
 
-현재 상태: **제15차 단일 campaign 종료 / normal positive / public initialize CPU settling timeout / healthy·KEDA·calibration·freeze·C0–C3 measured·recovery 미도달 / owned 원복28개 check / P9 acceptance 미충족**.
+현재 상태: **제16차 단일 campaign 종료 / normal·healthy journey positive / CPU 준비 통과 / healthy initialization 최종 telemetry deadline 실패 / KEDA·calibration·measured 미도달 / owned 원복13개 check / P9 acceptance 미충족**.
+
+## 제16차 실제 결과
+
+[명시 실행 승인](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6570216466)의
+동일 source `de600e4d5f439be2f65c087b136ee221290b317d`를 실행했다.
+[결과·진단·raw·원복 evidence](evidence/p9-mitigation-sixteenth-20261102/README.md)에
+initialize1/exit1·CPU poll6/fresh3/ready2, healthy journey1의 warmup9 성공과
+최종 telemetry collection 실패를 구분했다. Initialize를 재호출하지 않았고 KEDA IAM/SA 변경·calibration·measured는0이다.
+Source/timeout/freshness/acceptance는 변경하지 않았다.
+
+누적 campaign16/initialize13/healthy4/started-invalid calibration2/measured 각0/KEDA apply·restore 각3이다.
+Latest bounded cost 관측은06:22 UTC의 posted Two-RG KRW150,587.6256921,
+누적 planning USD263.1902866455/승인 review cap275이며 P9 단독 실비는 unknown/shared/delayed다.
+기존 보존기한과 allowance를 중복 추가하지 않았다. 제16차는 closed이며 미사용 횟수는 이월하지 않는다.
+
+이전 [admin 회전·KV/Secret/CSI 검증 결과](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6569049379)를
+재사용했고 이번에는 회전하지 않았다. Admin/DB Secret UID·data와 admin CSI 버전은 보존됐다.
+Session/output unknown은 유지한다. 아래 제15차·이전 절의 미승인/회전 미수행/비용 문구는 당시 이력이다.
 
 ## 제15차 실제 결과와 후속 교정
 

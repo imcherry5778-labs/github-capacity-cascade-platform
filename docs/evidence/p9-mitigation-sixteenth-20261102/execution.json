@@ -1,0 +1,175 @@
+{
+  "campaign": "sixteenth",
+  "campaign_id": "p9c20261102",
+  "source_sha": "de600e4d5f439be2f65c087b136ee221290b317d",
+  "normative_main": "d9977cc9046485bb7b47849297ec9769a3629223",
+  "pr_base_snapshot_before_evidence": "b8dc521af4671306f4b5abfefea244c8143ba5a4",
+  "approval_url": "https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6570216466",
+  "source_review_url": "https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#pullrequestreview-5731886201",
+  "first_mutation_at_utc": "2026-11-02T06:31:46.672607+00:00",
+  "owned_cleanup_at_utc": "2026-11-02T06:47:01.955014+00:00",
+  "parent_finished_at_utc": "2026-11-02T06:48:55.919298+00:00",
+  "image_binding": {
+    "tag": "acrccpp6krc57781024.azurecr.io/ext-authz-sim:de600e4d5f439be2f65c087b136ee221290b317d",
+    "digest": "sha256:1c8efc9a1c6916c8478ddbb9cb32c077ee28a663e01f6d968a5f33dca8719c51",
+    "source_label": "de600e4d5f439be2f65c087b136ee221290b317d",
+    "campaign_label": "p9c20261102"
+  },
+  "preparation_plan_sha256": "ec82078689d9d5df7e15a3315ceefbd6c82bb375a8c8efd1f9bab785a008958e",
+  "actual_keda_plan": null,
+  "freeze": null,
+  "normal": {
+    "validity": "valid",
+    "completion": "success",
+    "phase": "warmup",
+    "operation_count": 9,
+    "attempt_count": 9
+  },
+  "public_initialize": {
+    "invocations": 1,
+    "retry": 0,
+    "exit_code": 1,
+    "failure": {
+      "record": "healthy_initialization_failure",
+      "source_sha": "de600e4d5f439be2f65c087b136ee221290b317d",
+      "at": 96678.716179417,
+      "stage": "telemetry_configuration",
+      "elapsed_seconds": 210.25305655998818,
+      "stage_elapsed_seconds": 11.63184245499724,
+      "exception_class": "TimeoutExpired",
+      "error_code": "command_timeout",
+      "runtime_preflight_passed": false,
+      "ready_for_keda_authentication": false,
+      "measured_denominator": false
+    }
+  },
+  "cpu": {
+    "polls": 6,
+    "fresh_polls": 3,
+    "ready_polls": 2,
+    "first_fresh_elapsed_seconds": 20.769370311987586,
+    "first_ready_elapsed_seconds": 126.9847749019973
+  },
+  "healthy_journey": {
+    "validity": "valid",
+    "completion": "success",
+    "phase": "warmup",
+    "operation_count": 9,
+    "attempt_count": 9
+  },
+  "healthy_initialization_complete": false,
+  "healthy_journey_invocations": 1,
+  "telemetry_observed_once": true,
+  "last_command_timeout_seconds": 0.04623331699986011,
+  "keda_apply_restore_restarts": [
+    0,
+    0
+  ],
+  "KEDA_IAM_created": false,
+  "full_runtime_preflight": false,
+  "fault_applied": false,
+  "calibration_invocations": 0,
+  "measured": {
+    "C0": 0,
+    "C1": 0,
+    "C2": 0,
+    "C3": 0
+  },
+  "recovery": "not reached",
+  "comparison": "not performed",
+  "p9_acceptance_met": false,
+  "campaign_closed": true,
+  "unused_budget_transferable": false,
+  "historical_cumulative": {
+    "campaigns": 16,
+    "public_initialize": 13,
+    "healthy_journeys": 4,
+    "calibrations_started_invalid": 2,
+    "measured": {
+      "C0": 0,
+      "C1": 0,
+      "C2": 0,
+      "C3": 0
+    },
+    "keda_apply_restore_restarts": [
+      3,
+      3
+    ]
+  },
+  "cleanup": {
+    "CUSTOM_absent": true,
+    "shared_mesh_restored": true,
+    "namespace_absent": true,
+    "final_native_verify": true,
+    "fixture_credentials_invalidated": true,
+    "owned_image_removed": true,
+    "stable_preserved": true,
+    "stable_pod_uid_spec_ready_zero_restart": true,
+    "stable_bound_storage_observed": true,
+    "admin_csi_version_preserved": true,
+    "four_rg_inventory_unchanged": true,
+    "bound_disk_ids_preserved": true,
+    "temporary_aks_role_removed": true
+  },
+  "final_native": {
+    "source_sha": "de600e4d5f439be2f65c087b136ee221290b317d",
+    "invocations": 1,
+    "exit_code": 0,
+    "native_checks": 5,
+    "structured_events_produced": false,
+    "stdout_private_sha256": "496f01eee8abeb86aaab2f3b29b058b74d12fcad56d3c28ba6238d42c7441638",
+    "credential_use": "non-admin fixture, before its PAT deletion/login block"
+  },
+  "fixture_PATs": [
+    30,
+    31
+  ],
+  "fixture_database_records": "retained; PATs revoked and logins prohibited",
+  "forward": {
+    "starts": 1,
+    "polls": 603,
+    "failed_polls": 0,
+    "wait": {
+      "record": "forward_wait",
+      "timestamp_utc": "2026-11-02T06:48:55.919203+00:00",
+      "source_sha": "de600e4d5f439be2f65c087b136ee221290b317d",
+      "pid": 1897365,
+      "started_at_utc": "2026-11-02T06:38:54.615846+00:00",
+      "pod_uid": "2d40b599-5ad5-4eb5-99e1-e52afa47ef45",
+      "port": 13000,
+      "stage": "stop",
+      "returncode": -15,
+      "exited_before_stop": false,
+      "intentional_stop_requested": true,
+      "kill_requested": false,
+      "observation_failed": false
+    }
+  },
+  "cost_latest_observation": {
+    "at_utc": "2026-11-02T06:22:56.403175+00:00",
+    "posted_two_rg_krw": "150587.6256920534",
+    "per_rg_krw": {
+      "mc_rg-ccp-environment-krc-p6_aks-ccp-krc-p6_koreacentral": "87503.5717510215",
+      "rg-ccp-bootstrap-krc-p6": "0.0092803",
+      "rg-ccp-environment-krc-p6": "63084.0539410319",
+      "rg-ccp-foundation-krc-p6": "122.951925663441"
+    },
+    "projection_usd": "263.1902866454505833333333333",
+    "review_cap_usd": 275,
+    "new_allowances_added": 0,
+    "p9_actual": "unknown/shared/delayed",
+    "approval_url": "https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6570216466"
+  },
+  "cost_after_execution": "not queried; unchanged scope/rate/retention model and allowance reused under current main; current P9 actual remains unknown/shared/delayed",
+  "retention": {
+    "environment": "2026-11-05T01:30:00Z",
+    "foundation_bootstrap": "2026-11-05T15:33:00Z",
+    "extended": false,
+    "whole_reserve_seconds": 8045,
+    "initialization_run_drain_rollback_reserve_seconds": 3065
+  },
+  "source_changed_during_execution": false,
+  "runtime_source_fix_claimed": false,
+  "credential_rotation_repeated": false,
+  "global_session_invalidation": "not attempted; prior session/output unknown retained"
+}

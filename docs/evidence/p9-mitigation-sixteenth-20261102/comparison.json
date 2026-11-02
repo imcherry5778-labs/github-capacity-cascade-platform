@@ -1,0 +1,7 @@
+{
+  "source_sha": "de600e4d5f439be2f65c087b136ee221290b317d",
+  "comparison": "not performed",
+  "reason": "sole public initialize failed; campaign closed without KEDA/calibration/measured",
+  "p9_acceptance_met": false,
+  "valid_negative_recovery_measurement": false
+}
