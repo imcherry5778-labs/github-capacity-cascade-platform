@@ -5,7 +5,7 @@ P9 acceptance는 아직 미충족이다. 제17차는 CLOSED이며 새 paid campa
 누적 campaign17 / public initialize14 / healthy5 / started-invalid calibration2 / measured 각0 / KEDA restart3/3을 보존한다.
 현재 source-only 교정의 Azure 효과는 NOT VERIFIED다. Source CI나 synthetic 성공을 runtime 성공으로 승격하지 않는다.
 
-현재 실행 권한·비용·보존은 [Paid Azure boundary](implementation-plan.md#paid-azure-boundary--p6p11)와 별도 실제 사용자 결정을 따른다.
+현재 실행 범위·보존은 [Paid Azure boundary](implementation-plan.md#paid-azure-boundary--p6p11)와 별도 실제 사용자 결정을 따른다.
 Environment 기한은 2026-11-05 10:30 KST, Foundation/Bootstrap은 11월6일00:33 KST다. 자동 연장·전체 teardown·merge/P10은 없다.
 P6/P7 drill, P8 전체 실험, factorial/조합 최적화, 다른 architecture 구현은 범위 밖이다.
 
@@ -255,7 +255,7 @@ exact-ID revoke/재사용401·token list0·fixture login 차단을 확인하며 
 의도한 close/wait와 실제 child exit를 확인한다. 조용한 재시작·주기적 새 tunnel·liveness만으로 native semantic200을 대체하지 않는다.
 각 run 전 authorized non-admin fixture의 direct native sentinel/path convergence를 확인한다.
 실패한 run은 invalid/소비로 보존한다. Source-changing same-ledger recovery·measured retry·카운터 초기화는 지원하지 않는다.
-같은 승인 안의 허용된 bounded recovery만 남은 횟수/비용/기한·원복 reserve 안에서 수행한다. Closed campaign의 잔여 권한은 이월하지 않는다.
+같은 승인 안의 허용된 bounded recovery만 남은 승인 범위/횟수/기한·원복 reserve 안에서 수행한다. Closed campaign의 잔여 권한은 이월하지 않는다.
 
 Whole reserve는1800+실제 initialize timeout I+kill5+6×600+1800초이며 candidate I840이면8045초다.
 각 run/drain/rollback2220초와 initialize 포함3065초의 strict retention cutoff를 유지한다. 부족하면 새 위험 행동을 시작하지 않는다.
@@ -289,7 +289,7 @@ python3 scripts/azure-mitigation.py review "$NEW_C0" "$NEW_REVIEWED_SUMMARY"
 python3 scripts/azure-mitigation.py compare "$NEW_C0" "$NEW_C1" "$NEW_C2" "$NEW_C3" "$NEW_FROZEN" "$NEW_COMPARISON"
 ```
 
-실제 source SHA/cluster UID/image digest와 approval URL, current cost/quota/lifetime,
+실제 source SHA/cluster UID/image digest와 approval URL, current resource/quota/lifetime,
 SA/FIC/operator 영향·auth·CRD/PodMonitor schema·actual series labels/inventory/freshness,
 per-Pod traffic/normal healthy tests, admitted resource, timeout/queue 동작과 recovery 관측 cadence가
 **필수 실행 gate**로 남아 있다. Source 검증을 Azure runtime PASS 또는 recovered로 표시하지 않는다.

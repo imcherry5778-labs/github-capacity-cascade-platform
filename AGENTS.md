@@ -111,6 +111,8 @@ PR 생성만으로 작업 완료를 주장하지 않는다. 관련 필수 CI 결
 
 다음 work unit capability를 선제 구현하지 않는다. 한 PR은 가능한 한 하나의 capability다.
 
+검증·조사·승인 정리는 현재 acceptance를 막는 문제와 실제 권한 결정에 한정한다. 환경을 보존한 채 검토만 반복하는 지연도 비용이다. 변경 없는 source/CI·관측·승인 근거는 재사용하고, 영향 검증과 source 검토는 CI 대기 중 병행한다. 이미 충분한 evidence가 있으면 ChatGPT가 바로 판단·직접 전달하며, 승인안 작성→결과 전달→동일 내용 재검토를 별도 작업으로 반복하지 않는다. 새 사용자 결정만 기존 승인 링크와 변경점으로 한 번에 묶고 같은 유효 승인 안의 행동은 재승인받지 않는다.
+
 ### 복구와 실행 중단 경계
 
 Scope/acceptance/safety boundary가 바뀌지 않는 구현·운영 오류는 Agent가 원인 파악 → 수정 → 영향 검증 → 계속 진행한다. 계약/권한 충돌 또는 가용 증거로 더 진행할 수 없는 기술적 blocker는 구체 근거와 최소 다음 행동을 ChatGPT에 전달해 escalation한다.
@@ -119,7 +121,7 @@ Scope/acceptance/safety boundary가 바뀌지 않는 구현·운영 오류는 Ag
 
 Campaign은 사용자 중단·범위 완료·안전/ownership 복구 불가·승인상 종료·횟수/비용/retention reserve 소진일 때 owned cleanup으로 종료하며, 실패 한 번 자체를 종료 사유로 삼지 않는다.
 
-유료·credential 관련 실행 전에는 source helper의 검사뿐 아니라 실제 operator 호출·process 소유·민감 출력·owned cleanup 경계와, 승인된 횟수/복구가 실제 gate에 지원되는지를 확인한다. 반복 실패에서는 이전 교정이 해결한 것·남은 unknown·다음 승인 실행이 구분할 관측을 명시해 근거 없는 동일 재시도를 피한다.
+유료·credential 관련 실행 전에는 변경되었거나 아직 검증하지 않은 실제 operator 호출·process 소유·민감 출력·owned cleanup 및 횟수/복구 gate만 필요한 만큼 확인한다. 반복 실패의 교정 근거와 다음 관측은 기존 결과에 짧게 연결하고, 완전한 원인 규명이나 새로운 승인 문서 작성을 진입 조건으로 추가하지 않는다. 비용·권한 확인의 시점과 재사용은 `docs/implementation-plan.md`의 Paid Azure boundary를 따른다.
 
 Source 수정과 cost-free 검증은 진행할 수 있다. 승인이 exact SHA로만 한정되어 있으면 변경 SHA의 paid 경로는 필요한 review/승인 전까지 보류한다. 향후 승인이 동일 scope의 bounded source correction을 명시적으로 포함해도 실제 실행 gate가 해당 복구·누적 계수를 지원하는지 확인하고, 영향 검증·독립 review·새 SHA/image/plan binding을 마친 범위에서만 진행한다. 보존 기한 자동 연장이나 전체 Environment teardown을 복구 수단으로 삼지 않는다.
 
@@ -191,14 +193,14 @@ Reliability experiment 전에 관련 normal test가 PASS해야 한다.
 
 `PASS`, `verified`, `reproduced`, `restored`, `zero residual`은 실제 evidence 확인 후에만 사용한다.
 
-반복 실패·중대한 안전 사고·불필요한 재작업이 확인되면 별도 문서 대신 기존 PR/incident 결과에 근거·영향·최소 보정·검증 방법을 짧게 제안한다. 적용·보류 판단은 ChatGPT가 하며 새 harness·팀·규칙을 기본으로 추가하지 않는다.
+반복 실패·중대한 안전 사고·불필요한 재작업의 개선안은 기존 결과에 짧게 남기되, 다음 acceptance에 필요하지 않은 문서·회고·정비는 작업을 막지 않는다. 실제 credential 노출·권한 이탈은 처리하지만, 완료된 조치를 재조사하거나 근거 없는 session/output 잔여 위험만으로 전역 cleanup·새 위험수용 승인·추가 캠페인을 만들지 않는다. 남은 unknown은 그대로 기록하고 필수 gate 미충족·구체적인 진행 중 위협·승인 밖 영향이 있을 때만 해당 위험 행동을 멈춘다. 안전한 독립 작업은 계속한다.
 
 ## 12. Azure safety
 
 - Azure PAYG
 - explicit approval 없이 provision/destroy 금지
 - PR CI에서 Azure resource 자동 생성 금지
-- paid apply 전 current cost/resource/RBAC/quota preflight
+- paid apply 전 필요한 bounded cost/resource/RBAC/quota 확인; 재사용·재확인 기준은 Paid Azure boundary 한 곳을 따른다
 - P11까지 기존 환경 재사용을 우선하며 lifecycle authority는 `docs/implementation-plan.md`의 Paid Azure boundary
 - 명시적 승인 범위·보존 기한 유지, 자동 연장·자동 삭제 없음
 - finalization은 DNS delegation, identity/RBAC, state backend, residual resource까지 확인

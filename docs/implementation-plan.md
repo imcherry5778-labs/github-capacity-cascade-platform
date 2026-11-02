@@ -184,31 +184,17 @@ P5에서 exact OIDC subject, region/quota, AKS/revision capability, ingress/rout
 
 ### Paid Azure boundary — P6–P11
 
-P6–P11의 paid 실행은 **해당 campaign의 첫 external mutation 직전** 실행 판단에 영향을 주는 항목만 bounded하게 확인한다. 최근 근거는 scope/source/자원/권한/단가·사용량 가정/기한에 유의미한 변화가 없으면 재사용한다. 새 보고나 source-only 작업만으로 전체 preflight를 반복하지 않는다.
+P6–P11의 Azure action은 해당 작업의 실제 사용자 승인 범위를 따른다. 실행 전에 필요한 다음 binding과 원복 조건을 확인한다.
 
-- exact source commit
-- current environment state/lifetime
-- current price/resource/RBAC/quota
-- 필요한 external DNS delegation action
-- explicit user approval와 그 approval이 cover하는 action/scope
-
-실행 권한·시도 횟수, 비용 추정·예비비, 승인 상한을 구분한다. 승인은 지정 campaign/source/권한/횟수/기한에 결합된다.
-새 campaign·승인 밖 변경에는 명시 승인이 필요하지만, 같은 유효 승인 안의 계속 실행·허용된 복구는 날짜/보고만으로 재승인하지 않는다.
-Closed campaign의 권한은 이월하지 않는다. Allowance 만료와 실제 지출/환불은 별개이며 새 실행 권한이 아니다.
-
-회차·실패·재승인은 비용 발생 근거가 아니다. 회차별 정액 USD10 자동 가산과 자동 상한 인상을 금지한다.
-기존 증거의 posted 노출/현재 남은 노출/미반영 비용을 중복 없이 평가한다. 이미 posted에 반영된 노출을 다시 예비비로 더하지 않고,
-과거 추정 보존을 예비비 영구 누적으로 해석하지 않는다. 근거 없는 차감·zero-cost/잔액 추정도 하지 않는다.
-현재 P9 승인 검토상한 USD290은 자동 증액하지 않는다. 모델/예비비는 provider hard cap이나 P9 단독 실비가 아니다.
-
-실행 중 의미 있는 resource/권한/사용량·단가/기한 변화·한도 위험·필수 gate만 재확인한다. 새 Pod/identity/process의 live gate와
-각 실행의 남은 횟수/deadline/원복 reserve는 유지한다. 청구 지연 unknown만으로 조회·승인 왕복을 만들지 않는다.
-유효한 projection/상한/cleanup reserve를 평가할 수 없거나 초과 위험이면 새 유료 행동을 보류하고 승인된 안전 원복은 계속한다.
-새 사용자 결정은 기존 승인과 필요한 실제 delta만 한 번에 묶는다.
+- exact source commit와 actual identity
+- current resource/RBAC/quota와 ownership
+- 승인된 action/scope·시도 횟수
+- 필요한 external DNS delegation 범위
+- environment 기한과 owned cleanup/원복 reserve
 
 P11까지 기존 environment 재사용을 우선한다. Milestone 종료를 same-day destroy에 연결하지 않는다. 기존 resource의 보존 승인과 다음 작업의 실행 승인은 별개이며, 현재 명시적 승인 범위와 보존 기한을 유지한다. 자동 연장·자동 삭제는 없다. 기한 조정 또는 범위 밖 실행·삭제가 필요하면 새 explicit approval을 받는다. 같은 branch/PR/evidence를 이어 쓰며 기한 조정만으로 다시 만들지 않는다.
 
-P7-W1 시작 시 Environment 기한은 **2026-10-30 10:30 KST**, Foundation/Bootstrap은 **2026-10-31 00:33 KST**다. 이번 source 구현은 보존 기한을 변경하지 않는다. 실행 시 current state/승인과 기한을 다시 확인한다. 과거 6시간 비용 추정은 시간 무제한 비용 보장이 아니며 ActualCost는 조회 전 unknown이다.
+P7-W1 시작 시 Environment 기한은 **2026-10-30 10:30 KST**, Foundation/Bootstrap은 **2026-10-31 00:33 KST**다. 이번 source 구현은 보존 기한을 변경하지 않는다. 실행 시 current state/승인과 기한을 다시 확인한다.
 
 이전 P9-W1은 [사용자의 +72h 보존 승인](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6509128514)에 따라 Environment **2026-11-02 10:30 KST**, Foundation/Bootstrap **2026-11-03 00:33 KST**까지 보존하는 계약이었다. 위 P7 당시 기한과 과거 evidence는 소급 변경하지 않는다. 당시의 추가 연장·전체 teardown 미승인 기록을 보존하며, 현재 추가 보존 결정은 아래를 따른다. 보존 연장은 새 exact-source 유료 실행 승인이나 Azure provider TTL 변경을 뜻하지 않는다.
 
@@ -223,10 +209,7 @@ P7-W1 시작 시 Environment 기한은 **2026-10-30 10:30 KST**, Foundation/Boot
 
 범위는 기존 inventory·operator·DNS/state ownership의 보존이다. 새 resource·권한·부하·제15차 또는 후속 campaign, 자동 연장·전체 teardown을 승인하지 않는다. 기존 DNS 복구·state 의존성과 owned cleanup 경계는 유지한다. 이 기록은 Azure provider TTL이나 삭제 예약을 변경한 결과가 아니다.
 
-추가 보존의 당시 추정/가정은 [기존 비용 evidence](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/blob/f4ffab693830ab1e29af27e86029a39fda35a6d7/docs/evidence/p9-resume-preparation-20261102/cost.json)에 보존한다.
-현재 평가는 위 중복 제거 원칙을 따르며 과거 추정 합계를 새 실행비·영구 예비비로 다시 더하지 않는다. 실제 P9 단독 실비/잔액은 미확인일 수 있다.
-
-문서의 보존기한과 실제 실행 gate를 구분한다. [P9 PR #41](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41)의 다음 실행 전에는 `scripts/azure-cascade.py`와 `scripts/azure-mitigation.py`의 hard deadline을 위 Environment 기한과 맞추고 직전/정각/직후 및 initialization/run/drain/rollback reserve 경계를 검증해야 한다. 기간 변경만으로 exact-source 승인·횟수·비용·독립 review gate를 우회하지 않는다. 이 문서 PR 자체는 실행 source를 변경하거나 P9 acceptance를 완료하지 않는다.
+문서의 보존기한과 실제 실행 gate를 구분한다. [P9 PR #41](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41)의 다음 실행 전에는 `scripts/azure-cascade.py`와 `scripts/azure-mitigation.py`의 hard deadline을 위 Environment 기한과 맞추고 직전/정각/직후 및 initialization/run/drain/rollback reserve 경계를 검증해야 한다. 기간 변경만으로 exact-source 승인·횟수·독립 review gate를 우회하지 않는다. 이 문서 PR 자체는 실행 source를 변경하거나 P9 acceptance를 완료하지 않는다.
 
 P8–P10은 실제 Azure controlled experiment 단계다. 각 milestone 시작 시 existing environment를 이어 쓸지 P5 source에서 재생성할지 위 공통 gate에서 결정한다.
 
