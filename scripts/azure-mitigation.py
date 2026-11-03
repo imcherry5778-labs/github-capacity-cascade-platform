@@ -1089,6 +1089,12 @@ class CPUStartup:
         self.validated_sample = None
         self.validated_transition = None
 
+    @staticmethod
+    def sample_freshness_seconds(window_seconds):
+        require(bounded(window_seconds, 0, CPUStartup.sample_window_seconds) and window_seconds > 0,
+                'invalid CPU sample window')
+        return min(60, 2 * window_seconds)
+
     def observe(self, guard, emit, at):
         epoch = p8.p7.utc(guard['timestamp_utc']).timestamp()
         safety_epoch = p8.p7.utc(guard.get('safety_timestamp_utc', guard['timestamp_utc'])).timestamp()
@@ -1155,6 +1161,7 @@ class CPUStartup:
         samples = [p for p in guard['pod_metrics'] if p['metadata']['namespace'] == NS and p['metadata']['name'] == pod['name']]
         require(len(samples) <= 1, 'ambiguous CPU preparation sample')
         metric, ready_window, status, stamp, age, sample_evidence, current_evidence = False, False, False, None, None, None, None
+        age_limit = None
         if samples:
             sample = samples[0]
             apps = [c for c in sample['containers'] if c['name'] == 'app']
@@ -1170,7 +1177,8 @@ class CPUStartup:
                 require(seconds is not None and 0 < seconds <= self.sample_window_seconds, 'invalid CPU sample window')
                 stamp = p8.p7.utc(sample['timestamp']).timestamp()
                 age, ready_window = epoch - stamp, ready_at <= stamp - seconds
-                metric = 0 <= age <= 30 and ready_window
+                age_limit = self.sample_freshness_seconds(seconds)
+                metric = 0 <= age <= age_limit and ready_window
                 sample_evidence = {'timestamp_epoch': stamp, 'window_seconds': seconds, 'app_cpu': cpu}
                 if self.validated_sample is not None:
                     require(stamp >= self.validated_sample['timestamp_epoch'] and
@@ -1207,7 +1215,7 @@ class CPUStartup:
         positive = hpa_positive and metric
         self.recovery_seen = self.recovery_seen or positive  # Latch before quiet/two-sample waiting, even across metric gaps.
         positive = positive and safety_epoch - last >= self.quiet_seconds
-        stale = (hpa_positive and ready_window and age > 30 and safety_epoch - last >= self.quiet_seconds and
+        stale = (hpa_positive and ready_window and age > age_limit and safety_epoch - last >= self.quiet_seconds and
                  transition == self.validated_transition)
         if self.completed:
             # Telemetry may wait for a structurally valid stale export under its
@@ -1371,7 +1379,8 @@ def healthy_initialize(runtime, v, journey, emit, *, clock=time.monotonic, wait=
             cpu_positive = initialization_safety(guard, cpu_startup=cpu_startup, emit=emit, at=clock())
             # Preserve the sample's actual age; only acquisition moved. Path
             # accounting still has to finish before this monotonic expiry.
-            cpu_fresh_until = (guard_end + 30 - (p8.p7.utc(guard['timestamp_utc']).timestamp() -
+            cpu_fresh_until = (guard_end + cpu_startup.sample_freshness_seconds(cpu_startup.validated_sample['window_seconds']) -
+                               (p8.p7.utc(guard['timestamp_utc']).timestamp() -
                                cpu_startup.validated_sample['timestamp_epoch'])) if cpu_positive else guard_end
             emit({'record': 'healthy_telemetry_poll', 'at': clock(), 'collection_started_at': poll_started, 'configuration': actual,
                   'admin_stats': runtime.admin_observations, 'signal': signal, 'deadline': deadline})

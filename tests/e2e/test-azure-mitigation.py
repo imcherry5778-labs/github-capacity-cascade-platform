@@ -2257,6 +2257,8 @@ class MetricInitializationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'only CPU preparation'):
             m.p8.Runtime.guard(r, defer_cpu_metrics=True)
 
+    # Historical 30s-policy comparator; never revalidate archived runs with a new cap.
+    @patch.object(m.CPUStartup, "sample_freshness_seconds", new=staticmethod(lambda _: 30))
     def test_initialization_tail_cpu_with_recorded_epochs_and_bounded_availability(self):
         # Actual phase durations/CPU epochs. CPU GET/path costs and publication
         # points within the observed OLD->NEW interval are SYNTHETIC unknowns.
@@ -2421,6 +2423,202 @@ class MetricInitializationTests(unittest.TestCase):
         self.assertTrue(poll['sample_window_after_ready'])
         self.assertFalse(poll['valid_ready_window'])
 
+    def test_campaign21_recorded_cpu_amw_joint_predicate_old_and_window_aware_caps(self):
+        archive = ROOT / 'docs/evidence/p9-mitigation-twenty-first-20261103/raw-evidence.tar.gz'
+        before = m.hashlib.sha256(archive.read_bytes()).hexdigest()
+        with tarfile.open(archive) as raw:
+            events = [json.loads(line) for line in raw.extractfile('initialization/events.jsonl')]
+            source_sha = json.load(raw.extractfile('identity.json'))['source_sha']
+        polls = [e for e in events if e['record'] == 'cpu_preparation_poll']
+        telemetry = [e for e in events if e['record'] == 'healthy_telemetry_poll']
+        actual = {'targets': [{'uid': polls[0]['target_uid'], 'name': telemetry[0]['configuration']['targets'][0]['name']}],
+                  'hpa_spec': polls[0]['hpa_spec']}
+        stamp = lambda epoch: m.datetime.fromtimestamp(epoch, m.timezone.utc).isoformat()
+        def replay():
+            cpu, emitted, verdicts = m.CPUStartup(actual), [], []
+            for p in polls:
+                # CPU-only projection from actual clocks, UID/spec, sample,
+                # currentMetrics, transition and warning history. Creation times
+                # and AbleToScale were not emitted: explicit synthetic inputs
+                # isolate this predicate, never reconstruct a complete guard/run.
+                created = min([p['ready_since_epoch']] + [m.p8.p7.utc(v[2]).timestamp() for v in p['warning_history'].values()]) - 1
+                current = p['hpa_current_cpu']
+                guard = {'timestamp_utc': p['guard_timestamp_utc'], 'safety_timestamp_utc': p['safety_timestamp_utc'],
+                    'cpu_preparation_pods': [{'namespace': m.NS, 'name': actual['targets'][0]['name'], 'uid': p['target_uid'],
+                        'creationTimestamp': stamp(created), 'deletionTimestamp': None,
+                        'ready_conditions': [{'status': 'True', 'lastTransitionTime': stamp(p['ready_since_epoch'])}]}],
+                    'cpu_hpa': {'metadata': {'namespace': m.NS, 'name': 'hpa-app-cpu', 'uid': p['hpa_uid'],
+                        'creationTimestamp': stamp(created)}, 'spec': p['hpa_spec'],
+                        'status': {'conditions': [{'type': 'AbleToScale', 'status': 'True'},
+                            {'type': 'ScalingActive', 'status': 'True' if p['scaling_active'] else 'False',
+                             'reason': 'ValidMetricFound' if p['scaling_active'] else 'FailedGetContainerResourceMetric',
+                             'lastTransitionTime': stamp(p['hpa_transition_epoch'])}],
+                            'currentMetrics': [{'type': 'ContainerResource', 'containerResource': {'name': 'cpu', 'container': 'app',
+                                'current': {k: current[k] for k in ('averageValue', 'averageUtilization')}}}] if current else [{'type': ''}]}},
+                    'pod_metrics': [{'metadata': {'namespace': m.NS, 'name': actual['targets'][0]['name']},
+                        'timestamp': stamp(p['sample_epoch']), 'window': str(p['sample']['window_seconds']) + 's',
+                        'containers': [{'name': 'app', 'usage': {'cpu': p['sample']['app_cpu']}}]}] if p['sample'] else [],
+                    'events': [{'uid': uid, 'timestamp_utc': last, 'count': count, 'first_timestamp_utc': first,
+                        'type': 'Warning', 'reason': reason, 'owner': {'namespace': m.NS, 'name': 'hpa-app-cpu',
+                            'kind': 'HorizontalPodAutoscaler', 'uid': p['hpa_uid']}}
+                        for uid, (last, count, first, reason) in p['warning_history'].items()]}
+                verdicts.append(cpu.observe(guard, emitted.append, p['at']))
+            return verdicts, emitted
+        with patch.object(m.CPUStartup, 'sample_freshness_seconds', new=staticmethod(lambda _: 30)):
+            old, _ = replay()
+        new, emitted = replay()
+        self.assertEqual(old, [p['status'] == 'ready' for p in polls])
+        self.assertFalse(old[-1]); self.assertTrue(new[-1])
+        self.assertEqual(polls[-1]['sample_epoch'], polls[-2]['sample_epoch'])
+        self.assertEqual(polls[-1]['sample']['window_seconds'], 53.275)
+        self.assertAlmostEqual(polls[-1]['sample_age_seconds'], 35.17149496078491)
+        self.assertEqual(m.CPUStartup.sample_freshness_seconds(53.275), 60)
+        joint = []
+        for p in telemetry:
+            c = max((c for c in emitted if c['record'] == 'cpu_preparation_poll' and c['at'] <= p['at']), key=lambda c: c['at'])
+            m.signal_evaluation(p['signal'], source_sha, (p['collection_started_at'], p['at']), events)
+            joint.append(c['status'] == 'ready' and p['signal']['status'] == 'observed')
+        self.assertEqual(joint, [False] * 4 + [True])
+        self.assertEqual(telemetry[-2]['signal']['status'], 'uninitialized')  # No cross-poll stitching.
+        self.assertFalse(any(e['record'] == 'healthy_initialization_complete' for e in events))
+        self.assertEqual(events[-1]['record'], 'healthy_initialization_failure')
+        self.assertFalse(events[-1]['ready_for_keda_authentication'])
+        self.assertEqual(m.hashlib.sha256(archive.read_bytes()).hexdigest(), before)
+
+    def test_cpu_window_cap_stale_candidates_and_strict_latch(self):
+        stamp = lambda epoch: m.datetime.fromtimestamp(epoch, m.timezone.utc).isoformat()
+        for window in (1, 15, 20, 53.275, 90):
+            limit = min(60, 2 * window)
+            f = self.preparation()
+            with patch.object(m.time, 'time', return_value=1000): base = f.runtime.guard()
+            base['cpu_preparation_pods'][0].update(creationTimestamp=stamp(700), ready_conditions=[{'status': 'True', 'lastTransitionTime': stamp(800)}])
+            base['cpu_hpa']['metadata']['creationTimestamp'] = stamp(650)
+            base['pod_metrics'][0]['window'] = str(window) + 's'
+            base['pod_metrics'][0]['timestamp'] = stamp(1000 - limit)
+            next(c for c in base['cpu_hpa']['status']['conditions'] if c['type'] == 'ScalingActive')['lastTransitionTime'] = stamp(900)
+            for age, ready in ((limit, True), (limit + .001, False), (-.001, False)):
+                g = copy.deepcopy(base);g['pod_metrics'][0]['timestamp'] = stamp(1000 - age)
+                with self.subTest(window=window, age=age):
+                    self.assertEqual(m.CPUStartup(f.baseline).observe(g, lambda _: None, 0), ready)
+            overlap = copy.deepcopy(base)
+            overlap['cpu_preparation_pods'][0]['ready_conditions'][0]['lastTransitionTime'] = stamp(1000 - limit - window + .001)
+            self.assertFalse(m.CPUStartup(f.baseline).observe(overlap, lambda _: None, 0))
+            missing = copy.deepcopy(base);missing['pod_metrics'] = []
+            uninitialized = m.CPUStartup(f.baseline)
+            self.assertFalse(uninitialized.observe(missing, lambda _: None, 0));self.assertIsNone(uninitialized.validated_sample)
+            cpu = m.CPUStartup(f.baseline)
+            # Retained warning: one candidate cannot complete; a structurally
+            # valid stale cached export preserves it without becoming positive.
+            base['events'] = [{'uid': 'warning', 'type': 'Warning', 'reason': 'FailedGetContainerResourceMetric', 'count': 1,
+                'first_timestamp_utc': stamp(850), 'timestamp_utc': stamp(900),
+                'owner': {'namespace': m.NS, 'name': 'hpa-app-cpu', 'kind': 'HorizontalPodAutoscaler', 'uid': 'cpu-hpa'}}]
+            self.assertFalse(cpu.observe(base, lambda _: None, 0))
+            candidate = cpu.candidate;self.assertIsNotNone(candidate)
+            stale = copy.deepcopy(base);stale['timestamp_utc'] = stamp(1000.001)
+            self.assertFalse(cpu.observe(stale, lambda _: None, .001));self.assertEqual(cpu.candidate, candidate)
+            newer_stale = copy.deepcopy(base);newer_stale['timestamp_utc'] = stamp(1002.001)
+            newer_stale['pod_metrics'][0]['timestamp'] = stamp(1001 - limit)
+            validated = copy.deepcopy(cpu.validated_sample)
+            self.assertFalse(cpu.observe(newer_stale, lambda _: None, 2.001))
+            self.assertEqual(cpu.candidate, candidate);self.assertEqual(cpu.validated_sample, validated)
+            fresh = copy.deepcopy(base);fresh['timestamp_utc'] = stamp(1015);fresh['pod_metrics'][0]['timestamp'] = stamp(1015 - limit)
+            self.assertTrue(cpu.observe(fresh, lambda _: None, 15))
+            cached_stale = copy.deepcopy(fresh);cached_stale['timestamp_utc'] = stamp(1015.001)
+            self.assertFalse(copy.deepcopy(cpu).observe(cached_stale, lambda _: None, 15.001))
+            quiet = copy.deepcopy(base);quiet['events'][0]['timestamp_utc'] = stamp(995)
+            next(c for c in quiet['cpu_hpa']['status']['conditions'] if c['type'] == 'ScalingActive')['lastTransitionTime'] = stamp(996)
+            prequiet = m.CPUStartup(f.baseline)
+            self.assertFalse(prequiet.observe(quiet, lambda _: None, 0));self.assertTrue(prequiet.recovery_seen)
+            quiet['events'][0].update(count=2, timestamp_utc=stamp(996));quiet['timestamp_utc'] = stamp(1001)
+            with self.assertRaisesRegex(ValueError, 'warning recurred'): prequiet.observe(quiet, lambda _: None, 1)
+            for case in ('missing', 'invalid', 'pre-ready', 'owner', 'UID', 'warning', 'HPA', 'future'):
+                bad = copy.deepcopy(fresh)
+                if case == 'missing': bad['pod_metrics'] = []
+                elif case == 'invalid': bad['pod_metrics'][0]['containers'][0]['usage']['cpu'] = 'NaN'
+                elif case == 'pre-ready': bad['cpu_preparation_pods'][0]['ready_conditions'][0]['lastTransitionTime'] = stamp(1015)
+                elif case == 'owner': bad['cpu_hpa']['metadata']['ownerReferences'] = [{'uid': 'other'}]
+                elif case == 'UID': bad['cpu_preparation_pods'][0]['uid'] = 'other'
+                elif case == 'warning': bad['events'][0]['count'] += 1
+                elif case == 'HPA': bad['cpu_hpa']['status']['currentMetrics'] = []
+                else: bad['pod_metrics'][0]['timestamp'] = stamp(1015.001)
+                with self.subTest(window=window, case=case), self.assertRaises(ValueError):
+                    copy.deepcopy(cpu).observe(bad, lambda _: None, 16)
+        for window in (None, 0, 90.001, float('nan'), float('inf'), True):
+            with self.subTest(invalid_window=window), self.assertRaises(ValueError): m.CPUStartup.sample_freshness_seconds(window)
+
+    def test_window_aware_cached_cpu_expiry_is_checked_after_positive_path(self):
+        # Full source initializer with synthetic I/O; no historical completion
+        # or Azure latency claim. The same cached CPU sample spans the journey.
+        for window, age, path_cost, passes in ((53.275, 35.171495, 1.74, True), (53.275, 59, 1, True),
+                (53.275, 59, 1.001, False), (15, 29, 1, True), (15, 29, 1.001, False),
+                (10, 19, 1, True), (10, 19, 1.001, False), (53.275, 60.001, 0, False)):
+            with self.subTest(window=window, age=age, path=path_cost):
+                f, now, rows, journeys = self.preparation(), [0.0], [], []
+                r = f.runtime;original = r.guard
+                positive, _, _ = self.positive_journey(f);logs = r.logs
+                stamp = lambda value: m.datetime.fromtimestamp(value, m.timezone.utc).isoformat()
+                def guard():
+                    g = original()
+                    g['cpu_preparation_pods'][0].update(creationTimestamp=stamp(700), ready_conditions=[{'status': 'True', 'lastTransitionTime': stamp(800)}])
+                    g['cpu_hpa']['metadata']['creationTimestamp'] = stamp(650)
+                    next(c for c in g['cpu_hpa']['status']['conditions'] if c['type'] == 'ScalingActive')['lastTransitionTime'] = stamp(900)
+                    g['pod_metrics'][0].update(timestamp=stamp(1015 - age), window=str(window) + 's')
+                    return g
+                def journey(timeout):
+                    journeys.append(timeout);f.no_admin.clear();now[0] += 15;return positive(timeout)
+                def path(actual):
+                    if any(e['record'] == 'healthy_telemetry_poll' for e in rows): now[0] += path_cost
+                    return logs(actual)
+                r.guard, r.logs = guard, path
+                with patch.object(m.time, 'monotonic', side_effect=lambda: now[0]), patch.object(m.time, 'time', side_effect=lambda: 1000 + now[0]):
+                    kwargs = {'clock': lambda: now[0], 'wait': lambda seconds: now.__setitem__(0, now[0] + seconds)}
+                    if passes:
+                        result = m.healthy_initialize(r, plan(), journey, rows.append, **kwargs)
+                        self.assertTrue(result['ready_for_keda_authentication']);self.assertFalse(result['runtime_preflight_passed'])
+                    else:
+                        with self.assertRaises(ValueError): m.healthy_initialize(r, plan(), journey, rows.append, **kwargs)
+                        self.assertFalse(any(e['record'] == 'healthy_initialization_complete' for e in rows))
+                        if age <= min(60, 2 * window): self.assertEqual(rows[-1]['stage'], 'positive_path')
+                self.assertEqual(journeys, [90])
+                self.assertLessEqual(now[0], 90)  # journey15 + unchanged telemetry75
+                self.assertLessEqual(len(f.queries), 25)
+
+    def test_window_aware_cpu_does_not_extend_75s_telemetry_deadline(self):
+        # Controlled I/O leaves7.64s for a synthetic final path. This is a
+        # deadline boundary test, not reconstruction of campaign21's missing path.
+        for path_cost, passes in ((7.64, True), (7.641, False)):
+            with self.subTest(path_cost=path_cost):
+                f, now, rows, journeys, polls = self.preparation(), [0.0], [], [], []
+                r = f.runtime;original_guard, original_signal = r.guard, r.signal
+                positive, _, _ = self.positive_journey(f);logs = r.logs
+                stamp = lambda value: m.datetime.fromtimestamp(value, m.timezone.utc).isoformat()
+                def guard():
+                    g = original_guard()
+                    g['cpu_preparation_pods'][0].update(creationTimestamp=stamp(700), ready_conditions=[{'status': 'True', 'lastTransitionTime': stamp(800)}])
+                    g['cpu_hpa']['metadata']['creationTimestamp'] = stamp(650)
+                    next(c for c in g['cpu_hpa']['status']['conditions'] if c['type'] == 'ScalingActive')['lastTransitionTime'] = stamp(900)
+                    g['pod_metrics'][0].update(timestamp=stamp(1000 + now[0] - 20), window='53.275s')
+                    return g
+                def signal(*args, **kwargs):
+                    polls.append(now[0]);now[0] += 7.36
+                    f.missing = {'target'} if len(polls) < 5 else set()
+                    return original_signal(*args, **kwargs)
+                def journey(timeout):
+                    journeys.append(timeout);f.no_admin.clear();now[0] += 15;return positive(timeout)
+                def path(actual):
+                    if len(polls) == 5: now[0] += path_cost
+                    return logs(actual)
+                r.guard, r.signal, r.logs = guard, signal, path
+                with patch.object(m.time, 'monotonic', side_effect=lambda: now[0]), patch.object(m.time, 'time', side_effect=lambda: 1000 + now[0]):
+                    kwargs = {'clock': lambda: now[0], 'wait': lambda seconds: now.__setitem__(0, now[0] + seconds)}
+                    if passes:
+                        self.assertTrue(m.healthy_initialize(r, plan(), journey, rows.append, **kwargs)['ready_for_keda_authentication'])
+                    else:
+                        with self.assertRaisesRegex(ValueError, 'polling timeout'): m.healthy_initialize(r, plan(), journey, rows.append, **kwargs)
+                        self.assertFalse(any(e['record'] == 'healthy_initialization_complete' for e in rows))
+                self.assertEqual(journeys, [90]);self.assertEqual(len(polls), 5);self.assertEqual(len(f.queries), 21)
+                self.assertAlmostEqual(now[0], 15 + 75 + (0 if passes else .001))
+
     def valid_cpu_recovery(self, runtime, seconds):
         # Synthetic positive continuation, never historical/runtime recovery proof.
         stamp = f'2026-10-29T05:56:{seconds:02d}Z'
@@ -2540,6 +2738,8 @@ class MetricInitializationTests(unittest.TestCase):
                   'hpa_spec': copy.deepcopy(hpa['spec'])}
         return actual, frames, polls
 
+    # Historical 30s-policy comparator; never revalidate archived runs with a new cap.
+    @patch.object(m.CPUStartup, "sample_freshness_seconds", new=staticmethod(lambda _: 30))
     def test_eighth_actual_fresh_stale_fresh_preserves_candidate_without_counting_stale(self):
         actual, frames, polls = self.archived_cpu_timeline()
         cpu, rows, ready = m.CPUStartup(actual), [], []
@@ -2562,6 +2762,8 @@ class MetricInitializationTests(unittest.TestCase):
         self.assertEqual([r['status'] for r in rows if r['record'] == 'cpu_preparation_poll'],
                          ['pending'] * 4 + ['ready'] + ['pending'] * 4)
 
+    # Historical 30s-policy comparator; never revalidate archived runs with a new cap.
+    @patch.object(m.CPUStartup, "sample_freshness_seconds", new=staticmethod(lambda _: 30))
     def test_eleventh_projection_completes_at_fresh_poll5_and_tenth_positive_is_unchanged(self):
         for attempt, expected, first_candidate, stale_before_ready in (
                 ('eleventh', [False] * 4 + [True, False, False, True], 2, {3, 4}),
@@ -2595,6 +2797,8 @@ class MetricInitializationTests(unittest.TestCase):
                 else:
                     self.assertTrue(all(r['status'] == 'pending' for r in polls))  # Actual timeout stays negative.
 
+    # Historical 30s-policy comparator; never revalidate archived runs with a new cap.
+    @patch.object(m.CPUStartup, "sample_freshness_seconds", new=staticmethod(lambda _: 30))
     def test_candidate_retention_requires_structurally_valid_stale(self):
         for case in ('same-stale', 'new-stale', 'missing', 'missing-app', 'no-current', 'no-active', 'hpa-regressed', 'hpa-transition', 'future'):
             with self.subTest(case=case):
@@ -2657,6 +2861,8 @@ class MetricInitializationTests(unittest.TestCase):
                     with self.assertRaises(ValueError):
                         m.initialization_safety(guard, cpu_startup=cpu, emit=lambda _: None, at=at)
 
+    # Historical 30s-policy comparator; never revalidate archived runs with a new cap.
+    @patch.object(m.CPUStartup, "sample_freshness_seconds", new=staticmethod(lambda _: 30))
     def test_eighth_stale_only_candidate_cannot_complete_before_settling_timeout(self):
         for newer in (False, True):
             with self.subTest(newer=newer):
@@ -2685,6 +2891,8 @@ class MetricInitializationTests(unittest.TestCase):
                 self.assertFalse(any(r['record'] in {'healthy_journey_intent', 'healthy_initialization_complete'} for r in rows))
                 self.assertTrue(all(r['status'] == 'pending' for r in rows if r['record'] == 'cpu_preparation_poll'))
 
+    # Historical 30s-policy comparator; never revalidate archived runs with a new cap.
+    @patch.object(m.CPUStartup, "sample_freshness_seconds", new=staticmethod(lambda _: 30))
     def test_eighth_healthy_initialize_requires_fresh_cpu_and_positive_target_telemetry(self):
         # Actual archived preparation + stale telemetry poll6. Client/server,
         # Prometheus and the later fresh CPU continuation are synthetic only.
@@ -2928,6 +3136,8 @@ class MetricInitializationTests(unittest.TestCase):
         self.assertEqual(first['cpu_preparation_pods'][0]['uid'], poll['target_uid'])
         return actual, frame
 
+    # Historical 30s-policy comparator; never revalidate archived runs with a new cap.
+    @patch.object(m.CPUStartup, "sample_freshness_seconds", new=staticmethod(lambda _: 30))
     def test_seventh_actual_count3_to5_at_pod91_stays_pending_until_synthetic_cpu_recovery(self):
         actual, frame = self.seventh_cpu_timeline(); cpu, rows = m.CPUStartup(actual), []
         event_uid = 'dc1109fc-9b0d-4b0d-92e5-85825b9e7db9'
@@ -3023,6 +3233,8 @@ class MetricInitializationTests(unittest.TestCase):
                 self.assertTrue(any(r['record'] == 'cpu_preparation_poll' and r['at'] >= 90 and r['status'] == 'pending' for r in rows))
                 if not recover: self.assertEqual(now[0], 300)
 
+    # Historical 30s-policy comparator; never revalidate archived runs with a new cap.
+    @patch.object(m.CPUStartup, "sample_freshness_seconds", new=staticmethod(lambda _: 30))
     def test_first_positive_cpu_hpa_latches_recurrence_before_quiet_interval_completes(self):
         for case in ('new', 'progress'):
             with self.subTest(case=case):
@@ -3215,6 +3427,8 @@ class MetricInitializationTests(unittest.TestCase):
                         self.assertFalse(any(r['record'] == 'healthy_initialization_complete' for r in rows))
                 self.assertEqual(journeys, [] if mode == 'settling-timeout' else [90])
 
+    # Historical 30s-policy comparator; never revalidate archived runs with a new cap.
+    @patch.object(m.CPUStartup, "sample_freshness_seconds", new=staticmethod(lambda _: 30))
     def test_thirteenth_actual_stale_telemetry_and_deadline_remain_negative(self):
         with tarfile.open(ROOT / 'docs/evidence/p9-mitigation-thirteenth-20261101/raw-evidence.tar.gz') as t:
             archived = [json.loads(line) for line in t.extractfile('initialize/events.jsonl')]

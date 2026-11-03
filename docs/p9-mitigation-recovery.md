@@ -148,7 +148,7 @@ unknown series/UID, startup timeout은 중단 사유이며 inventory query guard
 2. CPU 준비는 configuration을 포함한 monotonic300초 안에서 read-only settling한다. Configuration/guard 각각30초,
    명령15초와 poll 사이 sleep≤15초를 지킨다. 실제 poll 완료 간격이15초 이하라는 보장은 없다.
    같은 Pod/HPA UID/spec·unowned CPU owner·Ready transition과 양수 `app` CPU, Ready 이후 전체 sample window≤90초,
-   sample age≤30초, AbleToScale/ScalingActive와 양수 `ContainerResource/cpu/app` currentMetrics를 요구한다.
+   sample age≤`min(60초, 2×실제 검증된 CPU sample window)`와 AbleToScale/ScalingActive 및 양수 `ContainerResource/cpu/app` currentMetrics를 요구한다.
    Pod/HPA 생성≤Warning first≤last≤안전 관측 시각이며 first/reason 불변, count/time 단조 증가·동시 변경과 history를 보존한다.
    첫 positive 전 허용 Warning은 exact CPU HPA namespace/UID의 `FailedGetContainerResourceMetric`/
    `FailedComputeMetricsReplicas`뿐이다. 다른 Warning/owner/미귀속·lifecycle/UID/Ready drift는 즉시 실패한다.
@@ -166,7 +166,7 @@ unknown series/UID, startup timeout은 중단 사유이며 inventory query guard
    같은 target bootstrap 응답1회로 matcher/metric binding을 검증하며 null 응답을 재조회하지 않는다.
    이전 poll의 UID/HPA/Warning/resource/DB 관측을 대신 쓰지 않는다. CPU age는 늦은 취득 시각에 계산하되,
    HPA/Warning quiet·선후관계는 따로 보존한 안전 관측 시각으로 판정한다. 늦은 CPU 시각으로 quiet를 부풀리지 않는다.
-   Final native-path/log accounting 뒤 CPU≤30초와 target freshness를 모두 확인한다. P8 기본/측정·C3 경로는 이 opt-in을 사용하지 않는다.
+   Final native-path/log accounting 뒤에도 같은 CPU age≤`min(60초, 2×실제 검증된 CPU sample window)`와 target freshness를 모두 확인한다. P8 기본/측정·C3 경로는 이 opt-in을 사용하지 않는다.
 5. 같은 journey window의 신규 ALLOW check·target inbound200·ingress native response가 양수이고 수가 일치해야 한다.
    모든9 attempt의 operation/attempt ID와 auxiliary ID, check ID/시간 범위, credential/body exclusion·HAProxy hop을 대조한다.
    Target cluster/status, ingress Forgejo route/status, actual target counter와 logs를 검증한다. Anonymous401/404는 gate ALLOW 이후 native auth 결과다.
