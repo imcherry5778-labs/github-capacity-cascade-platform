@@ -928,10 +928,11 @@ class Runtime(p8.Runtime):
         started = time.monotonic()
         value = super().j(*args)
         if args == ('-n', NS, 'get', 'hpa', self.hpa_name, '-o', 'json'):
-            self.hpa_observation = {'request_at': started, 'at': time.monotonic(),
+            observation = {'request_at': started, 'at': time.monotonic(),
                 'source_sha': self.value['source_sha'], 'status_sha256': digest(value['status']),
                 'metadata': {k: value['metadata'][k] for k in ('uid', 'resourceVersion', 'generation') if k in value['metadata']}}
-            getattr(self, 'emit', lambda _: None)({'record': 'hpa_observation', **self.hpa_observation})
+            self.collection_deadline.hpa_observation = observation
+            getattr(self, 'emit', lambda _: None)({'record': 'hpa_observation', **observation})
         return value
 
     def guard(self):
@@ -1058,11 +1059,14 @@ def collect_snapshot(runtime, config, before, emit, release_started):
         # guard reads no configuration/admin/lifecycle state. Give its sole
         # worker the SAME deadline (collection_deadline is thread-local).
         runtime.collection_deadline.at = at + 30
-        return runtime.guard()
+        guard = runtime.guard()
+        # configuration reads the same HPA concurrently. Carry the marker from
+        # this worker with its status, never the other reader's latest response.
+        return guard, copy.deepcopy(getattr(runtime.collection_deadline, 'hpa_observation', None))
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as worker:
         guard_result = worker.submit(collect_guard)
         actual = runtime.configuration(config, inventory=inventory, releasing=releasing)
-        guard = guard_result.result(timeout=max(0, at + 30 - time.monotonic()))
+        guard, hpa_observation = guard_result.result(timeout=max(0, at + 30 - time.monotonic()))
     require({p['uid']: p['name'] for p in guard['pods'] if p['name'].startswith('ext-authz-sim-')} ==
             {p['metadata']['uid']: p['metadata']['name'] for p in inventory}, 'snapshot target inventory differs')
     healthy = releasing and all(f == {'hold_ms': 0, 'max_requests': 1024} for f in actual['fault_state'].values())
@@ -1094,8 +1098,9 @@ def collect_snapshot(runtime, config, before, emit, release_started):
             'release_started': releasing, 'admin_stats': runtime.admin_observations, 'target_inventory': [p8.p4.pod_guard(p) for p in inventory]}
     snap['path_observation'] = {'target_ingress_request_at': logs_at, 'target_ingress_end': target_ingress_logs_end,
         'haproxy_request_at': hp_logs_at, 'haproxy_end': hp_logs_end}
-    if hasattr(runtime, 'hpa_observation'):
-        snap['hpa_observation'] = copy.deepcopy(runtime.hpa_observation)
+    if hpa_observation is not None:
+        require(hpa_observation['status_sha256'] == digest(guard['hpa']), 'HPA observation/status binding drift')
+        snap['hpa_observation'] = hpa_observation
     emit(snap)
     if all_converged:
         emit({'record': 'convergence', 'at': snap['end'], 'healthy': True, 'targets': [t['uid'] for t in actual['targets']]})

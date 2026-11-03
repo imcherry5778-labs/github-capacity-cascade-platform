@@ -4343,6 +4343,7 @@ class Campaign22BoundaryTests(unittest.TestCase):
     def test_future_hpa_observation_brackets_same_failed_get_without_extra_api(self):
         runtime = m.Runtime.__new__(m.Runtime)
         runtime.value, runtime.hpa_name = {'source_sha': 'a' * 40}, m.HPA
+        runtime.collection_deadline = threading.local()
         emitted = []; runtime.emit = emitted.append
         failed = {'metadata': {'uid': 'synthetic', 'resourceVersion': '42', 'generation': 1},
                   'status': {'currentMetrics': [], 'conditions': [{'type': 'ScalingActive', 'status': 'False', 'reason': 'FailedGetExternalMetric'}]}}
@@ -4353,6 +4354,50 @@ class Campaign22BoundaryTests(unittest.TestCase):
         self.assertEqual((emitted[0]['request_at'], emitted[0]['at']), (10, 11))
         self.assertEqual(emitted[0]['status_sha256'], m.digest(failed['status']))
         self.assertNotIn('currentMetrics', emitted[0])  # Status remains in its original guard; the marker binds it by hash.
+
+    @patch.dict(os.environ, {'FORGEJO_URL': 'https://forgejo.example.com'}, clear=True)
+    def test_snapshot_hpa_clock_binds_guard_response_despite_concurrent_configuration_get(self):
+        for last_reader in ('configuration', 'guard'):
+            with self.subTest(last_reader=last_reader):
+                f, rows = LiveFixture(), []
+                runtime, main_thread = f.runtime, threading.get_ident()
+                configure = runtime.configuration
+                guard_read, configured = threading.Event(), threading.Event()
+                args = ('-n', m.NS, 'get', 'hpa', runtime.hpa_name, '-o', 'json')
+                failed = copy.deepcopy(f.guard()['hpa'])
+                failed['currentMetrics'] = []
+                next(c for c in failed['conditions'] if c['type'] == 'ScalingActive').update(
+                    status='False', reason='FailedGetExternalMetric')
+                def api(*call):
+                    value = f.j(*call)
+                    if call == args:
+                        guarding = threading.get_ident() != main_thread
+                        value = value | {'metadata': value['metadata'] | {'uid': 'hpa', 'resourceVersion': '42' if guarding else '43'},
+                                         'status': copy.deepcopy(failed if guarding else f.guard()['hpa'])}
+                    return value
+                def configuration(*call, **kwargs):
+                    if last_reader == 'configuration': self.assertTrue(guard_read.wait(2))
+                    try:
+                        return configure(*call, **kwargs)
+                    finally:
+                        configured.set()
+                def guard():
+                    if last_reader == 'guard': self.assertTrue(configured.wait(2))
+                    status = runtime.j(*args)['status']
+                    guard_read.set()
+                    self.assertTrue(configured.wait(2))
+                    return f.guard() | {'hpa': status}
+                runtime.j = m.Runtime.j.__get__(runtime)
+                runtime.configuration, runtime.guard = configuration, guard
+                with patch.object(m.p8.Runtime, 'j', side_effect=api) as get:
+                    m.collect_snapshot(runtime, f.config, f.baseline, rows.append, threading.Event())
+                snapshot = next(r for r in rows if r['record'] == 'snapshot')
+                self.assertEqual(snapshot['guard']['hpa'], failed)
+                self.assertEqual(snapshot['hpa_observation']['status_sha256'], m.digest(failed))
+                self.assertEqual(snapshot['hpa_observation']['metadata']['resourceVersion'], '42')
+                self.assertTrue(snapshot['at'] <= snapshot['hpa_observation']['request_at'] <=
+                                snapshot['hpa_observation']['at'] <= snapshot['end'])
+                self.assertEqual(sum(c.args == args for c in get.call_args_list), 3)  # Existing timeline/configuration/guard GETs only.
 
 
 class DemandRecoveryTests(unittest.TestCase):
