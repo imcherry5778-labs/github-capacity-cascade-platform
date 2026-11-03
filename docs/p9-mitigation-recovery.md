@@ -291,6 +291,10 @@ GitHub token 권한은 늘리지 않는다. 과거 run의 `pull_requests[].head/
 위 CI 변경을 포함한 `e4a7575937fda7fb7b647b2f5d463996a6634945`의
 [full local-platform 실행](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/actions/runs/41613354166)은
 실제 runtime 단계 전체 SUCCESS, job elapsed27분53초였다. Current HEAD의 runtime 생략은 이 이전 실행 결과와 구분한다.
+Mutable PR 링크 교정과 불변 base metadata를 포함한 `2898c0dd739a69ff7d24ae16d3588b5fe3c44fa5`의
+[최종 full 실행](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/actions/runs/41618889681)도
+runtime 단계 전체 SUCCESS, job elapsed28분53초였다. 성공 summary 단계가 기록한 event base는
+`d9977cc9046485bb7b47849297ec9769a3629223`이며, 현재 PR API와 local literal base diff의 동일 SHA와 대조한다.
 
 ## 권한·자원·원복 경계
 
