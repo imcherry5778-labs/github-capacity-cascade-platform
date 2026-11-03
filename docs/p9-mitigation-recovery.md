@@ -8,6 +8,39 @@ Source CI·synthetic·부분 positive를 valid calibration, measured 성과 또�
 
 현재 실행 범위·보존은 [Paid Azure boundary](implementation-plan.md#paid-azure-boundary--p6p11)와 별도 실제 사용자 결정을 따른다.
 Environment 기한은 2026-11-05 10:30 KST, Foundation/Bootstrap은 11월6일00:33 KST다. 자동 연장·전체 teardown·merge/P10은 없다.
+
+## Campaign23 이후 cost-free candidate
+
+[독립 review](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/49#pullrequestreview-5755324677) 뒤의
+source/test 변경은 **future candidate**다. Campaign22·23 archive/실행 source·negative·누적 횟수는 불변이다.
+이 정책으로 과거 manifest를 다시 서명하거나 Campaign23을 valid로 바꾸지 않는다. 새 paid source 승인은 없다.
+
+- **DECIDED — C3 bounded degraded startup 기록.** 새 형식은 guard HPA GET의 source/spec/status hash,
+  HPA UID·ScaledObject owner UID와 request/response monotonic clock을 configuration에 결합한다.
+  실제 `False/FailedGetExternalMetric`는 `controller_state=degraded`로 보존한다. 새 UID가 기존 lifecycle 안에서
+  resource/AMW joint 초기화 중인 경우에만 관측 가능한 mechanism negative로 취급하며 controller health PASS가 아니다.
+  기존 admission→Ready90초, Ready→AMW75초, Ready→resource joint150초·freshness·advancing two-sample gate를 유지한다.
+  같은 HPA의 usable External current metric과 실제 `True/ValidMetricFound`가 원래 budget 안에서 joint 관측돼야 한다.
+  초기화 완료 뒤 실패, persistent/다른 error, UID/owner/hash/clock 누락·변경은 invalid다. Warning guard도 그대로다.
+  Earlier HPA와 later AMW를 같은 evaluation으로 합치지 않는다. Degraded 구간은 convergence/recovery proof에서 제외하고
+  `review`에도 `excluded_controller_degradation`의 정확한 구간/UID 목록을 요구한다.
+- **DECIDED — authoritative HAProxy capture.** All arms에4MiB in-process `ring@p9`와 loopback-only worker CLI8405를 쓴다.
+  Pinned image의 BusyBox `nc`로 읽으며 Pod/CPU/memory request·limit, frontend/backend/C2 policy는 유지한다.
+  Stdout은 diagnostic이다. CLI ring drop, capacity/truncation, Pod UID/PID/start-time reset, prefix rotation,
+  duplicate request counter는 fail closed다. 부하 전에 bounded 최대 attempt를 저장할 여유를 확인한다.
+  강제 HTTP close·별도 unlogged readiness 아래 drained check frontend의 실제 `stot`와 lifetime row 수가 같아야 한다.
+  기존 ingress/target/server/BACKEND 보존식도 그대로이며 status400/CR·Tw=-1을 제거/변환하거나 누락 row를 counter로 채우지 않는다.
+  Pinned concurrent 시험에서 `%lc` 중복·gap이 완전한 row capture와 함께 나타났다. `%lc`는 유일 ID가 아니므로 raw diagnostic과
+  high-water 관측으로 보존한다. `DroppedLogs`도 process 전체 diagnostic이며 ring equality proof를 대신하지 않는다.
+- **REVALIDATE — Azure 경계.** [Pinned local proof](evidence/p9-calibration-capture-local-20261104/README.md)는
+  native AKS/AMW/HPA, 실제 collector clock·network/exec budget·Pod memory와 새로운 complete joint observation의 성공을 증명하지 않는다.
+  Actual scaler evaluation 원인과 Campaign23의 정확한 log loss hop은 UNKNOWN이다. 독립 exact-head 검토와 별도 paid 결정 전에는 실행하지 않는다.
+- **DEFERRED — cleanup parser.** Campaign23의3개 initial handler error와 targeted cleanup complete/errors=[] 기록을 보존한다.
+  그 handler는 제거된 one-off operator라 이번 source에 고칠 maintained parser가 없다. 별도 cleanup framework를 만들지 않는다.
+  다음 owned operator를 검토할 때 successful empty delete와 case-insensitive `manifest unknown`/실제 absence를 구분해야 한다.
+
+Recovery0.2초 SLO, worker12, wave/demand·threshold·budget은 바꾸지 않았다. Valid run의 not-recovered는 negative일 수 있고,
+Campaign23은 여전히 controller/accounting invalid다.
 P6/P7 drill, P8 전체 실험, factorial/조합 최적화, 다른 architecture 구현은 범위 밖이다.
 
 ## 비교와 동결

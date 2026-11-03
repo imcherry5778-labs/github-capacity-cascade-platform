@@ -48,6 +48,72 @@ TARGET_METRIC = {'cluster_label': 'cluster_name', 'cluster': 'inbound|8080||',
 # changes smoothing, not the 60s raw freshness or any calibration threshold.
 RATE_WINDOW = '2m'
 RESOURCE_INITIALIZATION_SECONDS = 150
+HAPROXY_RING_BYTES = 4 * 1024 * 1024
+HAPROXY_LOG_MAXLEN = 512
+# Read-only commands on a worker CLI bound to loopback, never the master CLI.
+HAPROXY_LOG_CLI = "set -e; printf 'show info;show events;show events p9\\n' | nc -w 2 127.0.0.1 8405; printf '\\nP9_RING_END\\n'"
+
+
+def haproxy_capture(text, uid):
+    """Pinned 3.4.6 CLI framing. Never discard a malformed/missing log row."""
+    require(text.endswith('\nP9_RING_END'), 'incomplete HAProxy CLI framing')
+    sections = text[:-len('\nP9_RING_END')].split('\n\n', 2)
+    require(len(sections) == 3, 'incomplete HAProxy ring CLI response')
+    info = dict(line.split(': ', 1) for line in sections[0].splitlines())
+    sink = re.findall(r'^\s+p9\s+: type=buffer, ([0-9]+) dropped, p9$', sections[1], re.M)
+    require(sink == ['0'], 'HAProxy ring missing/dropped logs')
+    pid, started, dropped = (int(info[k]) for k in ('Pid', 'Start_time_sec', 'DroppedLogs'))
+    require(pid > 0 and started > 0 and dropped >= 0 and info['Version'].startswith('3.4.6'), 'HAProxy logger identity/version')
+    lines = sections[2].strip('\n').splitlines()
+    rows = [json.loads(line) for line in lines]
+    require(all(0 < len(line.encode()) + 16 < HAPROXY_LOG_MAXLEN for line in lines) and
+            (len(rows) + 1) * HAPROXY_LOG_MAXLEN < HAPROXY_RING_BYTES, 'HAProxy ring capacity/truncation')
+    fields = {'status', 'termination', 'queue_ms', 'connect_ms', 'response_ms', 'total_ms',
+              'accept_time', 'request_counter', 'log_counter', 'request_ms', 'pid'}
+    require(all(set(r) == fields and r['pid'] == pid and
+                all(type(r[k]) is int for k in fields - {'termination', 'accept_time'}) and
+                100 <= r['status'] <= 599 and re.fullmatch(r'[A-Za-z-]{2}', r['termination']) and
+                re.fullmatch(r'[0-9]+\.[0-9]{3}', r['accept_time']) and r['request_counter'] >= 0 and
+                all(r[k] >= -1 for k in ('queue_ms', 'connect_ms', 'response_ms', 'total_ms', 'request_ms'))
+                for r in rows), 'invalid HAProxy structured row')
+    # %lc repeats under concurrency in pinned 3.4.6; it is NOT a unique ID.
+    # %rt is assigned to the request, including other frontends; gaps are real
+    # and must not be filled. Completeness uses native check-frontend totals at
+    # drained boundaries, not a synthesized %lc sequence.
+    require(all(r['log_counter'] >= 0 for r in rows) and
+            len({r['request_counter'] for r in rows}) == len(rows), 'HAProxy duplicate/reset request counter')
+    return rows, {'transport': 'in-process-ring-cli', 'pod_uid': uid, 'pid': pid, 'start_time_sec': started,
+                  'capacity_bytes': HAPROXY_RING_BYTES, 'maxlen': HAPROXY_LOG_MAXLEN,
+                  'ring_dropped': 0, 'dropped_logs_total': dropped, 'rows_sha256': digest(rows),
+                  'response_sha256': hashlib.sha256(text.encode()).hexdigest()}
+
+
+def haproxy_capture_guard(snapshots, *, drained=True):
+    previous = None
+    for s in snapshots:
+        obs, rows = s['haproxy_log_observation'], s['haproxy_logs']
+        require(obs['transport'] == 'in-process-ring-cli' and obs['ring_dropped'] == 0 and
+                obs['pod_uid'] == s['configuration']['haproxy']['uid'] and
+                obs['capacity_bytes'] == HAPROXY_RING_BYTES and obs['maxlen'] == HAPROXY_LOG_MAXLEN and
+                obs['rows_sha256'] == digest(rows) and (len(rows) + 1) * HAPROXY_LOG_MAXLEN < HAPROXY_RING_BYTES and
+                all(r['pid'] == obs['pid'] and r['log_counter'] >= 0 for r in rows) and
+                len({r['request_counter'] for r in rows}) == len(rows), 'saved HAProxy ring evidence drift')
+        if previous is not None:
+            old = previous['haproxy_log_observation']
+            require(all(obs[k] == old[k] for k in ('pod_uid', 'pid', 'start_time_sec')) and
+                    obs['dropped_logs_total'] >= old['dropped_logs_total'] and
+                    rows[:len(previous['haproxy_logs'])] == previous['haproxy_logs'] and
+                    max((r['log_counter'] for r in rows), default=-1) >=
+                    max((r['log_counter'] for r in previous['haproxy_logs']), default=-1), 'HAProxy ring reset/rotation/lifetime drift')
+        previous = s
+    if drained:
+        # Every check connection closes after one HTTP exchange in this render;
+        # readiness uses the separate unlogged stats listener. Actual counters
+        # prove equality only at drained boundaries; never fill missing rows.
+        for endpoint in (snapshots[0], snapshots[-1]):
+            front = endpoint['haproxy']['frontend']
+            require(front['scur'] == 0 and front['stot'] == len(endpoint['haproxy_logs']),
+                    'HAProxy ring incomplete at drained frontend boundary')
 
 
 def metric_contract():
@@ -263,7 +329,9 @@ def render(identity, v, arm):
     hp = next(o for o in items if o['kind'] == 'ConfigMap' and o['metadata']['name'] == 'haproxy')
     config = hp['data']['haproxy.cfg'].replace('timeout connect 5s', 'timeout connect 250ms').replace('timeout server 10s', 'timeout server 2s').replace('timeout client 10s', 'timeout client 4s')
     # Same logging policy for all arms; no URL, credentials or bodies.
-    config = 'global\n  log stdout format raw local0\n' + config
+    config = ('global\n  log stdout format raw local0\n  log ring@p9 format raw local0\n'
+              '  stats socket ipv4@127.0.0.1:8405 level operator\n'
+              'ring p9\n  format raw\n  size ' + str(HAPROXY_RING_BYTES) + '\n  maxlen ' + str(HAPROXY_LOG_MAXLEN) + '\n') + config
     config = config.replace('  mode http\n', '  mode http\n  log global\n  log-format "{\\"status\\":%ST,\\"termination\\":\\"%ts\\",\\"queue_ms\\":%Tw,\\"connect_ms\\":%Tc,\\"response_ms\\":%Tr,\\"total_ms\\":%Ta,\\"accept_time\\":\\"%Ts.%ms\\",\\"request_counter\\":%rt,\\"log_counter\\":%lc,\\"request_ms\\":%TR,\\"pid\\":%pid}"\n')
     if arm == 'C2':
         config = config.replace('  timeout connect 250ms', '  timeout queue ' + str(v['queue_timeout_ms']) + 'ms\n  timeout connect 250ms')
@@ -323,6 +391,41 @@ def approval_gate(identity, v, approval, ledger, now=None):
     require(now + timedelta(seconds=v['mitigation_seconds'] + v['recovery_seconds'] + 60 + 1800) < DEADLINE, 'insufficient retention time for run/drain/rollback')
     require(all(r['source_sha'] == identity['source_sha'] and (r['phase'] == 'calibration' or r['plan_sha256'] == digest(v)) for r in ledger), 'ledger source/plan drift')
     require(sum(r['phase'] == 'calibration' for r in ledger) <= 2 and all(sum(r['phase'] == 'measured' and r['arm'] == a for r in ledger) <= 1 for a in ARMS), 'campaign run budget exceeded')
+
+
+def controller_positive(hpa, arm, spec):
+    conditions = {c['type']: c for c in hpa.get('conditions', [])}
+    if not (conditions.get('AbleToScale', {}).get('status') == 'True' and
+            conditions.get('ScalingActive', {}).get('status') == 'True' and
+            1 <= hpa.get('desiredReplicas', 0) <= 2 and hpa.get('currentMetrics')):
+        return False
+    if arm != 'C3':
+        return True
+    metrics = hpa['currentMetrics']
+    if not (conditions['ScalingActive'].get('reason') == 'ValidMetricFound' and len(metrics) == 1 and
+            metrics[0].get('type') == 'External' and
+            metrics[0].get('external', {}).get('metric') == spec['metrics'][0].get('external', {}).get('metric')):
+        return False
+    value = metrics[0]['external'].get('current', {}).get('averageValue')
+    return value is not None and math.isfinite(p8.quantity(value)) and p8.quantity(value) >= 0
+
+
+def controller_observation(s, baseline):
+    """Bind the observed HPA state, not the scaler's unknown evaluation epoch."""
+    require(type(s.get('hpa_observation')) is dict and type(baseline.get('hpa_identity')) is dict,
+            'missing controller observation provenance')
+    obs, expected = s['hpa_observation'], baseline['hpa_identity']
+    require(all(isinstance(expected.get(k), str) and expected[k] for k in ('uid', 'owner_uid')),
+            'missing controller UID/owner provenance')
+    meta = obs['metadata']
+    owners = [r for r in meta.get('ownerReferences', []) if r.get('controller') is True]
+    require(meta['uid'] == expected['uid'] and meta['name'] == HPA and meta['namespace'] == NS and
+            len(owners) == 1 and owners[0]['kind'] == 'ScaledObject' and owners[0]['uid'] == expected['owner_uid'] and
+            obs['spec_sha256'] == digest(baseline['hpa_spec']) and obs['status_sha256'] == digest(s['guard']['hpa']) and
+            obs['source_sha'] == s['signal']['evaluation']['source_sha'] and
+            s['inventory_at'] <= obs['request_at'] <= obs['at'] <= s['resource_readiness']['observed_at'] <= s['end'],
+            'controller observation UID/owner/status/clock drift')
+    return obs['at']
 
 
 @contextmanager
@@ -862,7 +965,7 @@ class Runtime(p8.Runtime):
         require(self.arm == 'C3' or len(ready) == len(inventory), 'baseline readiness failure')
         hpas = self.j('-n', NS, 'get', 'hpa', '-o', 'json')['items']
         scaled = [o for o in self.j('-n', NS, 'get', 'scaledobjects', '-o', 'json')['items'] if o['spec']['scaleTargetRef']['name'] == 'ext-authz-sim']
-        controller_guard(self.arm, hpas, scaled)
+        owner = controller_guard(self.arm, hpas, scaled)
         deferred = set()
         if initializing:
             deferred = {p['metadata']['uid'] for p in ready} - getattr(self, 'initializing_stat_seen', set())
@@ -916,6 +1019,7 @@ class Runtime(p8.Runtime):
                 provenance.clear()
             self.scaledobject_provenance = provenance
             result['scaledobject_spec'] = observed
+            result['hpa_identity'] = {'uid': owner['metadata']['uid'], 'owner_uid': scaled[0]['metadata']['uid']}
         else:
             require(result['hpa_spec'] == next(o['spec'] for o in expected if o['kind'] == 'HorizontalPodAutoscaler'), 'CPU HPA drift')
         return result
@@ -930,7 +1034,9 @@ class Runtime(p8.Runtime):
         if args == ('-n', NS, 'get', 'hpa', self.hpa_name, '-o', 'json'):
             observation = {'request_at': started, 'at': time.monotonic(),
                 'source_sha': self.value['source_sha'], 'status_sha256': digest(value['status']),
-                'metadata': {k: value['metadata'][k] for k in ('uid', 'resourceVersion', 'generation') if k in value['metadata']}}
+                'spec_sha256': digest(value['spec']),
+                'metadata': {k: value['metadata'][k] for k in
+                    ('name', 'namespace', 'uid', 'resourceVersion', 'generation', 'ownerReferences') if k in value['metadata']}}
             self.collection_deadline.hpa_observation = observation
             getattr(self, 'emit', lambda _: None)({'record': 'hpa_observation', **observation})
         return value
@@ -945,12 +1051,13 @@ class Runtime(p8.Runtime):
         import io
         text = self.k('-n', NS, 'exec', self.pod(NS, 'app=haproxy')['metadata']['name'], '-c', 'haproxy', '--',
                       'wget', '-qO-', 'http://127.0.0.1:8404/stats;csv')
-        rows = [r for r in csv.DictReader(io.StringIO(text.removeprefix('# '))) if r['pxname'] == 'ext_authz']
-        def selected(name):
-            matches = [r for r in rows if r['svname'] == name]
+        rows = list(csv.DictReader(io.StringIO(text.removeprefix('# '))))
+        def selected(name, proxy='ext_authz', fields=p8.p4.HAPROXY_FIELDS):
+            matches = [r for r in rows if r['svname'] == name and r['pxname'] == proxy]
             require(len(matches) == 1, 'HAProxy server/backend row missing')
-            return {'status': matches[0]['status']} | {k: int(matches[0][k]) for k in p8.p4.HAPROXY_FIELDS}
-        return selected('app') | {'backend': selected('BACKEND')}
+            return {'status': matches[0]['status']} | {k: int(matches[0][k]) for k in fields}
+        return selected('app') | {'backend': selected('BACKEND'),
+                                 'frontend': selected('FRONTEND', 'check', ('stot', 'req_tot', 'scur'))}
 
     def prom(self, query, *, observation=None):
         emit = getattr(self, 'emit', lambda _: None)
@@ -1079,11 +1186,14 @@ def collect_snapshot(runtime, config, before, emit, release_started):
     # Fixed numeric log provenance; no peer/header/URL/body values.
     hp = runtime.pod(NS, 'app=haproxy')
     hp_logs_at = time.monotonic()
-    hp_logs = [json.loads(line) for line in runtime.k('-n', NS, 'logs', hp['metadata']['name'], '-c', 'haproxy').splitlines() if line.startswith('{')]
+    hp_logs, hp_observation = haproxy_capture(runtime.k('-n', NS, 'exec', hp['metadata']['name'], '-c', 'haproxy', '--',
+                                                      'sh', '-c', HAPROXY_LOG_CLI), hp['metadata']['uid'])
+    require(hp_observation['pod_uid'] == actual['haproxy']['uid'], 'HAProxy capture Pod UID drift')
     hp_logs_end = time.monotonic()
     signal = runtime.signal(inventory, at=at)
     resource = runtime.lifecycle.resources(guard, [p8.p4.pod_guard(p) for p in inventory], signal, time.monotonic())
-    all_converged = healthy and signal['status'] == resource['status'] == 'observed' and {p['metadata']['uid'] for p in inventory} == {t['uid'] for t in actual['targets']}
+    positive = controller_positive(guard['hpa'], runtime.arm, actual['hpa_spec'])
+    all_converged = positive and healthy and signal['status'] == resource['status'] == 'observed' and {p['metadata']['uid'] for p in inventory} == {t['uid'] for t in actual['targets']}
     if resource['pending_uids']:
         emit({'record': 'snapshot_gap', 'at': at, 'reason': 'resource-initializing', 'pending_uids': resource['pending_uids']})
     if releasing and not healthy:
@@ -1094,16 +1204,23 @@ def collect_snapshot(runtime, config, before, emit, release_started):
         raise SnapshotBudgetExceeded('snapshot collection budget exceeded')
     snap = {'record': 'snapshot', 'at': at, 'end': end, 'inventory_at': inventory_at, 'inventory_epoch': inventory_epoch, 'epoch': time.time(), 'timestamp_utc': p8.utc(),
             'configuration': actual, 'guard': guard, 'stats': stats, 'logs': logs, 'haproxy': haproxy,
-            'haproxy_logs': hp_logs, 'signal': signal, 'resource_readiness': resource, 'fault_healthy': healthy, 'healthy': all_converged,
+            'haproxy_logs': hp_logs, 'haproxy_log_observation': hp_observation,
+            'signal': signal, 'resource_readiness': resource, 'fault_healthy': healthy, 'healthy': all_converged,
             'release_started': releasing, 'admin_stats': runtime.admin_observations, 'target_inventory': [p8.p4.pod_guard(p) for p in inventory]}
     snap['path_observation'] = {'target_ingress_request_at': logs_at, 'target_ingress_end': target_ingress_logs_end,
         'haproxy_request_at': hp_logs_at, 'haproxy_end': hp_logs_end}
+    require(runtime.arm != 'C3' or hpa_observation is not None, 'missing C3 HPA observation')
     if hpa_observation is not None:
         require(hpa_observation['status_sha256'] == digest(guard['hpa']), 'HPA observation/status binding drift')
         snap['hpa_observation'] = hpa_observation
+        if runtime.arm == 'C3':
+            snap['controller_state'] = {'status': 'positive' if positive else 'degraded',
+                'hpa_uid': hpa_observation['metadata']['uid'], 'observed_at': hpa_observation['at']}
+            controller_observation(snap, before)
     emit(snap)
     if all_converged:
         emit({'record': 'convergence', 'at': snap['end'], 'healthy': True, 'targets': [t['uid'] for t in actual['targets']]})
+    return snap
 
 
 class CPUStartup:
@@ -1606,7 +1723,10 @@ def _measure(identity, v, arm, phase, output, approval_path, frozen_path, ledger
             release_future.append(workers.submit(runtime.release, emit))
         release_future = []
         try:
-            collect_snapshot(runtime, config, baseline, emit, release_started)
+            initial = collect_snapshot(runtime, config, baseline, emit, release_started)
+            haproxy_capture_guard([initial])
+            require((len(initial['haproxy_logs']) + 2 * len(schedule(v)) + 1) * HAPROXY_LOG_MAXLEN < HAPROXY_RING_BYTES,
+                    'insufficient HAProxy ring capacity for bounded attempts')
             with concurrent.futures.ThreadPoolExecutor(max_workers=3) as workers:
                 monitors = [workers.submit(sentinel), workers.submit(monitor)]
                 try:
@@ -1669,6 +1789,8 @@ def common_guards(snapshots, baseline, arm, v):
     seen = set()
     pending_since = {}
     warm_epochs = [s['epoch'] for s in snapshots if s['signal'].get('status') == 'warming-new-pod']
+    bounded_controller = arm == 'C3' and any('controller_state' in s for s in snapshots)
+    degraded, joint = set(), set()
     previous = None
     for s in snapshots:
         config_guard(baseline, s['configuration'], arm, s.get('fault_healthy', s['healthy']), s.get('release_started', False))
@@ -1700,12 +1822,18 @@ def common_guards(snapshots, baseline, arm, v):
         inventory = s.get('target_inventory', [p for p in guard['pods'] if p['name'].startswith('ext-authz-sim-')])
         lifecycle.inventory(inventory, s.get('inventory_at', s['at']), s.get('inventory_epoch'))
         resource_at = s['at']  # Historical guard-only replay has no new marker.
+        require(not bounded_controller or type(s.get('resource_readiness')) is dict,
+                'saved resource readiness drift')
         if 'resource_readiness' in s:
             require(type(s['resource_readiness']) is dict and 'observed_at' in s['resource_readiness'],
                     'saved resource readiness drift')
             resource_at = s['resource_readiness']['observed_at']
             require(bounded(resource_at, s['at'], s['end']), 'resource observation outside snapshot')
-        lifecycle.resources(guard, inventory, s['signal'], resource_at)
+        if bounded_controller:
+            lifecycle.admin(s['configuration']['targets'], s['admin_stats'], s['stats'], s['at'])
+            decision = signal_evaluation(s['signal'], s['hpa_observation']['source_sha'], (s['at'], s['end']))
+            lifecycle.signal(s['signal'], inventory, s['signal']['evaluation']['at'], decision)
+        resource = lifecycle.resources(guard, inventory, s['signal'], resource_at)
         for p in guard['pods']:
             new_target = arm == 'C3' and p['uid'] not in fixed and p['uid'] not in first_targets
             pending_since.setdefault(p['uid'], s['at'])
@@ -1717,7 +1845,33 @@ def common_guards(snapshots, baseline, arm, v):
         hpa = guard['hpa']
         cond = {c['type']: c for c in hpa.get('conditions', [])}
         require(cond.get('AbleToScale', {}).get('status') == 'True' and 1 <= hpa['desiredReplicas'] <= 2, 'controller scale/status failure')
-        if not warming:
+        if bounded_controller:
+            observed_at = controller_observation(s, baseline)
+            positive = controller_positive(hpa, arm, baseline['hpa_spec'])
+            require(s['controller_state'] == {'status': 'positive' if positive else 'degraded',
+                    'hpa_uid': baseline['hpa_identity']['uid'], 'observed_at': observed_at}, 'saved controller state drift')
+            if not positive:
+                pending = set(resource['pending_uids']) - first_targets
+                failure = cond.get('ScalingActive', {})
+                require(failure.get('status') == 'False' and failure.get('reason') == 'FailedGetExternalMetric' and
+                        pending and not pending & joint and pending <= set(lifecycle.first_seen) - first_targets,
+                        'controller failure outside bounded new-Pod initialization')
+                for uid in pending:
+                    since = lifecycle.ready_since.get(uid)
+                    require(lifecycle.first_seen[uid] <= observed_at and
+                            (since is None and observed_at - lifecycle.first_seen[uid] <= 90 or
+                             since is not None and 0 <= observed_at - since <= RESOURCE_INITIALIZATION_SECONDS),
+                            'controller startup clock outside UID lifecycle')
+                # Explicit degraded mechanism outcome, never controller health.
+                degraded |= pending
+            elif resource['status'] == s['signal']['status'] == 'observed':
+                for uid in (lifecycle.resource_complete - joint) | degraded:
+                    require(uid in lifecycle.resource_complete and uid in lifecycle.ready_since and
+                            s['end'] - lifecycle.ready_since[uid] <= RESOURCE_INITIALIZATION_SECONDS,
+                            'controller joint initialization timeout')
+                joint |= lifecycle.resource_complete
+                degraded -= joint
+        elif not warming:
             require(cond.get('ScalingActive', {}).get('status') == 'True' and hpa.get('currentMetrics'), 'controller metric/status failure')
         else:
             require(cond.get('ScalingActive', {}).get('status') == 'True' or
@@ -1731,10 +1885,15 @@ def common_guards(snapshots, baseline, arm, v):
         if previous:
             require(s['at'] > previous['at'], 'snapshot order')
         previous = s
+    require(not degraded, 'controller startup lacks later genuine joint positive observation')
     return seen
 
 
 def path_accounting(arm, snapshots):
+    # Historical stdout-only negative fixtures remain replayable; new validate
+    # requires the ring marker on every snapshot, including accounting endpoints.
+    if any('haproxy_log_observation' in s for s in snapshots):
+        haproxy_capture_guard(snapshots)
     first, last = snapshots[0], snapshots[-1]
     target_uids = {uid for s in snapshots for uid in s['stats']}
     inventory_uids = {p['uid'] for s in snapshots for p in s.get('target_inventory', [])}
@@ -1817,6 +1976,8 @@ def validate(directory):
     require(events[0]['transport'] == manifest['transport'] and events[0]['transport'] == p8.p7.operations.transport(events[0]['transport']['endpoint'], 'azure-aks',
             events[0]['transport'].get('dns_client_override')) and urllib.parse.urlsplit(events[0]['transport']['endpoint']).hostname == identity['forgejo_hostname'], 'transport/hostname drift')
     snapshots = [e for e in events if e['record'] == 'snapshot']
+    require(all('haproxy_log_observation' in s for s in snapshots), 'missing authoritative HAProxy ring capture')
+    require(arm != 'C3' or all('controller_state' in s for s in snapshots), 'missing bounded controller observation')
     uids = common_guards(snapshots, manifest['baseline'], arm, v)
     report, rows, origin = demand_report(v, events)
     require(report['unissued'] == 0 and report['driver_lag_max_seconds'] <= 2, 'driver demand reduction/lag invalidates comparison')
@@ -1851,7 +2012,8 @@ def validate(directory):
         require(bounded(resource_at, s['signal']['evaluation']['at'], s['end']), 'resource observation outside snapshot')
         resource = lifecycle.resources(s['guard'], inventory, s['signal'], resource_at)
         require(s.get('resource_readiness') == resource, 'saved resource readiness drift')
-        converged = (s.get('fault_healthy', False) and s['signal']['status'] == resource['status'] == 'observed' and
+        converged = (controller_positive(s['guard']['hpa'], arm, manifest['baseline']['hpa_spec']) and
+                     s.get('fault_healthy', False) and s['signal']['status'] == resource['status'] == 'observed' and
                      {p['uid'] for p in inventory} == {t['uid'] for t in s['configuration']['targets']})
         require(s['healthy'] == converged, 'saved healthy/readiness drift')
         signals.append(value if resource['status'] == 'observed' else None)
@@ -1910,6 +2072,10 @@ def validate(directory):
             'validity': 'pending-cloud-confounder-review', 'hypothesis': 'pending',
             'window_utc': {'start': events[0]['timestamp_utc'], 'end': events[-1]['timestamp_utc']},
             'campaign': report, 'accounting': path, 'recovery': rec, 'scaling': scale,
+            'controller_degraded_startup': [{'observed_at': s['hpa_observation']['at'],
+                'hpa_uid': s['controller_state']['hpa_uid'], 'status': 'degraded', 'reason': 'FailedGetExternalMetric',
+                'pending_uids': s['resource_readiness']['pending_uids']}
+                for s in snapshots if s.get('controller_state', {}).get('status') == 'degraded'],
             'resource_initialization': [{'at': s['at'], 'end': s['end'], 'pending_uids': s['resource_readiness']['pending_uids']}
                                         for s in snapshots if s['resource_readiness']['status'] != 'observed'],
             'target_uids': sorted(uids), 'cleanup': 'pending'}
@@ -1938,6 +2104,9 @@ def reviewed(directory):
     if result['resource_initialization']:
         require(review.get('excluded_resource_initialization') == result['resource_initialization'],
                 'resource initialization cannot be confounder proof')
+    if result['controller_degraded_startup']:
+        require(review.get('excluded_controller_degradation') == result['controller_degraded_startup'],
+                'controller degradation cannot be controller health/recovery proof')
     result['validity'] = 'valid'
     result['hypothesis'] = 'reviewed single contemporaneous comparison; no statistical generalization'
     return result
@@ -1961,6 +2130,7 @@ def compare(directories, freeze):
             current['haproxy']['config_sha256'] = expected['haproxy']['config_sha256']
         if config['arm'] == 'C3':
             current.pop('scaledobject_spec')
+            current.pop('hpa_identity', None)
             current['hpa_spec'] = expected['hpa_spec']
         config_guard(expected, current, config['arm'])
     return {'source_sha': freeze['source_sha'], 'validity': 'valid', 'arms': results,

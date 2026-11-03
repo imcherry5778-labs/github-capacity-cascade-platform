@@ -48,6 +48,12 @@ def events(v=None):
     return e
 
 
+def ring_response(rows, *, dropped=0, stdout_dropped=0, started=1):
+    return ('Version: 3.4.6\nPid: 8\nStart_time_sec: ' + str(started) + '\nDroppedLogs: ' + str(stdout_dropped) +
+            '\n\nSupported events sinks\n    p9 : type=buffer, ' + str(dropped) + ' dropped, p9\n\n' +
+            '\n'.join(json.dumps(r) for r in rows) + '\n\n\nP9_RING_END')
+
+
 def bind_synthetic_snapshot_clocks(rows):
     """Construct provenance for intentionally rescheduled synthetic fixtures only.
 
@@ -60,6 +66,9 @@ def bind_synthetic_snapshot_clocks(rows):
         s['inventory_at'], s['inventory_epoch'] = s['at'], s['epoch']
         obs = s['signal']['evaluation']
         obs.update(at=s['at'], epoch=s['epoch'], timestamp_utc=m.datetime.fromtimestamp(s['epoch'], m.timezone.utc).isoformat())
+        if 'hpa_observation' in s:
+            s['hpa_observation'].update(request_at=s['at'], at=s['at'])
+            s['controller_state']['observed_at'] = s['at']
         extra += [{'record': 'signal_evaluation', **obs, 'signal_sha256': m.digest(s['signal'])},
                   {'record': 'replica_timeline', 'at': s['at'], 'epoch': s['inventory_epoch'], 'inventory_at': s['inventory_at'], 'source_sha': obs['source_sha'],
                    'pods': s['target_inventory'], 'hpa': {'status': s['guard']['hpa']}}]
@@ -639,13 +648,16 @@ class LiveFixture:
         r.hpa_name = m.HPA if arm == 'C3' else 'hpa-app-cpu'
         objects = m.render(r.value, r.v, arm)['fixtures.json']['items']
         r.hp_config = next(o['data']['haproxy.cfg'] for o in objects if o['kind'] == 'ConfigMap' and o['metadata']['name'] == 'haproxy')
-        self.hpa = {'metadata': {'name': r.hpa_name}, 'spec': t8.hpa_spec()}
+        self.hpa = {'metadata': {'name': r.hpa_name, 'namespace': m.NS, 'uid': 'hpa'}, 'spec': t8.hpa_spec()}
         self.scaled = []
         if arm == 'C3':
             so = copy.deepcopy(next(o for o in objects if o['kind'] == 'ScaledObject'))
             so['metadata']['uid'] = 'so'
             self.scaled = [so]
             self.hpa['metadata']['ownerReferences'] = [{'kind': 'ScaledObject', 'uid': 'so', 'controller': True}]
+            self.hpa['spec']['metrics'] = [{'type': 'External', 'external': {
+                'metric': {'name': 's0-prometheus', 'selector': {'matchLabels': {'scaledobject.keda.sh/name': m.HPA}}},
+                'target': {'type': 'AverageValue', 'averageValue': '500m'}}}]
         self.policy, self.listeners, filters, _ = t8.gateway_fixture()
         filters[-1]['typed_config'].update(http_service={'server_uri': {'cluster': 'haproxy.' + m.NS + '.svc.cluster.local'},
             'authorization_request': {'headers_to_add': [{'key': 'authorization', 'value': 'p4-check-without-credentials'}]}})
@@ -690,6 +702,7 @@ class LiveFixture:
 
     def k(self, *args):
         if 'logs' in args: return ''
+        if m.HAPROXY_LOG_CLI in args: return ring_response([])
         if 'stats/prometheus' in args:
             uid = next(p['metadata']['uid'] for p in self.pods if p['metadata']['name'] == args[3])
             if uid in self.no_admin: return ''
@@ -754,6 +767,15 @@ class LiveFixture:
             metric['timestamp'] = guard['timestamp_utc']
         guard['admission'] = m.p8.admission(self.runtime.value, self.pods)
         guard['hpa'].update(currentReplicas=len(self.pods), desiredReplicas=len(self.pods))
+        if self.runtime.arm == 'C3':
+            next(c for c in guard['hpa']['conditions'] if c['type'] == 'ScalingActive')['reason'] = 'ValidMetricFound'
+            guard['hpa']['currentMetrics'] = [{'type': 'External', 'external': {
+                'metric': self.hpa['spec']['metrics'][0]['external']['metric'], 'current': {'averageValue': '0'}}}]
+            if getattr(self.runtime.collection_deadline, 'hpa_observation', None) is None:
+                self.runtime.collection_deadline.hpa_observation = {
+                    'request_at': time.monotonic(), 'at': time.monotonic(), 'source_sha': self.runtime.value['source_sha'],
+                    'status_sha256': m.digest(guard['hpa']), 'spec_sha256': m.digest(self.hpa['spec']),
+                    'metadata': copy.deepcopy(self.hpa['metadata'])}
         return guard
 
     def collect(self, at, released=False):
@@ -1095,7 +1117,7 @@ class ResourceReadinessTests(unittest.TestCase):
             window = {'start': '2026-11-03T00:00:00Z', 'end': '2026-11-03T00:06:00Z'}
             intervals = [{'at': 2, 'end': 3, 'pending_uids': ['new']}]
             result = {'source_sha': 'a' * 40, 'fingerprint': 'b' * 64, 'window_utc': window,
-                      'arm': 'C3', 'resource_initialization': intervals}
+                      'arm': 'C3', 'resource_initialization': intervals, 'controller_degraded_startup': []}
             path = Path(d, 'signals.json'); path.write_text('{}')
             signals = {name: {'file': path.name, 'sha256': m.hashlib.sha256(path.read_bytes()).hexdigest(),
                              'status': 'observed', 'samples': 1, 'interpretation': 'synthetic; not-ready intervals excluded',
@@ -1112,6 +1134,18 @@ class ResourceReadinessTests(unittest.TestCase):
                         self.assertEqual(m.reviewed(d)['validity'], 'valid')  # Schema-only synthetic review.
                     else:
                         with self.assertRaisesRegex(ValueError, 'cannot be confounder proof'): m.reviewed(d)
+            degraded = [{'observed_at': 2, 'hpa_uid': 'hpa', 'status': 'degraded',
+                         'reason': 'FailedGetExternalMetric', 'pending_uids': ['new']}]
+            result['controller_degraded_startup'] = degraded
+            review['excluded_resource_initialization'] = intervals
+            for excluded in (None, [], degraded):
+                obj = copy.deepcopy(review)
+                if excluded is not None: obj['excluded_controller_degradation'] = excluded
+                Path(d, 'confounder-review.json').write_text(json.dumps(obj))
+                with patch.object(m, 'validate', return_value=copy.deepcopy(result)):
+                    if excluded == degraded: self.assertEqual(m.reviewed(d)['validity'], 'valid')
+                    else:
+                        with self.assertRaisesRegex(ValueError, 'cannot be controller health/recovery proof'): m.reviewed(d)
 
 
 class ArchivedScaledObjectTests(unittest.TestCase):
@@ -1450,6 +1484,7 @@ class CollectionGateTests(unittest.TestCase):
                                 e.update(copy.deepcopy(warm), at=at, end=end, epoch=epoch, inventory_at=at, inventory_epoch=epoch)
                                 e['resource_readiness']['observed_at'] = at
                                 e['signal']['pods'][0]['timestamp'] = epoch
+                        bind_synthetic_snapshot_clocks(changed)
                     elif case == 'series-timeout':
                         # Ready at185 with no series through270 exceeds75s.
                         for e in changed:
@@ -1617,7 +1652,7 @@ class CollectionGateTests(unittest.TestCase):
                         calls.append('stats')
                         return stats(actual)
                     def logs(*args):
-                        if 'logs' in args:
+                        if 'logs' in args or m.HAPROXY_LOG_CLI in args:
                             advance(.375); calls.append('logs')
                         return k(*args)
                     def query(expression, **kwargs):
@@ -1711,14 +1746,15 @@ class CollectionGateTests(unittest.TestCase):
                             result['stats'][0]['value'] = -1
                     return result
                 def command(*args):
-                    if 'logs' in args:
+                    if 'logs' in args or m.HAPROXY_LOG_CLI in args:
                         advance(.375); calls.append(('log', args[3], args[-1]))
                     elif 'http://127.0.0.1:8404/stats;csv' in args:
                         advance(4.5); calls.append(('haproxy',))
                         if case in {'boundary', 'overrun'}: times[main] = origin[0] + (30 if case == 'boundary' else 30.001)
                         fields = list(m.p8.p4.HAPROXY_FIELDS)
                         return '# pxname,svname,status,' + ','.join(fields) + '\n' + '\n'.join(
-                            'ext_authz,' + name + ',no check,' + ','.join('0' for _ in fields) for name in ('app', 'BACKEND'))
+                            px + ',' + name + ',no check,' + ','.join('0' for _ in fields)
+                            for px, name in (('ext_authz', 'app'), ('ext_authz', 'BACKEND'), ('check', 'FRONTEND')))
                     else:
                         advance(cost); calls.append(('k', *args))
                         if case == 'invalid-native' and 'ext-authz-sim-new' in args and 'stats/prometheus' in args: return ''
@@ -1844,6 +1880,7 @@ class CollectionGateTests(unittest.TestCase):
         for case in ('hostname', 'provider', 'selector', 'controller', 'image', *failures):
             with self.subTest(case=case), tempfile.TemporaryDirectory() as directory:
                 f = LiveFixture('C0')
+                f.runtime.haproxy = lambda: {'frontend': {'stot': 0, 'scur': 0}}
                 real_config = f.runtime.configuration
                 drift_at = []
                 def drift(config, **kwargs):
@@ -4345,7 +4382,7 @@ class Campaign22BoundaryTests(unittest.TestCase):
         runtime.value, runtime.hpa_name = {'source_sha': 'a' * 40}, m.HPA
         runtime.collection_deadline = threading.local()
         emitted = []; runtime.emit = emitted.append
-        failed = {'metadata': {'uid': 'synthetic', 'resourceVersion': '42', 'generation': 1},
+        failed = {'spec': t8.hpa_spec(), 'metadata': {'uid': 'synthetic', 'resourceVersion': '42', 'generation': 1},
                   'status': {'currentMetrics': [], 'conditions': [{'type': 'ScalingActive', 'status': 'False', 'reason': 'FailedGetExternalMetric'}]}}
         args = ('-n', m.NS, 'get', 'hpa', m.HPA, '-o', 'json')
         with patch.object(m.p8.Runtime, 'j', return_value=failed) as api, patch.object(m.time, 'monotonic', side_effect=[10, 11]):
@@ -4398,6 +4435,360 @@ class Campaign22BoundaryTests(unittest.TestCase):
                 self.assertTrue(snapshot['at'] <= snapshot['hpa_observation']['request_at'] <=
                                 snapshot['hpa_observation']['at'] <= snapshot['end'])
                 self.assertEqual(sum(c.args == args for c in get.call_args_list), 3)  # Existing timeline/configuration/guard GETs only.
+
+
+class Campaign23BoundaryTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.archive = ROOT / 'docs/evidence/p9-mitigation-twenty-third-20261103/raw-evidence.tar.gz'
+        cls.original = m.hashlib.sha256(cls.archive.read_bytes()).hexdigest()
+        assert cls.original == 'd1e340eb44c7b01d15c884d3b6b5952bc096fbd3172b98bd8b0eb93df521666f'
+        with tarfile.open(cls.archive) as raw:
+            cls.manifest = json.load(raw.extractfile('calibration-C3-1/configuration.json'))
+            cls.rows = [json.loads(line) for line in raw.extractfile('calibration-C3-1/events.jsonl')]
+        cls.snapshots = [e for e in cls.rows if e['record'] == 'snapshot']
+
+    @classmethod
+    def tearDownClass(cls):
+        assert m.hashlib.sha256(cls.archive.read_bytes()).hexdigest() == cls.original
+
+    def test_actual_earlier_hpa_is_still_invalid_not_later_amw_success(self):
+        with self.assertRaisesRegex(ValueError, 'controller metric/status failure'):
+            m.common_guards(self.snapshots, self.manifest['baseline'], 'C3', self.manifest['plan'])
+        failed = [s for s in self.snapshots if s['signal']['status'] == 'observed' and
+                  any(c['type'] == 'ScalingActive' and c['status'] == 'False' for c in s['guard']['hpa']['conditions'])]
+        self.assertEqual(len(failed), 1)
+        self.assertAlmostEqual(failed[0]['signal']['query_observation']['at'] - failed[0]['hpa_observation']['at'], 11.76233341614716)
+        self.assertNotIn('controller_state', failed[0])
+
+    def test_actual_103_log_rows_remain_missing_no_400_filter(self):
+        first, last = self.snapshots[0], self.snapshots[-1]
+        rows = last['haproxy_logs'][len(first['haproxy_logs']):]
+        ingress = sum(len(rs) - len(first['logs']['proxies']['ingress'][uid]) for uid, rs in last['logs']['proxies']['ingress'].items())
+        self.assertEqual((len(rows), ingress), (3036, 3139))
+        self.assertFalse(any(r['status'] == 400 or r['queue_ms'] == -1 for r in rows))
+        with self.assertRaisesRegex(ValueError, 'path error'): m.path_accounting('C3', self.snapshots)
+
+    def test_actual_recovery_negative_not_relaxed(self):
+        # Only the redacted public identity placeholder is replaced for this
+        # pure schedule/latency predicate; no identity/plan binding revalidation.
+        v = self.manifest['plan'] | {'identity_client_id': plan()['identity_client_id']}
+        result = m.recovery(v, self.rows, lambda *_: True)
+        self.assertEqual(result['status'], 'not recovered within observation window')
+        self.assertEqual(sum(w['failure_counts'].get('issue-command-slo', 0) for w in result['windows']), 639)
+
+
+class C3StartupControllerTests(unittest.TestCase):
+    def setUp(self):
+        env = patch.dict(os.environ, {'FORGEJO_URL': 'https://forgejo.example.com'}, clear=True)
+        env.start(); self.addCleanup(env.stop)
+
+    def fixture(self):
+        # Entirely synthetic future-format observations; never archive edits.
+        f = LiveFixture('C3')
+        snapshots = [next(r for r in f.collect(0) if r['record'] == 'snapshot')]
+        f.pods.append(f.pod('new', 'ext-authz-sim-new'))
+        f.one_sample = {'new'}
+        snapshots.append(next(r for r in f.collect(20) if r['record'] == 'snapshot'))
+        f.one_sample.clear()
+        original = f.runtime.guard
+        def first_export():
+            guard = original()
+            next(x for x in guard['pod_metrics'] if x['metadata']['name'] == 'ext-authz-sim-new')['timestamp'] = m.datetime.fromtimestamp(1020, m.timezone.utc).isoformat()
+            return guard
+        f.runtime.guard = first_export
+        snapshots.append(next(r for r in f.collect(35) if r['record'] == 'snapshot'))
+        f.runtime.guard = original
+        snapshots += [next(r for r in f.collect(at) if r['record'] == 'snapshot') for at in (50, 65)]
+        for s in snapshots[1:3]: self.degrade(s)
+        return snapshots, f.baseline
+
+    def degrade(self, s, reason='FailedGetExternalMetric'):
+        next(c for c in s['guard']['hpa']['conditions'] if c['type'] == 'ScalingActive').update(status='False', reason=reason)
+        s['guard']['hpa']['currentMetrics'] = [{'type': ''}]
+        s['hpa_observation']['status_sha256'] = m.digest(s['guard']['hpa'])
+        s['controller_state']['status'] = 'degraded'
+        s['healthy'] = False
+
+    def test_future_bounded_explicit_degradation_then_real_joint_positive(self):
+        snapshots, baseline = self.fixture()
+        self.assertEqual(snapshots[2]['signal']['status'], 'observed')
+        self.assertEqual(snapshots[2]['resource_readiness']['status'], 'initializing-new-pod')
+        self.assertEqual(m.common_guards(snapshots, baseline, 'C3', plan()), {'target', 'new'})
+        self.assertEqual([s['controller_state']['status'] for s in snapshots], ['positive', 'degraded', 'degraded', 'positive', 'positive'])
+        self.assertTrue(all(any(c['type'] == 'ScalingActive' and c['status'] == 'False' for c in s['guard']['hpa']['conditions']) for s in snapshots[1:3]))
+
+    def test_persistent_other_reason_post_initialization_and_missing_positive_invalid(self):
+        for case in ('persistent', 'other', 'initialized', 'no-positive', 'bad-metric'):
+            snapshots, baseline = self.fixture()
+            if case == 'persistent':
+                for s in snapshots[3:]: self.degrade(s)
+            elif case == 'other': self.degrade(snapshots[2], 'OtherError')
+            elif case == 'initialized': self.degrade(snapshots[-1])
+            elif case == 'no-positive': snapshots = snapshots[:3]
+            else:
+                snapshots[3]['guard']['hpa']['currentMetrics'] = [{'type': ''}]
+                snapshots[3]['hpa_observation']['status_sha256'] = m.digest(snapshots[3]['guard']['hpa'])
+                snapshots[3]['controller_state']['status'] = 'degraded'
+            with self.subTest(case=case), self.assertRaises(ValueError): m.common_guards(snapshots, baseline, 'C3', plan())
+
+    def test_uid_owner_hash_clock_and_original_budgets_remain_strict(self):
+        for case in ('uid', 'owner', 'hash', 'clock', 'resource-budget', 'amw-budget'):
+            snapshots, baseline = self.fixture(); s = snapshots[2]
+            if case == 'uid': s['hpa_observation']['metadata']['uid'] = 'other'
+            elif case == 'owner': s['hpa_observation']['metadata']['ownerReferences'][0]['uid'] = 'other'
+            elif case == 'hash': s['hpa_observation']['status_sha256'] = 'wrong'
+            elif case == 'clock': s['hpa_observation']['at'] = s['end'] + 1
+            else:
+                lifecycle = m.TargetLifecycle('C3', {'target'}, plan())
+                lifecycle.inventory(s['target_inventory'], 0, 1000)
+                if case == 'resource-budget':
+                    with self.assertRaisesRegex(ValueError, 'startup timeout'):
+                        lifecycle.resources(s['guard'], s['target_inventory'], s['signal'], 151)
+                else:
+                    lifecycle.admin(s['configuration']['targets'], s['admin_stats'], s['stats'], 0)
+                    with self.assertRaisesRegex(ValueError, 'series startup timeout'):
+                        lifecycle.signal(s['signal'], s['target_inventory'], 76, s['signal']['evaluation']['epoch'])
+                continue
+            with self.subTest(case=case), self.assertRaises(ValueError): m.common_guards(snapshots, baseline, 'C3', plan())
+
+    def test_joint_confirmation_uses_full_snapshot_end_within_150s(self):
+        snapshots, baseline = self.fixture()
+        # Ready at20, resource read at160 (+140), but mandatory collection
+        # completes at171 (+151). Earlier reads cannot meet the full joint gate.
+        s = snapshots[3]
+        s.update(at=160, end=171, inventory_at=160, inventory_epoch=1160, epoch=1171)
+        s['resource_readiness']['observed_at'] = 160
+        s['hpa_observation'].update(request_at=160, at=160)
+        s['controller_state']['observed_at'] = 160
+        s['signal']['evaluation'].update(at=160, epoch=1160,
+            timestamp_utc=m.datetime.fromtimestamp(1160, m.timezone.utc).isoformat())
+        for r in s['signal']['pods']: r['timestamp'] = 1160
+        with self.assertRaisesRegex(ValueError, 'controller joint initialization timeout'):
+            m.common_guards(snapshots[:4], baseline, 'C3', plan())
+
+
+class HaproxyRingTests(unittest.TestCase):
+    def row(self, counter=0):
+        return {'status': 200, 'termination': '--', 'queue_ms': 0, 'connect_ms': 0, 'response_ms': 1,
+                'total_ms': 1, 'accept_time': '1793698200.007', 'request_counter': counter + 1,
+                'log_counter': counter, 'request_ms': 0, 'pid': 8}
+
+    def test_complete_ring_and_stdout_loss_are_separate(self):
+        rows = [self.row(i) for i in range(3300)]
+        actual, obs = m.haproxy_capture(ring_response(rows, stdout_dropped=103), 'hp')
+        self.assertEqual(actual, rows)
+        self.assertEqual((obs['ring_dropped'], obs['dropped_logs_total']), (0, 103))
+        self.assertEqual(m.haproxy_capture(ring_response([]), 'hp')[0], [])
+        raced = [self.row(i) | {'log_counter': 0} for i in range(4)]
+        self.assertEqual(m.haproxy_capture(ring_response(raced), 'hp')[0], raced)
+
+    def test_missing_duplicate_overwrite_wrong_pid_and_malformed_fail_closed(self):
+        rows = [self.row(i) for i in range(4)]
+        variants = [rows + [rows[-1]],
+                    [rows[0] | {'pid': 9}], [rows[0] | {'url': 'forbidden'}]]
+        for changed in variants:
+            with self.subTest(changed=changed), self.assertRaises(ValueError):
+                m.haproxy_capture(ring_response(changed), 'hp')
+        for text in (ring_response(rows, dropped=1), ring_response(rows)[:-12],
+                     ring_response(rows).replace('\n\n\nP9_RING_END', '\nnot-json\n\nP9_RING_END')):
+            with self.assertRaises(ValueError): m.haproxy_capture(text, 'hp')
+        with patch.object(m, 'HAPROXY_RING_BYTES', 4 * m.HAPROXY_LOG_MAXLEN), self.assertRaisesRegex(ValueError, 'capacity'):
+            m.haproxy_capture(ring_response(rows), 'hp')
+
+    def test_c2_queue_timeout_and_shedding_values_are_not_normalized(self):
+        rows = [self.row(0) | {'status': 429, 'termination': 'PR', 'queue_ms': -1},
+                self.row(1) | {'status': 503, 'termination': 'sQ', 'queue_ms': 250}]
+        self.assertEqual(m.haproxy_capture(ring_response(rows), 'hp')[0], rows)
+
+    def test_saved_ring_lifetime_prefix_and_digest(self):
+        def snap(rows):
+            _, obs = m.haproxy_capture(ring_response(rows), 'hp')
+            return {'configuration': {'haproxy': {'uid': 'hp'}}, 'haproxy_logs': rows, 'haproxy_log_observation': obs,
+                    'haproxy': {'frontend': {'stot': len(rows), 'scur': 0}}}
+        first, last = snap([self.row()]), snap([self.row(i) for i in range(3)])
+        m.haproxy_capture_guard([first, last])
+        for key, value in (('pod_uid', 'other'), ('pid', 9), ('start_time_sec', 2), ('rows_sha256', 'wrong')):
+            changed = copy.deepcopy(last); changed['haproxy_log_observation'][key] = value
+            with self.subTest(key=key), self.assertRaises(ValueError): m.haproxy_capture_guard([first, changed])
+        changed = snap([self.row() | {'response_ms': 2}, self.row(1)])
+        with self.assertRaisesRegex(ValueError, 'reset/rotation'): m.haproxy_capture_guard([first, changed])
+        for rows in ([self.row(i) for i in range(1, 4)], [self.row(0), self.row(2), self.row(3)]):
+            changed = snap(rows); changed['haproxy']['frontend']['stot'] = 4
+            with self.assertRaisesRegex(ValueError, 'incomplete'): m.haproxy_capture_guard([changed, changed])
+
+
+@unittest.skipUnless(os.environ.get('P9_LOCAL_HAPROXY_DOCKER') == '1', 'explicit cost-free pinned Docker test')
+class PinnedHaproxyRingTests(unittest.TestCase):
+    def test_overwrite_and_actual_cr_row_fail_closed(self):
+        import http.client
+        import socket
+        import subprocess
+        import uuid
+        name = 'p9-ring-overwrite-' + uuid.uuid4().hex[:12]
+        objects = m.render(t8.identity(), plan(), 'C0')['fixtures.json']['items']
+        cfg = next(o['data']['haproxy.cfg'] for o in objects if o['kind'] == 'ConfigMap' and o['metadata']['name'] == 'haproxy')
+        cfg = cfg.replace('size ' + str(m.HAPROXY_RING_BYTES), 'size 4096')
+        cfg = cfg.replace('ext-authz-sim.' + m.NS + '.svc.cluster.local:8080', '127.0.0.1:8081')
+        cfg += '\nfrontend local_test_backend\n  bind 127.0.0.1:8081\n  no log\n  http-request return status 200\n'
+        def command(*args):
+            return subprocess.run(args, check=True, capture_output=True, text=True, timeout=15).stdout.strip()
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / 'haproxy.cfg'; path.write_text(cfg)
+            try:
+                command('docker', 'run', '-d', '--platform', 'linux/amd64', '--name', name, '--cpus', '.25', '--memory', '256m',
+                        '-p', '127.0.0.1::8080', '-v', str(path) + ':/config/haproxy.cfg:ro', m.p8.PINS['HAPROXY_IMAGE'],
+                        'haproxy', '-W', '-db', '-f', '/config/haproxy.cfg')
+                port = int(command('docker', 'port', name, '8080/tcp').rsplit(':', 1)[1])
+                for attempt in range(40):
+                    try:
+                        command('docker', 'exec', name, 'wget', '-qO-', 'http://127.0.0.1:8404/stats'); break
+                    except subprocess.CalledProcessError:
+                        if attempt == 39: raise
+                        time.sleep(.1)
+                for _ in range(120):
+                    c = http.client.HTTPConnection('127.0.0.1', port, timeout=5)
+                    c.request('GET', '/local'); r = c.getresponse(); r.read(); self.assertEqual(r.status, 200); c.close()
+                socket.create_connection(('127.0.0.1', port), timeout=5).close()
+                time.sleep(.1)
+                raw = command('docker', 'exec', name, 'sh', '-c', m.HAPROXY_LOG_CLI)
+                rows, obs = m.haproxy_capture(raw, name)
+                native = m.Runtime.__new__(m.Runtime)
+                native.pod = lambda *_: {'metadata': {'name': name}}
+                native.k = lambda *a: command('docker', 'exec', name, *a[a.index('--') + 1:])
+                stats = m.Runtime.haproxy(native)
+                s = {'configuration': {'haproxy': {'uid': name}}, 'haproxy_logs': rows, 'haproxy_log_observation': obs, 'haproxy': stats}
+                self.assertEqual(stats['frontend']['stot'], 121)
+                self.assertLess(len(rows), 121)
+                self.assertTrue(any(r['status'] == 400 and r['termination'] == 'CR' and r['queue_ms'] == -1 for r in rows))
+                with self.assertRaisesRegex(ValueError, 'incomplete at drained frontend'): m.haproxy_capture_guard([s])
+                out = Path(os.environ['P9_LOCAL_RING_OUTPUT']); out.mkdir(parents=True, exist_ok=True)
+                m.save(out / 'overwrite.json', {'actual_test_ring_bytes': 4096, 'actual_snapshot': s,
+                       'original_source_ring_bytes': m.HAPROXY_RING_BYTES, 'expected_failure': 'incomplete at drained frontend boundary'})
+            finally: command('docker', 'rm', '-f', name)
+
+    def test_generated_all_arms_concurrent_capture_and_c2_policy(self):
+        import concurrent.futures
+        import http.client
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+        import subprocess
+        import uuid
+        class Handler(BaseHTTPRequestHandler):
+            delay = 0
+            def do_GET(self):
+                time.sleep(self.delay)
+                self.send_response(200); self.send_header('Content-Length', '0'); self.end_headers()
+            def log_message(self, *_): pass
+        class Server(ThreadingHTTPServer):
+            request_queue_size = 128
+            daemon_threads = True
+        server = Server(('0.0.0.0', 0), Handler)
+        worker = threading.Thread(target=server.serve_forever, daemon=True); worker.start()
+        out = Path(os.environ['P9_LOCAL_RING_OUTPUT'])
+        out.mkdir(parents=True, exist_ok=False)
+        summaries = []
+        def command(*args, timeout=15):
+            return subprocess.run(args, check=True, capture_output=True, text=True, timeout=timeout).stdout.strip()
+        try:
+            for arm in m.ARMS:
+                name = 'p9-ring-local-' + uuid.uuid4().hex[:12]
+                objects = m.render(t8.identity(), plan(), arm)['fixtures.json']['items']
+                cfg = next(o['data']['haproxy.cfg'] for o in objects if o['kind'] == 'ConfigMap' and o['metadata']['name'] == 'haproxy')
+                # Only DNS/port is substituted for the local stub; arm policy is unchanged.
+                cfg = cfg.replace('ext-authz-sim.' + m.NS + '.svc.cluster.local:8080',
+                                  'host.docker.internal:' + str(server.server_port))
+                Handler.delay = 0
+                with tempfile.TemporaryDirectory() as td:
+                    path = Path(td) / 'haproxy.cfg'; path.write_text(cfg)
+                    try:
+                        args = ['docker', 'run', '-d', '--platform', 'linux/amd64', '--name', name,
+                                '--cpus', '.25', '--memory', '256m', '-p', '127.0.0.1::8080',
+                                '-v', str(path) + ':/config/haproxy.cfg:ro']
+                        if m.sys.platform != 'darwin': args += ['--add-host', 'host.docker.internal:host-gateway']
+                        if arm == 'C1':
+                            # Deliberately stop draining fd@1 to reproduce the documented
+                            # transport failure, while the same in-process ring remains readable.
+                            args += ['--entrypoint', 'sh', m.p8.PINS['HAPROXY_IMAGE'], '-c',
+                                     'mkfifo /tmp/blocked; exec 3<>/tmp/blocked; exec haproxy -W -db -f /config/haproxy.cfg >&3']
+                        else:
+                            args += [m.p8.PINS['HAPROXY_IMAGE'], 'haproxy', '-W', '-db', '-f', '/config/haproxy.cfg']
+                        command(*args)
+                        port = int(command('docker', 'port', name, '8080/tcp').rsplit(':', 1)[1])
+                        for attempt in range(40):
+                            try:
+                                command('docker', 'exec', name, 'wget', '-qO-', 'http://127.0.0.1:8404/stats'); break
+                            except subprocess.CalledProcessError:
+                                if attempt == 39: raise
+                                time.sleep(.1)
+                        def get(_):
+                            c = http.client.HTTPConnection('127.0.0.1', port, timeout=8)
+                            try:
+                                c.request('GET', '/local-test-url', body=b'local-test-body', headers={'Authorization': 'local-test-value'})
+                                r = c.getresponse(); r.read(); return r.status
+                            finally: c.close()
+                        captures, times = [], []
+                        def capture():
+                            started = time.monotonic()
+                            raw = command('docker', 'exec', name, 'sh', '-c', m.HAPROXY_LOG_CLI)
+                            times.append(time.monotonic() - started)
+                            try:
+                                rows, obs = m.haproxy_capture(raw, name)
+                            except ValueError:
+                                (out / (arm + '-failed-cli.txt')).write_text(raw)
+                                raise
+                            snap = {'configuration': {'haproxy': {'uid': name}}, 'haproxy_logs': rows, 'haproxy_log_observation': obs}
+                            if captures: m.haproxy_capture_guard([captures[-1], snap], drained=False)
+                            captures.append(snap)
+                        capture()
+                        with concurrent.futures.ThreadPoolExecutor(max_workers=32) as clients:
+                            futures = [clients.submit(get, i) for i in range(3300)]
+                            while not all(f.done() for f in futures):
+                                capture(); time.sleep(.15)
+                            statuses = [f.result() for f in futures]
+                        capture()
+                        if arm != 'C2': self.assertTrue(set(statuses) <= {200, 503})
+                        if arm == 'C2':
+                            Handler.delay = 1
+                            with concurrent.futures.ThreadPoolExecutor(max_workers=48) as clients:
+                                statuses += list(clients.map(get, range(128)))
+                            capture()
+                            self.assertTrue(any(r['status'] == 429 and r['termination'] == 'PR' for r in captures[-1]['haproxy_logs']))
+                            self.assertTrue(any(r['status'] == 503 and r['termination'] == 'sQ' for r in captures[-1]['haproxy_logs']))
+                        rows = captures[-1]['haproxy_logs']
+                        native = m.Runtime.__new__(m.Runtime)
+                        native.pod = lambda *_: {'metadata': {'name': name}}
+                        native.k = lambda *a: command('docker', 'exec', name, *a[a.index('--') + 1:])
+                        frontend = m.Runtime.haproxy(native)['frontend']
+                        for snap in (captures[0], captures[-1]):
+                            snap['haproxy'] = {'frontend': {'stot': 0, 'scur': 0} if not snap['haproxy_logs'] else frontend}
+                        m.haproxy_capture_guard([captures[0], captures[-1]])
+                        self.assertEqual(len(rows), len(statuses))
+                        self.assertEqual(sorted(r['status'] for r in rows), sorted(statuses))
+                        self.assertLess(max(times), 15)
+                        self.assertNotIn('local-test-', json.dumps(rows))
+                        if arm == 'C1': self.assertGreater(captures[-1]['haproxy_log_observation']['dropped_logs_total'], 0)
+                        # Exec readiness creates no check rows.
+                        command('docker', 'exec', name, 'wget', '-qO-', 'http://127.0.0.1:8404/stats')
+                        capture(); self.assertEqual(captures[-1]['haproxy_logs'], rows)
+                        m.save(out / (arm + '.json'), {'captures': captures, 'statuses': statuses, 'capture_seconds': times})
+                        summaries.append({'arm': arm, 'requests': len(statuses), 'rows': len(rows),
+                            'counter_min': min(r['log_counter'] for r in rows), 'counter_max': max(r['log_counter'] for r in rows),
+                            'lc_duplicates': len(rows) - len({r['log_counter'] for r in rows}),
+                            'lc_gaps': len(set(range(max(r['log_counter'] for r in rows) + 1)) - {r['log_counter'] for r in rows}),
+                            'capture_count': len(captures), 'max_capture_seconds': max(times),
+                            'ring_dropped': 0, 'dropped_logs_total': captures[-1]['haproxy_log_observation']['dropped_logs_total'],
+                            'status_counts': {str(s): statuses.count(s) for s in set(statuses)},
+                            'frontend': frontend,
+                            'termination_counts': {s: sum(r['termination'] == s for r in rows) for s in {r['termination'] for r in rows}},
+                            'OOMKilled': json.loads(command('docker', 'inspect', '--format', '{{json .State.OOMKilled}}', name))})
+                    finally: command('docker', 'rm', '-f', name)
+        finally:
+            server.shutdown(); server.server_close(); worker.join(3)
+        m.save(out / 'summary.json', {'image': m.p8.PINS['HAPROXY_IMAGE'], 'platform': 'linux/amd64',
+            'cpu_limit': '.25', 'memory_limit': '256m', 'arms': summaries,
+            'source_file_sha256': m.hashlib.sha256((ROOT / 'scripts/azure-mitigation.py').read_bytes()).hexdigest(),
+            'test_file_sha256': m.hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+            'Azure_runtime': 'not executed', 'owned_containers_removed': True})
 
 
 class DemandRecoveryTests(unittest.TestCase):
