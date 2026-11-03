@@ -1,0 +1,336 @@
+{
+  "image": "docker.io/library/haproxy:3.4.6-alpine@sha256:7af8255207ee9964ccb4eec8ce4b7a40b777769665e3ae83897fb01b24d8a43a",
+  "platform": "linux/amd64",
+  "cpu_limit": ".25",
+  "memory_limit": "256m",
+  "arms": [
+    {
+      "arm": "C0",
+      "requests": 32667,
+      "rows": 32667,
+      "counter_min": 0,
+      "counter_max": 32666,
+      "lc_duplicates": 388,
+      "lc_gaps": 388,
+      "capture_count": 16,
+      "max_capture_seconds": 0.5907917500007898,
+      "ring_dropped": 0,
+      "dropped_logs_total": 979,
+      "status_counts": {
+        "200": 20681,
+        "503": 11986
+      },
+      "frontend": {
+        "status": "OPEN",
+        "stot": 32667,
+        "req_tot": 32667,
+        "scur": 0
+      },
+      "sequential_runs_same_container": 6,
+      "memory": [
+        {
+          "stage": "before",
+          "current_bytes": 125046784,
+          "peak_bytes": 125046784,
+          "limit_bytes": 268435456,
+          "events": {
+            "low": 0,
+            "high": 0,
+            "max": 0,
+            "oom": 0,
+            "oom_kill": 0,
+            "oom_group_kill": 0,
+            "sock_throttled": 0
+          }
+        },
+        {
+          "stage": "run-1",
+          "current_bytes": 124456960,
+          "peak_bytes": 134008832,
+          "limit_bytes": 268435456,
+          "events": {
+            "low": 0,
+            "high": 0,
+            "max": 0,
+            "oom": 0,
+            "oom_kill": 0,
+            "oom_group_kill": 0,
+            "sock_throttled": 0
+          }
+        },
+        {
+          "stage": "run-2",
+          "current_bytes": 132886528,
+          "peak_bytes": 134008832,
+          "limit_bytes": 268435456,
+          "events": {
+            "low": 0,
+            "high": 0,
+            "max": 0,
+            "oom": 0,
+            "oom_kill": 0,
+            "oom_group_kill": 0,
+            "sock_throttled": 0
+          }
+        },
+        {
+          "stage": "run-3",
+          "current_bytes": 133267456,
+          "peak_bytes": 136663040,
+          "limit_bytes": 268435456,
+          "events": {
+            "low": 0,
+            "high": 0,
+            "max": 0,
+            "oom": 0,
+            "oom_kill": 0,
+            "oom_group_kill": 0,
+            "sock_throttled": 0
+          }
+        },
+        {
+          "stage": "run-4",
+          "current_bytes": 133656576,
+          "peak_bytes": 136912896,
+          "limit_bytes": 268435456,
+          "events": {
+            "low": 0,
+            "high": 0,
+            "max": 0,
+            "oom": 0,
+            "oom_kill": 0,
+            "oom_group_kill": 0,
+            "sock_throttled": 0
+          }
+        },
+        {
+          "stage": "run-5",
+          "current_bytes": 135446528,
+          "peak_bytes": 136912896,
+          "limit_bytes": 268435456,
+          "events": {
+            "low": 0,
+            "high": 0,
+            "max": 0,
+            "oom": 0,
+            "oom_kill": 0,
+            "oom_group_kill": 0,
+            "sock_throttled": 0
+          }
+        },
+        {
+          "stage": "run-6",
+          "current_bytes": 140378112,
+          "peak_bytes": 140378112,
+          "limit_bytes": 268435456,
+          "events": {
+            "low": 0,
+            "high": 0,
+            "max": 0,
+            "oom": 0,
+            "oom_kill": 0,
+            "oom_group_kill": 0,
+            "sock_throttled": 0
+          }
+        },
+        {
+          "stage": "after-tail",
+          "current_bytes": 137916416,
+          "peak_bytes": 140378112,
+          "limit_bytes": 268435456,
+          "events": {
+            "low": 0,
+            "high": 0,
+            "max": 0,
+            "oom": 0,
+            "oom_kill": 0,
+            "oom_group_kill": 0,
+            "sock_throttled": 0
+          }
+        },
+        {
+          "stage": "final",
+          "current_bytes": 137957376,
+          "peak_bytes": 143233024,
+          "limit_bytes": 268435456,
+          "events": {
+            "low": 0,
+            "high": 0,
+            "max": 0,
+            "oom": 0,
+            "oom_kill": 0,
+            "oom_group_kill": 0,
+            "sock_throttled": 0
+          }
+        }
+      ],
+      "RestartCount": 0,
+      "termination_counts": {
+        "sC": 11986,
+        "--": 20681
+      },
+      "OOMKilled": false
+    },
+    {
+      "arm": "C1",
+      "requests": 3300,
+      "rows": 3300,
+      "counter_min": 0,
+      "counter_max": 3299,
+      "lc_duplicates": 47,
+      "lc_gaps": 47,
+      "capture_count": 38,
+      "max_capture_seconds": 0.6667310001794249,
+      "ring_dropped": 0,
+      "dropped_logs_total": 2960,
+      "status_counts": {
+        "200": 2045,
+        "503": 1255
+      },
+      "frontend": {
+        "status": "OPEN",
+        "stot": 3300,
+        "req_tot": 3300,
+        "scur": 0
+      },
+      "sequential_runs_same_container": 0,
+      "memory": [],
+      "RestartCount": 0,
+      "termination_counts": {
+        "sC": 1255,
+        "--": 2045
+      },
+      "OOMKilled": false
+    },
+    {
+      "arm": "C2",
+      "requests": 3428,
+      "rows": 3428,
+      "counter_min": 0,
+      "counter_max": 3426,
+      "lc_duplicates": 110,
+      "lc_gaps": 109,
+      "capture_count": 13,
+      "max_capture_seconds": 0.7866581669077277,
+      "ring_dropped": 0,
+      "dropped_logs_total": 380,
+      "status_counts": {
+        "200": 153,
+        "429": 3120,
+        "503": 155
+      },
+      "frontend": {
+        "status": "OPEN",
+        "stot": 3428,
+        "req_tot": 3428,
+        "scur": 0
+      },
+      "sequential_runs_same_container": 0,
+      "memory": [],
+      "RestartCount": 0,
+      "termination_counts": {
+        "sQ": 131,
+        "sC": 24,
+        "--": 153,
+        "PR": 3120
+      },
+      "OOMKilled": false
+    },
+    {
+      "arm": "C3",
+      "requests": 3300,
+      "rows": 3300,
+      "counter_min": 0,
+      "counter_max": 3299,
+      "lc_duplicates": 76,
+      "lc_gaps": 76,
+      "capture_count": 29,
+      "max_capture_seconds": 1.5845945000182837,
+      "ring_dropped": 0,
+      "dropped_logs_total": 148,
+      "status_counts": {
+        "200": 2373,
+        "503": 927
+      },
+      "frontend": {
+        "status": "OPEN",
+        "stot": 3300,
+        "req_tot": 3300,
+        "scur": 0
+      },
+      "sequential_runs_same_container": 0,
+      "memory": [],
+      "RestartCount": 0,
+      "termination_counts": {
+        "sC": 927,
+        "--": 2373
+      },
+      "OOMKilled": false
+    }
+  ],
+  "source_file_sha256": "830671073a54be718930c488aec7db05b6af42f87138a96c1eeaddd5bc6fabaf",
+  "test_file_sha256": "2cb91d7b2f5cfa2ebcae7615e288a3bdbc3559c6d397888667ebcd5de809bbda",
+  "Azure_runtime": "not executed",
+  "owned_containers_removed": true,
+  "source_commit": "d4beffff56c6a3966b5f26531976893db7cfe31b",
+  "scope": "cost-free lifetime capture regression only; no cloud/credential API",
+  "capacity_model": {
+    "max_plan_seconds": 540,
+    "max_waves": 108,
+    "issue_attempts_per_run": 5184,
+    "git_commands_per_run": 108,
+    "git_HTTP_capacity_rows_per_run": 216,
+    "run_capacity_rows": 5400,
+    "max_runs": 6,
+    "journeys": 3,
+    "journey_fixed_HTTP": 11,
+    "journey_Git_HTTP": 16,
+    "journey_settle_polls": 60,
+    "named_probes": 3,
+    "HTTP_per_probe_reserve": 2,
+    "total_capacity_rows": 32667,
+    "slot_bytes": 512,
+    "reserved_bytes_including_one_slot": 16726016,
+    "ring_bytes": 16777216,
+    "unused_capacity_bytes": 51200,
+    "direct_sentinel_HAProxy_rows": 0,
+    "readiness_CLI_AMW_HAProxy_rows": 0
+  },
+  "c0_lifetime": {
+    "sequential_runs": 6,
+    "same_identity_lifetimes": 1,
+    "responses": 32667,
+    "rows": 32667,
+    "max_capture_seconds": 0.5907917500007898,
+    "max_cgroup_peak_bytes": 143233024,
+    "cgroup_limit_bytes": 268435456,
+    "OOM_events": 0,
+    "OOM_kill_events": 0,
+    "reset_assumption": false,
+    "all_six_capacity_preflights_passed": true
+  },
+  "validation": {
+    "P9": "138 tests PASS, 3 known skips",
+    "P8": "38 tests PASS",
+    "pinned_Docker": "2 actual tests PASS, 169.845 seconds",
+    "archive_members": 9,
+    "member_hash_roundtrip": "PASS",
+    "publication_scan": "PASS, no redaction/normalization",
+    "exact_head_CI": "see final PR49 comment"
+  },
+  "historical": {
+    "paid_source_sha": "076bc8a3dbd09e8192057e19df8b6cc5cb55274d",
+    "campaign23": "CLOSED/invalid unchanged",
+    "counts": "campaign23/initialize20/healthy11/invalid8/measured each0/KEDA8/8",
+    "campaign22_archive_sha256": "70df52e309d98b44d47dde8d73405ab8a6f89c7e9cdca80768c1c6315e969674",
+    "campaign23_archive_sha256": "d1e340eb44c7b01d15c884d3b6b5952bc096fbd3172b98bd8b0eb93df521666f"
+  },
+  "archive_sha256": "a9d5828d1f56c9bf5ef4e76665816699f32f99115a924d4bb663396f3783be89",
+  "limitations": [
+    "Capacity stress uses local HTTP stub, accelerated volume and C0=C1 HAProxy config; not six real P9 runs or Azure acceptance.",
+    "C2 rejected/queued/error paths remain covered by the separate generated-render profile.",
+    "No cloud state refreshed; previous owned cleanup record preserved.",
+    "Actual AKS exec bandwidth/snapshot budget and Pod memory remain REVALIDATE before separately authorized paid source.",
+    "Git HTTP reservations are capacity planning for selected preauthenticated nonredirecting smart-HTTP commands, not inferred actual check counts."
+  ]
+}
