@@ -250,18 +250,18 @@ C2 queue는 측정 대상, 다른 arm에서는 경쟁 병목 guard다.
 CLOSED/invalid evidence다. 신규 source로 과거 manifest/hash를 재결합하지 않는다. 다음 관측 보완의 Azure 효과는 미검증이다.
 
 - **DECIDED — controller failure 유지.** demand+74.881s/+84.105s snapshot의 earlier HPA는
-  `ScalingActive=False/FailedGetExternalMetric`, `currentMetrics=[]`다. Later collector의 AMW `observed`와
+  `ScalingActive=False/FailedGetExternalMetric`, `currentMetrics`에 `type:""`인 빈 entry1개가 있어 usable current metric이 없다. Later collector의 AMW `observed`와
   resource `initializing-new-pod`를 합쳐 controller 성공으로 해석하지 않는다. 기존 bounded new-Pod AMW warming
   예외를 resource 초기화 전체로 넓히지 않는다. 기존 HPA GET 하나에 request/response monotonic clock,
   UID/resourceVersion/generation과 status hash를 기록해 snapshot guard의 바로 그 실패 상태에 연결한다.
   **REVALIDATE:** actual positive HPA metric/status와 all-Pod AMW·advancing CPU의 joint observation;
   초기화 중 잠정 HPA 실패를 허용할 필요가 있다면 controller의 실제 실패 시작/종료와 새 UID lifecycle 경계를
-  먼저 입증해야 한다. 현재 정보로 ingestion/controller 지연 상한을 새로 만들거나 과거 snapshot을 합칠 수 없다.
+  먼저 입증해야 한다. Raw의 다음 demand+93.294s snapshot은 `ScalingActive=True`와 실제 External metric을 담지만 앞선 실패의 성공 증거로 소급하지 않는다. 현재 정보로 ingestion/controller 지연 상한을 새로 만들거나 과거 snapshot을 합칠 수 없다.
 - **DECIDED — accounting residual 유지.** delta3156 HAProxy 중44건은 `400/CR, Tw=-1`이며 약435.336초에
   TCP readiness 기본10초 cadence와 부합한다. [TCP probe](https://kubernetes.io/docs/concepts/workloads/pods/probes/)는
   HTTP request 없이 연결을 검사하므로 가능한 기원이나 행별 attribution은 unknown이다. 나머지3112건과
   ingress3141건의 **29건 차이**도 남는다(성공11건·overload/error18건 차이). Per-row timestamp/ID가 없어
-  로그 손실·관측 경계·다른 경로 중 하나로 단정하지 않는다. 다음 render는 HAProxy readiness를 기존 unlogged
+  최종 HAProxy server/backend 응답 counter·target log·ingress는 각각3141로 일치해 HAProxy 로그 완전성/수집 경계로 조사 범위를 좁혔으나, 손실 위치나 행별 기원은 확정하지 않는다. 다음 render는 HAProxy readiness를 기존 unlogged
   loopback stats8404의 `wget` exec로 옮겨 check8080에 probe 연결을 섞지 않는다. HAProxy3.4
   [공식 log fields](https://docs.haproxy.org/3.4/configuration.html#8.2.4)의 accept epoch/ms, process/request/log counter,
   HTTP request 수신 시간을 추가하고 target/ingress와 HAProxy log read 구간을 각각 기록한다.
@@ -272,9 +272,10 @@ CLOSED/invalid evidence다. 신규 source로 과거 manifest/hash를 재결합�
   driver lag p95 약1.331초/max1.501207초다. 모든10초 window에 command SLO 실패가 있어 driver gate만
   바꾸어도 recovered가 아니다. Issue12 worker에 wave당24 arrivals이므로 두 번째 묶음의 worker 대기가
   command 시간에 의존한다. 기존 raw에는 submit clock이 없어 scheduler/host stall과 worker backlog의 비중은
-  분리할 수 없다. 다음 source는 `submitted`를 기록해 schedule→submit과 submit→issued를 나누고 recovery
+  분리할 수 없다. 300초 이후24개 wave의 첫12개 lag p50은0.0215초, 다음12개는0.4092초이며 두 번째 묶음의 최초 issued는 첫 묶음 최초 completion 뒤 median0.000402초/max0.000602초다. Worker 대기가 driver lag에 포함된다는 근거다. 다음 source는 `submitted`를 기록해 schedule→submit과 submit→issued를 나누고 recovery
   window의 기존 실패 조건별 counts를 보고한다. command·operation latency와 기존0.2초/전체2초 기준은 그대로다.
   **REVALIDATE:** 같은 수요에서 controller/target 안정화 후 command SLO와 host/worker 지연의 실제 분리.
+  기존 `validate`/`review`는 `not recovered` 자체를 run-invalid 조건으로 삼지 않는다. Valid run의 미회복도 negative result로 보고하며, 이번 validity는 별도 controller/accounting 실패로 막혔다.
 
 **DEFERRED:** 새 source의 actual calibration·freeze·measured C0–C3·동일-window cloud confounder review와 recovery/rollback
 검증은 새 실행 권한 없이는 진행하지 않는다. 실제 비교/회복/accounting/owned rollback이라는 P9 목표는 줄이지 않는다.
@@ -286,6 +287,10 @@ CI는 complete exact-head PR file set와 immutable base SHA를 검증한 뒤 exc
 GitHub token 권한은 늘리지 않는다. API 오류·rename·shared/unknown path·base drift는 full runtime이다.
 생략된 runtime은 다음 shortcut 근거가 되지 않는다. `make static`/CodeQL과 required check 이름은 유지하며,
 생략 HEAD의 runtime은 명시적으로 **SKIPPED / not verified**다. Workflow/classifier 자체 변경은 full runtime이다.
+
+위 CI 변경을 포함한 `e4a7575937fda7fb7b647b2f5d463996a6634945`의
+[full local-platform 실행](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/actions/runs/41613354166)은
+실제 runtime 단계 전체 SUCCESS, job elapsed27분53초였다. Current HEAD의 runtime 생략은 이 이전 실행 결과와 구분한다.
 
 ## 권한·자원·원복 경계
 
