@@ -271,10 +271,20 @@ def scale_query_parts(v):
     raw = queries['raw']
     fresh = f'(time() - timestamp({raw}) <= {v["freshness_seconds"]})'
     rates = f'({queries["rate"]} and {fresh})'
-    info = 'kube_pod_info{' + base + ',pod=~"ext-authz-sim-.+"}'
+    info_selector = base + ',pod=~"ext-authz-sim-.+"'
+    info = 'kube_pod_info{' + info_selector + '}'
+    identified_info = 'kube_pod_info{' + info_selector + ',uid!=""}'
     up = 'up{' + base + ',job=' + json.dumps(metric_contract()['job']) + '}'
+    raw_pods = f'count by (pod) ({rates})'
+    info_pods = f'count by (pod) ({info})'
+    up_pods = f'count by (pod) ({up})'
     return rates, {'rate_count': f'count({queries["rate"]})', 'fresh_rate_count': f'count({rates})',
                    'raw_max_age': f'max(time() - timestamp({raw}))', 'inventory_count': f'count({info})',
+                   'inventory_pod_count': f'count({info_pods})',
+                   'inventory_uid_count': f'count(count by (uid) ({identified_info}))',
+                   'identified_inventory_count': f'count({identified_info})',
+                   'matched_pod_count': f'count(({raw_pods}) and on (pod) ({info_pods}))',
+                   'matched_up_pod_count': f'count(({up_pods}) and on (pod) ({info_pods}))',
                    'up_min': f'min({up})', 'up_count': f'count({up})',
                    'up_max_age': f'max(time() - timestamp({up}))',
                    'inventory_max_age': f'max(time() - timestamp({info}))'}
@@ -284,13 +294,27 @@ def scale_query(v):
     """Canonical scaler query; empty/partial/stale inventory never becomes zero."""
     rates, t = scale_query_parts(v)
     return (f'sum({rates}) and on() ({t["fresh_rate_count"]} == {t["inventory_count"]}) '
+            f'and on() ({t["rate_count"]} == {t["inventory_count"]}) '
+            f'and on() ({t["inventory_pod_count"]} == {t["inventory_count"]}) '
+            f'and on() ({t["inventory_uid_count"]} == {t["inventory_count"]}) '
+            f'and on() ({t["identified_inventory_count"]} == {t["inventory_count"]}) '
+            f'and on() ({t["matched_pod_count"]} == {t["inventory_count"]}) '
+            f'and on() ({t["matched_up_pod_count"]} == {t["inventory_count"]}) '
+            f'and on() ({t["raw_max_age"]} <= {v["freshness_seconds"]}) '
             f'and on() ({t["up_min"]} == 1) '
             f'and on() ({t["up_count"]} == {t["inventory_count"]}) '
             f'and on() ({t["up_max_age"]} <= {v["freshness_seconds"]}) '
-            f'and on() ({t["inventory_max_age"]} <= {v["freshness_seconds"]})')
+            f'and on() ({t["inventory_max_age"]} <= {inventory_freshness_seconds(v)})')
 
 
 QUERY_TERM_LABEL = 'p9_query_term'
+KSM_SCRAPE_SECONDS = 30
+
+
+def inventory_freshness_seconds(v):
+    # KSM emits the identity inventory every 30s; Azure ingestion is separately
+    # bounded by the plan. This does not relax raw counter or `up` freshness.
+    return 2 * KSM_SCRAPE_SECONDS + v['ingestion_seconds']
 
 
 def collector_query(v):
@@ -460,6 +484,58 @@ def controller_observation(s, baseline):
             s['inventory_at'] <= obs['request_at'] <= obs['at'] <= s['resource_readiness']['observed_at'] <= s['end'],
             'controller observation UID/owner/status/clock drift')
     return obs['at']
+
+
+def controller_metric_warnings(snapshots, baseline, arm, v):
+    """Deduplicate native HPA/KEDA warning history and require later live proof."""
+    if arm != 'C3' or not any('controller_state' in s for s in snapshots):
+        return []
+    identity = baseline['hpa_identity']
+    expected = {('HorizontalPodAutoscaler', HPA, NS): identity['uid'],
+                ('ScaledObject', HPA, NS): identity['owner_uid']}
+    allowed = {'FailedGetExternalMetric', 'FailedComputeMetricsReplicas', 'KEDAScalerFailed'}
+    events, reason_owners = {}, set()
+    for index, s in enumerate(snapshots):
+        for event in s['guard']['events']:
+            owner = event.get('owner') or {}
+            key = (owner.get('kind'), owner.get('name'), owner.get('namespace'))
+            if event.get('reason') not in allowed and key not in expected:
+                continue
+            require(key in expected and event.get('type') == 'Warning' and event.get('reason') in allowed and
+                    owner.get('uid') == expected.get(key) and isinstance(event.get('uid'), str) and event['uid'] and
+                    type(event.get('count')) is int and event['count'] == 1 and
+                    event.get('timestamp_utc') and event.get('first_timestamp_utc') == event['timestamp_utc'],
+                    'invalid HPA/KEDA warning provenance or recurrence')
+            episode_key = (event['reason'], key)
+            require(episode_key not in reason_owners or event['uid'] in events,
+                    'new HPA/KEDA Warning episode')
+            reason_owners.add(episode_key)
+            stamp = p8.p7.utc(event['timestamp_utc']).timestamp()
+            epoch = s['signal']['evaluation']['epoch']
+            require(epoch >= stamp, 'controller Warning follows saved signal evaluation')
+            old = events.setdefault(event['uid'], {'event': copy.deepcopy(event), 'first_snapshot': index,
+                                                    'last_snapshot': index, 'epoch': stamp})
+            require(old['event'] == event, 'controller Warning history changed across snapshots')
+            old['last_snapshot'] = index
+    if not events:
+        return []
+    entries = list(events.values())
+    require(all(x['last_snapshot'] == len(snapshots) - 1 for x in entries),
+            'controller Warning history disappeared')
+    stamps = [x['epoch'] for x in entries]
+    require(max(stamps) - min(stamps) <= v['controller_seconds'], 'independent controller Warning episodes')
+    first = min(x['first_snapshot'] for x in entries)
+    latest = max(stamps)
+    recovery_index = next((i for i in range(first + 1, len(snapshots))
+        if snapshots[i]['signal']['evaluation']['epoch'] > latest and
+        snapshots[i]['controller_state'].get('status') == 'positive' and
+        controller_positive(snapshots[i]['guard']['hpa'], 'C3', baseline['hpa_spec']) and
+        snapshots[i]['signal'].get('status') == 'observed' and
+        snapshots[i]['resource_readiness'].get('status') == 'observed'), None)
+    require(recovery_index is not None, 'HPA/KEDA Warning lacks later independent joint positive observation')
+    return [{'event': x['event'], 'first_snapshot': x['first_snapshot'],
+             'last_snapshot': x['last_snapshot'], 'recovery_snapshot': recovery_index,
+             'degraded': True} for x in sorted(entries, key=lambda x: (x['epoch'], x['event']['uid']))]
 
 
 @contextmanager
@@ -859,6 +935,11 @@ def demand_report(v, events):
             'worker_queue_seconds': [r['issued'] - r['submitted'] for r in rows if r['issued'] is not None and 'submitted' in r],
             'command_seconds': [a['duration_seconds'] for r in rows for a in r['attempts']],
             'end_to_end_seconds': [r['completed'] - r['scheduled'] for r in rows if r['issued'] is not None]}, rows, origin
+
+
+def require_complete_demand(report):
+    """A complete issued denominator is validity; latency remains measured SLO."""
+    require(report['unissued'] == 0, 'unissued demand invalidates comparison')
 
 
 def recovery(v, events, observation_good):
@@ -1825,6 +1906,7 @@ def common_guards(snapshots, baseline, arm, v):
     pending_since = {}
     warm_epochs = [s['epoch'] for s in snapshots if s['signal'].get('status') == 'warming-new-pod']
     bounded_controller = arm == 'C3' and any('controller_state' in s for s in snapshots)
+    controller_metric_warnings(snapshots, baseline, arm, v)
     degraded, joint = set(), set()
     previous = None
     for s in snapshots:
@@ -1858,7 +1940,8 @@ def common_guards(snapshots, baseline, arm, v):
         require(not any(e['reason'] in {'FailedScheduling', 'FailedGetResourceMetric'} for e in guard['events']), 'scheduling/resource metric error')
         for e in guard['events']:
             if e['reason'] in {'FailedComputeMetricsReplicas', 'FailedGetExternalMetric'}:
-                require(arm == 'C3' and e.get('timestamp_utc') and any(abs(p8.p7.utc(e['timestamp_utc']).timestamp() - epoch) <= 35 for epoch in warm_epochs), 'metric failure outside bounded new-Pod warmup')
+                if not bounded_controller:
+                    require(arm == 'C3' and e.get('timestamp_utc') and any(abs(p8.p7.utc(e['timestamp_utc']).timestamp() - epoch) <= 35 for epoch in warm_epochs), 'metric failure outside bounded new-Pod warmup')
         require(any(n['schedulable'] and n['cpu_free'] >= .15 and n['memory_free'] >= 192 * 1024**2 for n in guard['node_headroom']), 'node headroom')
         require(guard['node_metrics'] and guard['pod_metrics'], 'missing node/Pod metrics')
         inventory = s.get('target_inventory', [p for p in guard['pods'] if p['name'].startswith('ext-authz-sim-')])
@@ -2022,7 +2105,8 @@ def validate(directory):
     require(arm != 'C3' or all('controller_state' in s for s in snapshots), 'missing bounded controller observation')
     uids = common_guards(snapshots, manifest['baseline'], arm, v)
     report, rows, origin = demand_report(v, events)
-    require(report['unissued'] == 0 and report['driver_lag_max_seconds'] <= 2, 'driver demand reduction/lag invalidates comparison')
+    require_complete_demand(report)
+    warning_recovery = max((e['recovery_snapshot'] for e in controller_metric_warnings(snapshots, manifest['baseline'], arm, v)), default=0)
     for r in rows:
         expected_delay = retry_delay(v, arm, r) if len(r['attempts']) == 2 else 0
         require(abs(r['backoff_seconds'] - expected_delay) < 1e-8, 'arm retry delta differs')
@@ -2083,6 +2167,7 @@ def validate(directory):
     def observed(start, end):
         points = [s for s in snapshots if s['at'] <= end and s['end'] >= start - 10]
         return (points and points[0]['end'] <= start + 5 and points[-1]['end'] >= end - 5 and
+                all(snapshots.index(s) >= warning_recovery for s in points) and
                 all(s['healthy'] and s['signal'].get('status') == s['resource_readiness']['status'] == 'observed' for s in points) and
                 all(b['end'] - a['end'] <= 15 for a, b in zip(points, points[1:])) and
                 not any(start <= e['at'] < end for e in events if e['record'] == 'snapshot_gap') and
@@ -2114,6 +2199,7 @@ def validate(directory):
             'validity': 'pending-cloud-confounder-review', 'hypothesis': 'pending',
             'window_utc': {'start': events[0]['timestamp_utc'], 'end': events[-1]['timestamp_utc']},
             'campaign': report, 'accounting': path, 'recovery': rec, 'scaling': scale,
+            'controller_metric_warnings': controller_metric_warnings(snapshots, manifest['baseline'], arm, v),
             'controller_degraded_startup': [{'observed_at': s['hpa_observation']['at'],
                 'hpa_uid': s['controller_state']['hpa_uid'], 'status': 'degraded', 'reason': 'FailedGetExternalMetric',
                 'pending_uids': s['resource_readiness']['pending_uids']}

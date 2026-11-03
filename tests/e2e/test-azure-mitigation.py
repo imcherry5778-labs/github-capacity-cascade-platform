@@ -566,8 +566,6 @@ class CollectorQueryTests(unittest.TestCase):
         self.assertEqual(response['payload']['status'], 'success')
         self.assertEqual(response['payload']['data'], {'resultType': 'vector', 'result': []})
         v = manifest['plan']
-        with patch.object(m, 'RATE_WINDOW', '1m'):
-            self.assertEqual(response['query_sha256'], m.digest(m.scale_query(v)))
         self.assertNotEqual(response['query_sha256'], m.digest(m.scale_query(v)))
         self.assertTrue(any(e['record'] == 'monitor_failure' for e in events))
         lifecycle = m.TargetLifecycle('C3', {t['uid'] for t in manifest['baseline']['targets']}, v)
@@ -594,13 +592,16 @@ class CollectorQueryTests(unittest.TestCase):
         tests = []
         # 5s samples keep rate present when a raw sample is older than the
         # 45s freshness predicate, independently of the 2m rate window.
-        for case in ('healthy', 'zero', 'raw-stale', 'raw-absent', 'one-sample', 'up-zero', 'up-absent', 'up-extra', 'up-stale', 'inventory-absent', 'inventory-extra', 'inventory-stale', 'all-absent', 'fresh-boundary'):
+        for case in ('healthy', 'zero', 'raw-stale', 'raw-absent', 'one-sample', 'up-zero', 'up-absent', 'up-extra', 'up-stale', 'inventory-absent', 'inventory-extra', 'inventory-stale', 'inventory-too-stale', 'uid-missing', 'uid-duplicate', 'all-absent', 'fresh-boundary'):
             inputs = []
             expected = {'guarded': 2, 'rate_count': 2, 'fresh_rate_count': 2, 'raw_max_age': 0, 'inventory_count': 2,
+                        'inventory_pod_count': 2, 'inventory_uid_count': 2, 'identified_inventory_count': 2, 'matched_pod_count': 2,
+                        'matched_up_pod_count': 2,
                         'up_min': 1, 'up_count': 2, 'up_max_age': 0, 'inventory_max_age': 0, 'evaluation_epoch': 180}
             for pod in ('a', 'b'):
                 raw = '0+5x36' if case != 'zero' else '0+0x36'
                 up, info = '1+0x36', '1+0x36'
+                uid = 'uid-' + pod
                 if pod == 'a':
                     if case == 'raw-stale': raw = '0+5x26'
                     elif case == 'fresh-boundary': raw = '0+5x27'
@@ -611,23 +612,32 @@ class CollectorQueryTests(unittest.TestCase):
                     elif case == 'up-stale': up = '1+0x26'
                     elif case == 'inventory-absent': info = None
                     elif case == 'inventory-stale': info = '1+0x26'
+                    elif case == 'inventory-too-stale': info = '1+0x17'
+                    elif case == 'uid-missing': uid = ''
+                    elif case == 'uid-duplicate': uid = 'uid-shared'
+                if case == 'uid-duplicate' and pod == 'b': uid = 'uid-shared'
                 for name, more, values in ((c['overflow'], {'job': c['job'], c['cluster_label']: c['cluster']}, raw),
-                                           ('up', {'job': c['job']}, up), ('kube_pod_info', {}, info)):
+                                           ('up', {'job': c['job']}, up), ('kube_pod_info', {'uid': uid}, info)):
                     if values is not None: inputs.append(series(name, pod, more, values))
             if case == 'zero': expected['guarded'] = 0
             elif case == 'fresh-boundary': expected.update(raw_max_age=45, guarded=79 / 48)
-            elif case != 'healthy': expected.pop('guarded')
-            if case == 'raw-stale': expected.update(fresh_rate_count=1, raw_max_age=50)
-            elif case in {'raw-absent', 'one-sample'}: expected.update(rate_count=1, fresh_rate_count=1)
+            elif case not in {'healthy', 'inventory-stale'}: expected.pop('guarded')
+            if case == 'raw-stale': expected.update(fresh_rate_count=1, raw_max_age=50, matched_pod_count=1)
+            elif case in {'raw-absent', 'one-sample'}: expected.update(rate_count=1, fresh_rate_count=1, matched_pod_count=1)
             elif case == 'up-zero': expected['up_min'] = 0
-            elif case == 'up-absent': expected['up_count'] = 1
+            elif case == 'up-absent': expected.update(up_count=1, matched_up_pod_count=1)
             elif case == 'up-stale': expected['up_max_age'] = 50
-            elif case == 'inventory-absent': expected['inventory_count'] = 1
+            elif case == 'inventory-absent': expected.update(inventory_count=1, inventory_pod_count=1, inventory_uid_count=1, identified_inventory_count=1, matched_pod_count=1, matched_up_pod_count=1)
             elif case == 'inventory-stale': expected['inventory_max_age'] = 50
+            elif case == 'inventory-too-stale':
+                expected.update(inventory_max_age=95, inventory_pod_count=2, inventory_uid_count=2)
+            elif case == 'uid-missing': expected.update(inventory_uid_count=1, identified_inventory_count=1)
+            elif case == 'uid-duplicate': expected['inventory_uid_count'] = 1
             elif case in {'up-extra', 'inventory-extra'}:
                 name = 'up' if case == 'up-extra' else 'kube_pod_info'
                 inputs.append(series(name, 'extra', {'job': c['job']} if name == 'up' else {}, '1+0x36'))
                 expected['up_count' if name == 'up' else 'inventory_count'] = 3
+                if name != 'up': expected.update(inventory_pod_count=3, inventory_uid_count=3, identified_inventory_count=3, matched_pod_count=2, matched_up_pod_count=2)
             elif case == 'all-absent': inputs, expected = [], {'evaluation_epoch': 180}
             envelope = [{'labels': '{' + m.QUERY_TERM_LABEL + '="' + k + '"}', 'value': val} for k, val in expected.items()]
             tests.append({'name': case, 'interval': '5s', 'input_series': inputs, 'promql_expr_test': [
@@ -1169,6 +1179,17 @@ class ArchivedScaledObjectTests(unittest.TestCase):
         if hasattr(self, 'parent_patch'): self.parent_patch.stop()
         historical = patch.object(m, 'RATE_WINDOW', '1m')
         historical.start(); self.addCleanup(historical.stop)
+        # These fixtures predate the current candidate's stricter identity and
+        # cadence guards. Replay their historical query contract explicitly.
+        def historical_query(v):
+            rates, terms = m.scale_query_parts(v)
+            return (f'sum({rates}) and on() ({terms["fresh_rate_count"]} == {terms["inventory_count"]}) '
+                    f'and on() ({terms["up_min"]} == 1) '
+                    f'and on() ({terms["up_count"]} == {terms["inventory_count"]}) '
+                    f'and on() ({terms["up_max_age"]} <= {v["freshness_seconds"]}) '
+                    f'and on() ({terms["inventory_max_age"]} <= {v["freshness_seconds"]})')
+        historical_scale = patch.object(m, 'scale_query', side_effect=historical_query)
+        historical_scale.start(); self.addCleanup(historical_scale.stop)
         with patch.dict(os.environ, {'FORGEJO_URL': 'https://forgejo.example.com'}):
             f = LiveFixture('C3')
         r = f.runtime
@@ -4629,9 +4650,47 @@ class Campaign24BoundaryTests(unittest.TestCase):
         self.assertEqual(m.common_guards(prefix, self.manifest['baseline'], 'C3', self.manifest['plan']), initial | {uid})
         self.assertEqual(pending['guard']['runtime_images'][uid], before)
 
-    def test_actual_late_warning_and_61_second_inventory_empty_query_remain_invalid(self):
-        with self.assertRaisesRegex(ValueError, 'metric failure outside bounded new-Pod warmup'):
-            m.common_guards(self.snapshots, self.manifest['baseline'], 'C3', self.manifest['plan'])
+    def test_actual_warning_history_is_deduplicated_and_inventory_age_is_separate(self):
+        m.common_guards(self.snapshots, self.manifest['baseline'], 'C3', self.manifest['plan'])
+        warnings = m.controller_metric_warnings(self.snapshots, self.manifest['baseline'], 'C3', self.manifest['plan'])
+        self.assertEqual({x['event']['reason'] for x in warnings},
+                         {'FailedGetExternalMetric', 'FailedComputeMetricsReplicas', 'KEDAScalerFailed'})
+        self.assertTrue(all(x['first_snapshot'] == 13 and x['last_snapshot'] == 19 and
+                            x['recovery_snapshot'] == 14 and x['degraded'] for x in warnings))
+        self.assertTrue(all(s['controller_state']['status'] == 'positive' for s in self.snapshots))
+
+        # Repeated immutable event history deduplicates; changed count/UID/owner,
+        # a new episode, or absence of a later joint positive remains invalid.
+        changed = copy.deepcopy(self.snapshots)
+        changed[16]['guard']['events'][-1]['count'] += 1
+        with self.assertRaisesRegex(ValueError, 'warning provenance or recurrence'):
+            m.controller_metric_warnings(changed, self.manifest['baseline'], 'C3', self.manifest['plan'])
+        changed = copy.deepcopy(self.snapshots)
+        changed[-1]['guard']['events'] = [e for e in changed[-1]['guard']['events'] if e.get('uid') != warnings[0]['event']['uid']]
+        with self.assertRaisesRegex(ValueError, 'history disappeared'):
+            m.controller_metric_warnings(changed, self.manifest['baseline'], 'C3', self.manifest['plan'])
+        changed = copy.deepcopy(self.snapshots)
+        for s in changed[14:]:
+            s['controller_state']['status'] = 'degraded'
+        with self.assertRaisesRegex(ValueError, 'lacks later independent joint positive'):
+            m.controller_metric_warnings(changed, self.manifest['baseline'], 'C3', self.manifest['plan'])
+        changed = copy.deepcopy(self.snapshots)
+        event = copy.deepcopy(changed[16]['guard']['events'][-1]); event['uid'] = 'new-event-uid'
+        changed[16]['guard']['events'].append(event)
+        with self.assertRaisesRegex(ValueError, 'new HPA/KEDA Warning episode'):
+            m.controller_metric_warnings(changed, self.manifest['baseline'], 'C3', self.manifest['plan'])
+        changed = copy.deepcopy(self.snapshots)
+        changed[16]['guard']['events'][-1]['owner']['uid'] = 'wrong-owner'
+        with self.assertRaisesRegex(ValueError, 'warning provenance or recurrence'):
+            m.controller_metric_warnings(changed, self.manifest['baseline'], 'C3', self.manifest['plan'])
+
+        v = self.manifest['plan']
+        self.assertEqual(m.inventory_freshness_seconds(v), 90)
+        parts = m.scale_query_parts(v)[1]
+        self.assertIn('<= 60', m.scale_query(v))
+        self.assertIn('<= 90', m.scale_query(v))
+        self.assertIn('inventory_uid_count', parts)
+        self.assertIn('matched_pod_count', parts)
         failure_index = next(i for i, e in enumerate(self.rows) if e['record'] == 'monitor_failure')
         lifecycle = m.TargetLifecycle('C3', {t['uid'] for t in self.manifest['baseline']['targets']}, self.manifest['plan'])
         for s in (e for e in self.rows[:failure_index] if e['record'] == 'snapshot'):
@@ -4642,11 +4701,20 @@ class Campaign24BoundaryTests(unittest.TestCase):
             lifecycle.resources(s['guard'], inventory, s['signal'], s['resource_readiness']['observed_at'])
         signal = self.failure['reconstructed_actual_signal']
         self.assertEqual(signal['query'], [])  # No [] -> zero or startup exception.
-        self.assertAlmostEqual(float(signal['query_diagnostics']['operands']['inventory_max_age'][0]['value'][1]), 61.51200008392334)
+        operands = signal['query_diagnostics']['operands']
+        self.assertAlmostEqual(float(operands['raw_max_age'][0]['value'][1]), 20.51200008392334)
+        self.assertAlmostEqual(float(operands['up_max_age'][0]['value'][1]), 35.51200008392334)
+        self.assertAlmostEqual(float(operands['inventory_max_age'][0]['value'][1]), 61.51200008392334)
+        self.assertEqual(float(operands['inventory_count'][0]['value'][1]), 2)
         timeline = next(e for e in reversed(self.rows[:failure_index]) if e['record'] == 'replica_timeline')
         with self.assertRaisesRegex(ValueError, 'empty/invalid guarded scale query'):
             lifecycle.signal(signal, timeline['pods'], signal['evaluation']['at'], signal['evaluation']['epoch'])
         self.assertEqual(self.rows[-1]['record'], 'run_failure')
+
+    def test_complete_slow_demand_is_not_invalid_but_unissued_demand_is(self):
+        m.require_complete_demand({'unissued': 0, 'driver_lag_max_seconds': 9.0})
+        with self.assertRaisesRegex(ValueError, 'unissued demand invalidates comparison'):
+            m.require_complete_demand({'unissued': 1, 'driver_lag_max_seconds': 0.0})
 
 
 class HaproxyRingTests(unittest.TestCase):

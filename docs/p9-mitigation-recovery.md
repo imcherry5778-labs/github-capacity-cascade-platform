@@ -22,7 +22,10 @@ source/test 변경은 당시 **future candidate**였고 이후 exact source d1ed
   resource/AMW joint 초기화 중인 경우에만 관측 가능한 mechanism negative로 취급하며 controller health PASS가 아니다.
   기존 admission→Ready90초, Ready→AMW75초, Ready→resource joint150초·freshness·advancing two-sample gate를 유지한다.
   같은 HPA의 usable External current metric과 실제 `True/ValidMetricFound`가 원래 budget 안에서 joint 관측돼야 한다.
-  초기화 완료 뒤 실패, persistent/다른 error, UID/owner/hash/clock 누락·변경은 invalid다. Warning guard도 그대로다.
+  초기화 완료 뒤 현재 HPA False, 새로운/persistent Warning episode, 다른 error, UID/owner/hash/clock 누락·변경은 invalid다.
+  같은 native Warning UID·timestamp·count가 poll history에서 반복되면 한 번만 보존하고, count/time 변경은 invalid다.
+  그 사건은 controller reliability negative/degraded evidence로 남긴다. 이후 별도 request-clock의 same-HPA positive,
+  fresh AMW와 resource joint observation이 있어야 하며, 경고를 health PASS로 바꾸거나 원인 인과를 추정하지 않는다.
   Earlier HPA와 later AMW를 같은 evaluation으로 합치지 않는다. Degraded 구간은 convergence/recovery proof에서 제외하고
   `review`에도 `excluded_controller_degradation`의 정확한 구간/UID 목록을 요구한다.
 - **DECIDED — authoritative HAProxy capture.** All arms에16MiB in-process `ring@p9`와 loopback-only worker CLI8405를 쓴다.
@@ -109,8 +112,9 @@ healthy-gate journey1회, native-deny/controlled-deny/path 확인은 각각1회�
 Scheduler는 wave 완료를 기다리지 않고 같은 monotonic offsets에 arrival을 제출한다.
 Issue12/Git1 worker와 최대49 pending으로 client backlog를 제한한다. 초과 또는 monitor 실패 시
 추가 발행을 중단하고 남은 예정 arrival을 `not-issued/cancelled`로 보존하며 fault release를 시작한다.
-이는 valid mitigation이 아니다. Comparison은 unissued0 / max driver lag≤2s를 요구한다.
-회복 window의 driver lag는 더 엄격하게≤0.2s다. 부하가 밀린 것을 완화 성과로 세지 않는다.
+이는 valid mitigation이 아니다. Comparison은 unissued0을 요구하며 driver lag·scheduler/worker/command 시간은 그대로 측정한다.
+회복 window의 driver lag와 command latency는 각각≤0.2s로 유지한다. 완전한 otherwise-valid run의 SLO 미달은
+recovery negative로 기록할 수 있으며 recovered로 승격하거나 SLO를 완화하지 않는다.
 
 ## KEDA signal과 ownership
 
@@ -137,7 +141,10 @@ Mapping/tag/label ambiguity나 drift는 신규 Pod warmup 중에도 실패한다
 놓칠 수 있어 counter rate를 택했으며 high-frequency admin 관측/log와 따로 대조한다.
 
 Query는 per-Pod rate·원본 timestamp freshness·up=1 및 **kube_pod_info의 target 수와 coverage**를
-guard한다. Inventory series의 label/freshness와 target Pod들의 실제 UID/name도 대조해야 한다.
+guard한다. Raw counter와 `up`은 각각60초 이내여야 한다. KSM identity inventory는 기본 scrape30초와
+Azure ingestion30초를 반영한 90초 경계로 별도 검사하되, distinct Pod/UID·non-empty UID·raw Pod-name
+coverage와 actual Kubernetes UID/name 일치는 모두 필수다. Missing/duplicate/replaced identity는 no-data/invalid이며
+0으로 채우지 않는다. Inventory age만으로 raw/up 신선도를 대체하지 않는다.
 Empty/partial/stale/error를0으로 바꾸지 않고 `ignoreNullValues=false`, TLS verify를 사용한다.
 Collector의 기존 다섯 번째 instant query는 `p9_query_term` label로 canonical guarded 결과,
 rate/fresh-rate/inventory/up count·up minimum·raw/up/inventory maximum age와 `vector(time())`를 분리한다.
