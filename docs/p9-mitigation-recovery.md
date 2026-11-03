@@ -1,8 +1,8 @@
 # P9-W1 Mitigation & Recovery
 
 목표는 동일 fault/demand의 C0–C3 비교, continuing-demand recovery, 실제 request accounting과 P9-owned 원복 evidence다.
-P9 acceptance는 아직 미충족이다. 제18차는 CLOSED이며 새 paid campaign 승인은 없다.
-누적 campaign18 / public initialize15 / healthy6 / started-invalid calibration3 / measured 각0 / KEDA restart4/4을 보존한다.
+P9 acceptance는 아직 미충족이다. 제22차는 CLOSED/invalid이며 새 paid campaign 승인은 없다.
+누적 campaign22 / public initialize19 / healthy10 / started-invalid calibration7 / measured 각0 / KEDA apply·restore7/7을 보존한다.
 현재 source-only 교정의 Azure 효과는 NOT VERIFIED다. Source CI나 synthetic 성공을 runtime 성공으로 승격하지 않는다.
 
 현재 실행 범위·보존은 [Paid Azure boundary](implementation-plan.md#paid-azure-boundary--p6p11)와 별도 실제 사용자 결정을 따른다.
@@ -43,20 +43,20 @@ hostname, Argo revision과 나머지 drift 검사는 유지한다. Arm마다 ini
 
 ## 시간·부하 상한
 
-공통 후보는 mitigation180s + recovery180s, drain/마지막 수집60s를 계획한다.
+공통 후보는 mitigation240s + recovery180s, drain/마지막 수집60s를 계획한다.
 실제 scrape/ingestion/controller cadence를 calibration에서 확인하여 공통 mitigation을
 `max(120s, 3×(scrape+ingestion+controller))` 이상, 10초 배수로 **measured 전에** 고정한다.
 코드는 mitigation≤300s, recovery120–240s, 두 구간 합계≤540s, arm 계획≤600s를 제한한다.
 Kubernetes 명령은 최대15s, 한 snapshot의 Kubernetes 수집 budget30s, Prometheus query는
 각5s다. Deadline/관측 부족은 raw로 보존하며 복구/다음 run 판단은 AGENTS.md의 복구 경계을 따른다.
 
-| 상한 | 후보360s / run | 최대로 승인 요청하는540s / run |
+| 상한 | 후보420s / run | 최대로 승인 요청하는540s / run |
 | --- | ---: | ---: |
-| Wave | 72 | 108 |
-| Issue logical operations | 1,728 | 2,592 |
-| Issue attempts (max2) | 3,456 | 5,184 |
-| Supplemental Git operations/attempts | 72 | 108 |
-| 합계 logical operations / attempts | 1,800 / 3,528 | 2,700 / 5,292 |
+| Wave | 84 | 108 |
+| Issue logical operations | 2,016 | 2,592 |
+| Issue attempts (max2) | 4,032 | 5,184 |
+| Supplemental Git operations/attempts | 84 | 108 |
+| 합계 logical operations / attempts | 2,100 / 4,116 | 2,700 / 5,292 |
 
 Calibration **총2회 이하**(C3 및 C2를 우선 후보로 삼고 C1 seed/범위는 cost-free로 고정), measured는 C0→C1→C2→C3 **각1회**, 합계 최대6회다. Calibration 자체는
 한 arm만 실행하며 조합 arm을 만들지 않는다. Candidate 변경도 두 번의 calibration budget
@@ -242,6 +242,50 @@ C2 queue는 측정 대상, 다른 arm에서는 경쟁 병목 guard다.
 `manual_replica_changes=0`과 arm별 HAProxy queue role도 필수다. Runtime 후 `compare`의 네 결과를
 같은 incident의 backoff/admission/proxy-scaling corrective action에 연결한다.
 결과가 없는 현재 corrective action은 검증 완료가 아니다.
+
+## Campaign22 차단 원인과 cost-free 교정
+
+[독립 검토](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#pullrequestreview-5749731895)와
+[불변 raw/index](evidence/p9-mitigation-twenty-second-20261103/README.md)는 실행 source `ab59fda4d9e0f0ed837b77794b6d03a0db07d832`의
+CLOSED/invalid evidence다. 신규 source로 과거 manifest/hash를 재결합하지 않는다. 다음 관측 보완의 Azure 효과는 미검증이다.
+
+- **DECIDED — controller failure 유지.** demand+74.881s/+84.105s snapshot의 earlier HPA는
+  `ScalingActive=False/FailedGetExternalMetric`, `currentMetrics=[]`다. Later collector의 AMW `observed`와
+  resource `initializing-new-pod`를 합쳐 controller 성공으로 해석하지 않는다. 기존 bounded new-Pod AMW warming
+  예외를 resource 초기화 전체로 넓히지 않는다. 기존 HPA GET 하나에 request/response monotonic clock,
+  UID/resourceVersion/generation과 status hash를 기록해 snapshot guard의 바로 그 실패 상태에 연결한다.
+  **REVALIDATE:** actual positive HPA metric/status와 all-Pod AMW·advancing CPU의 joint observation;
+  초기화 중 잠정 HPA 실패를 허용할 필요가 있다면 controller의 실제 실패 시작/종료와 새 UID lifecycle 경계를
+  먼저 입증해야 한다. 현재 정보로 ingestion/controller 지연 상한을 새로 만들거나 과거 snapshot을 합칠 수 없다.
+- **DECIDED — accounting residual 유지.** delta3156 HAProxy 중44건은 `400/CR, Tw=-1`이며 약435.336초에
+  TCP readiness 기본10초 cadence와 부합한다. [TCP probe](https://kubernetes.io/docs/concepts/workloads/pods/probes/)는
+  HTTP request 없이 연결을 검사하므로 가능한 기원이나 행별 attribution은 unknown이다. 나머지3112건과
+  ingress3141건의 **29건 차이**도 남는다(성공11건·overload/error18건 차이). Per-row timestamp/ID가 없어
+  로그 손실·관측 경계·다른 경로 중 하나로 단정하지 않는다. 다음 render는 HAProxy readiness를 기존 unlogged
+  loopback stats8404의 `wget` exec로 옮겨 check8080에 probe 연결을 섞지 않는다. HAProxy3.4
+  [공식 log fields](https://docs.haproxy.org/3.4/configuration.html#8.2.4)의 accept epoch/ms, process/request/log counter,
+  HTTP request 수신 시간을 추가하고 target/ingress와 HAProxy log read 구간을 각각 기록한다.
+  Peer/URL/header/body는 수집하지 않는다. **REVALIDATE:** 새 로그의 counter 연속성·boundary·실제 ingress mapping.
+  `400` 일괄 제외, `Tw=-1`→0, residual 분모 제거 또는 equality 합성은 하지 않는다.
+- **DECIDED — recovery fail-close 유지.** optimistic observation coverage로 분리 재계산해도 good window0이다.
+  Recovery Issue attempt884개 중674개가0.2초 초과, command p50 약0.343초/p95 약1.308초,
+  driver lag p95 약1.331초/max1.501207초다. 모든10초 window에 command SLO 실패가 있어 driver gate만
+  바꾸어도 recovered가 아니다. Issue12 worker에 wave당24 arrivals이므로 두 번째 묶음의 worker 대기가
+  command 시간에 의존한다. 기존 raw에는 submit clock이 없어 scheduler/host stall과 worker backlog의 비중은
+  분리할 수 없다. 다음 source는 `submitted`를 기록해 schedule→submit과 submit→issued를 나누고 recovery
+  window의 기존 실패 조건별 counts를 보고한다. command·operation latency와 기존0.2초/전체2초 기준은 그대로다.
+  **REVALIDATE:** 같은 수요에서 controller/target 안정화 후 command SLO와 host/worker 지연의 실제 분리.
+
+**DEFERRED:** 새 source의 actual calibration·freeze·measured C0–C3·동일-window cloud confounder review와 recovery/rollback
+검증은 새 실행 권한 없이는 진행하지 않는다. 실제 비교/회복/accounting/owned rollback이라는 P9 목표는 줄이지 않는다.
+Azure/AKS/AMW/credential/Secret GET 또는 mutation 없이 수행한 source/archived-negative/synthetic 검증은 paid acceptance가 아니다.
+
+CI는 complete exact-head PR file set와 immutable base SHA를 검증한 뒤 exclusive P9 delta만 shortcut으로 허용한다.
+직전 exact HEAD의 동일 PR/base `local-platform` SUCCESS와 실제 local/recovery/upgrade/ownership/cleanup steps SUCCESS를
+[Actions job metadata](https://docs.github.com/en/rest/actions/workflow-jobs)로 확인한다. Public metadata read만 사용하며
+GitHub token 권한은 늘리지 않는다. API 오류·rename·shared/unknown path·base drift는 full runtime이다.
+생략된 runtime은 다음 shortcut 근거가 되지 않는다. `make static`/CodeQL과 required check 이름은 유지하며,
+생략 HEAD의 runtime은 명시적으로 **SKIPPED / not verified**다. Workflow/classifier 자체 변경은 full runtime이다.
 
 ## 권한·자원·원복 경계
 

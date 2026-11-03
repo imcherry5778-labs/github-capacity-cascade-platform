@@ -18,6 +18,8 @@ on:
       - cmd/ext-authz-sim/**
       - experiments/fixtures/shared-gate/**
       - docs/local-operations.md
+      - docs/p9-mitigation-recovery.md
+      - docs/evidence/p9-*/**
 
 permissions:
   contents: read
@@ -41,15 +43,10 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
+          fetch-depth: 0
 
-      # 1. PR base → checked-out exact HEAD 전체 changed-file set(PR files API)이 Azure Terraform static-only allowlist에만
-      #    속하면 expensive Local runtime을 생략한다(scripts/ci-change-impact.py). Latest commit delta만으로는 판정하지 않는다.
-      # 2. Complete PR diff가 runtime-impacting으로 검증된 경우에만 기존 docs-only 최적화를 적용한다. pull_request.paths는
-      #    PR 전체 3-dot diff를 보므로 같은 PR의 docs-only 후속 push도 workflow는 다시 실행된다. synchronize의 직전 HEAD →
-      #    현재 HEAD delta와 직전 local-platform 성공을 둘 다 증명한 경우에만 runtime을 생략한다.
-      # 3. Classifier가 uncertain이거나 실패/잘못된 출력이면 어떤 shortcut도 없이 full runtime이다.
-      # 비교/API 조회가 불확실하면 runtime_changed=true를 유지해 기존 전체 검증으로 fail safe한다.
-      # tests/e2e/test-ci-change-impact.py가 이 run block을 그대로 실행해 판정 경로를 검증한다.
+      # Complete exact-head PR diff + immutable previous→current delta; genuine previous full-runtime job required.
+      # One-hop reuse only: skipped runtime never seeds the next shortcut. Any uncertainty runs full runtime.
       - name: Classify current PR update
         id: changes
         env:
@@ -68,79 +65,27 @@ jobs:
           # 정확히 한 줄 "<decision>\t<reason>"만 신뢰한다. 실패/다른 형식은 uncertain이다.
           impact_decision=uncertain
           impact_reason="change-impact classifier failed or produced invalid output"
-          impact_format=$'^(static-only|runtime-impacting|uncertain)\t([^\t\n]*)$'
-          if impact="$(python3 scripts/ci-change-impact.py "$REPOSITORY" "$PR_NUMBER" "$AFTER_SHA" "$(git rev-parse HEAD)")" &&
+          impact_format=$'^(static-only|runtime-impacting|uncertain|p9-only-synchronize|docs-only-synchronize)\t([^\t\n]*)$'
+          if impact="$(python3 scripts/ci-change-impact.py "$REPOSITORY" "$PR_NUMBER" "$AFTER_SHA" "$(git rev-parse HEAD)" "$BEFORE_SHA" "$EVENT_ACTION")" &&
              [[ "$impact" =~ $impact_format ]]; then
             impact_decision="${BASH_REMATCH[1]}"
             impact_reason="${BASH_REMATCH[2]}"
           fi
 
-          if [[ "$impact_decision" == "static-only" ]]; then
-            runtime_changed=false
-            classification=static-only
-            reason="PR diff: $impact_reason"
-          elif [[ "$impact_decision" != "runtime-impacting" ]]; then
-            reason="docs-only shortcut not applied because the complete PR diff is not verified"
-          elif [[ "$EVENT_ACTION" == "synchronize" &&
-                "$BEFORE_SHA" =~ ^[0-9a-f]{40}$ &&
-                "$AFTER_SHA" =~ ^[0-9a-f]{40}$ &&
-                "$AFTER_SHA" == "$(git rev-parse HEAD)" ]]; then
-            if ! git cat-file -e "$BEFORE_SHA^{commit}" 2>/dev/null; then
-              if ! git fetch --no-tags --depth=1 origin "$BEFORE_SHA" >/dev/null 2>&1; then
-                reason="previous head cannot be fetched"
-              fi
-            fi
+          case "$impact_decision" in
+            static-only | p9-only-synchronize | docs-only-synchronize)
+              runtime_changed=false
+              classification="$impact_decision"
+              reason="$impact_reason" ;;
+            *) reason="full runtime: $impact_reason" ;;
+          esac
 
-            if git cat-file -e "$BEFORE_SHA^{commit}" 2>/dev/null; then
-              changed_file="$(mktemp)"
-              if git diff --name-only --no-renames "$BEFORE_SHA" "$AFTER_SHA" >"$changed_file"; then
-                mapfile -t changed <"$changed_file"
-                docs_only=true
-                ((${#changed[@]} > 0)) || docs_only=false
-                for path in "${changed[@]}"; do
-                  printf 'delta path: %s\n' "$path"
-                  case "$path" in
-                    docs/local-operations.md) ;;
-                    *) docs_only=false; break ;;
-                  esac
-                done
-
-                if [[ "$docs_only" == true ]]; then
-                  checks_file="$(mktemp)"
-                  api="https://api.github.com/repos/$REPOSITORY/commits/$BEFORE_SHA/check-runs?filter=latest&per_page=100"
-                  if curl -fsSL --retry 2 \
-                    -H "Authorization: Bearer $GH_TOKEN" \
-                    -H "Accept: application/vnd.github+json" \
-                    -H "X-GitHub-Api-Version: 2022-11-28" \
-                    "$api" >"$checks_file" &&
-                    jq -e 'any(.check_runs[]?;
-                      .name == "static + fresh local lifecycle" and
-                      .status == "completed" and .conclusion == "success")' "$checks_file" >/dev/null; then
-                    runtime_changed=false
-                    classification=docs-only-synchronize
-                    reason="docs-only synchronize after successful previous local-platform head"
-                  else
-                    reason="docs-only delta but previous successful local-platform head is not proven"
-                  fi
-                  rm -f "$checks_file"
-                else
-                  reason="current push changes runtime-impacting paths"
-                fi
-              else
-                reason="cannot diff previous and current heads"
-              fi
-              rm -f "$changed_file"
-            fi
-          elif [[ "$EVENT_ACTION" == "synchronize" ]]; then
-            reason="synchronize payload/head validation failed"
-          else
-            reason="opened/reopened PR requires full runtime"
-          fi
-
+          pr_diff="$impact_decision"
+          case "$classification" in p9-only-synchronize | docs-only-synchronize) pr_diff=runtime-impacting ;; esac
           [[ "$classification" != full-runtime ]] || reason="PR diff ($impact_decision): $impact_reason; delta: $reason"
           {
             echo "runtime_changed=$runtime_changed"
-            echo "pr_diff=$impact_decision"
+            echo "pr_diff=$pr_diff"
             echo "classification=$classification"
             echo "reason=$reason"
           } >>"$GITHUB_OUTPUT"
@@ -440,7 +385,7 @@ jobs:
           case "$LIFECYCLE_OUTCOME" in
             success | failure | cancelled) runtime="executed" ;;
             *) case "$CLASSIFICATION" in
-                 static-only | docs-only-synchronize) runtime="not executed (skipped by classification; Local runtime not verified for this HEAD)" ;;
+                 static-only | docs-only-synchronize | p9-only-synchronize) runtime="not executed (skipped by classification; Local runtime not verified for this HEAD)" ;;
                  *) runtime="not executed (required but not reached)" ;;
                esac ;;
           esac

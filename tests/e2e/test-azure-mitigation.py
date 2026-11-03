@@ -865,7 +865,8 @@ class SignalClockTests(unittest.TestCase):
         self.assertTrue(any(e['record'] == 'monitor_failure' for e in rows))
         with tempfile.TemporaryDirectory() as directory, tarfile.open(archive) as raw:
             raw.extractall(directory, filter='data')
-            with self.assertRaisesRegex(ValueError, 'failed/incomplete'): m.validate(Path(directory) / 'calibration-C3-2')
+            # Current render adds log provenance: the immutable historical manifest must not be rebound.
+            with self.assertRaisesRegex(ValueError, 'manifest drift'): m.validate(Path(directory) / 'calibration-C3-2')
         self.assertEqual(m.hashlib.sha256(archive.read_bytes()).hexdigest(), original)
 
 
@@ -4273,6 +4274,78 @@ API=https://example.invalid/api/v1
         self.assertIn('TOKEN_ID=%q', script)
 
 
+class Campaign22BoundaryTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.archive = ROOT / 'docs/evidence/p9-mitigation-twenty-second-20261103/raw-evidence.tar.gz'
+        cls.original = m.hashlib.sha256(cls.archive.read_bytes()).hexdigest()
+        with tarfile.open(cls.archive) as raw:
+            cls.manifest = json.load(raw.extractfile('calibration-C3-1/configuration.json'))
+            cls.rows = [json.loads(line) for line in raw.extractfile('calibration-C3-1/events.jsonl')]
+        cls.snapshots = [e for e in cls.rows if e['record'] == 'snapshot']
+
+    @classmethod
+    def tearDownClass(cls):
+        assert m.hashlib.sha256(cls.archive.read_bytes()).hexdigest() == cls.original
+
+    def test_real_controller_failure_is_not_replaced_by_later_collector_success(self):
+        with self.assertRaisesRegex(ValueError, 'controller metric/status failure'):
+            m.common_guards(self.snapshots, self.manifest['baseline'], 'C3', self.manifest['plan'])
+        negatives = [s for s in self.snapshots if s['signal']['status'] == 'observed' and
+                     any(c['type'] == 'ScalingActive' and c['status'] == 'False' for c in s['guard']['hpa']['conditions'])]
+        self.assertEqual(len(negatives), 2)
+        self.assertTrue(all(s['resource_readiness']['status'] == 'initializing-new-pod' for s in negatives))
+
+    def test_real_probe_candidates_and_other_path_residual_both_remain_invalid(self):
+        first, last = self.snapshots[0], self.snapshots[-1]
+        hp = last['haproxy_logs'][len(first['haproxy_logs']):]
+        candidates = [r for r in hp if r['status'] == 400 and r['termination'] == 'CR' and r['queue_ms'] == -1]
+        self.assertEqual((len(hp), len(candidates)), (3156, 44))
+        ingress = sum(len(rs) - len(first['logs']['proxies']['ingress'][uid])
+                      for uid,rs in last['logs']['proxies']['ingress'].items())
+        self.assertEqual(ingress - (len(hp) - len(candidates)), 29)
+        with self.assertRaisesRegex(ValueError, 'competing HAProxy queue'): m.path_accounting('C3', self.snapshots)
+        # Even an unjustified status filter cannot establish equality. Only a separate synthetic copy is changed.
+        changed = copy.deepcopy(self.snapshots)
+        changed[-1]['haproxy_logs'] = first['haproxy_logs'] + [r for r in hp if r not in candidates]
+        with self.assertRaisesRegex(ValueError, 'path error'): m.path_accounting('C3', changed)
+
+    def test_real_recovery_has_independent_command_slo_and_driver_failures(self):
+        # Optimistic coverage isolates demand/command boundaries; not a full run revalidation.
+        result = m.recovery(self.manifest['plan'], self.rows, lambda *_: True)
+        self.assertEqual(result['status'], 'not recovered within observation window')
+        self.assertEqual(sum(w['good'] for w in result['windows']), 0)
+        self.assertTrue(all(w['failure_counts']['issue-command-slo'] > 0 for w in result['windows']))
+        self.assertEqual(sum(w['failure_counts'].get('issue-command-slo', 0) for w in result['windows']), 674)
+        self.assertGreater(result['campaign']['driver_lag_max_seconds'], 1.5)
+        self.assertEqual(result['campaign']['scheduler_dispatch_lag_seconds'], [])  # Missing historical submission clock stays unknown.
+
+    def test_future_probe_uses_unlogged_stats_not_check_connection(self):
+        for arm in m.ARMS:
+            items = m.render(t8.identity(), plan(), arm)['fixtures.json']['items']
+            hp = next(o for o in items if o['kind'] == 'Deployment' and o['metadata']['name'] == 'haproxy')
+            probe = hp['spec']['template']['spec']['containers'][0]['readinessProbe']
+            self.assertEqual(probe['exec']['command'], ['wget', '-q', '-O', '/dev/null', 'http://127.0.0.1:8404/stats'])
+            cfg = next(o['data']['haproxy.cfg'] for o in items if o['kind'] == 'ConfigMap' and o['metadata']['name'] == 'haproxy')
+            self.assertIn('listen local_stats\n  no log\n', cfg)
+            self.assertIn('%lc', cfg); self.assertIn('%rt', cfg); self.assertIn('%TR', cfg)
+            self.assertNotIn('%ci', cfg); self.assertNotIn('req.hdr', cfg)
+
+    def test_future_hpa_observation_brackets_same_failed_get_without_extra_api(self):
+        runtime = m.Runtime.__new__(m.Runtime)
+        runtime.value, runtime.hpa_name = {'source_sha': 'a' * 40}, m.HPA
+        emitted = []; runtime.emit = emitted.append
+        failed = {'metadata': {'uid': 'synthetic', 'resourceVersion': '42', 'generation': 1},
+                  'status': {'currentMetrics': [], 'conditions': [{'type': 'ScalingActive', 'status': 'False', 'reason': 'FailedGetExternalMetric'}]}}
+        args = ('-n', m.NS, 'get', 'hpa', m.HPA, '-o', 'json')
+        with patch.object(m.p8.Runtime, 'j', return_value=failed) as api, patch.object(m.time, 'monotonic', side_effect=[10, 11]):
+            self.assertEqual(runtime.j(*args), failed)
+        api.assert_called_once_with(*args)
+        self.assertEqual((emitted[0]['request_at'], emitted[0]['at']), (10, 11))
+        self.assertEqual(emitted[0]['status_sha256'], m.digest(failed['status']))
+        self.assertNotIn('currentMetrics', emitted[0])  # Status remains in its original guard; the marker binds it by hash.
+
+
 class DemandRecoveryTests(unittest.TestCase):
     def test_open_loop_does_not_wait_for_previous_wave(self):
         rows = []
@@ -4285,6 +4358,7 @@ class DemandRecoveryTests(unittest.TestCase):
         ops = sorted([r for r in rows if r['record'] == 'operation'], key=lambda r: r['at'])
         self.assertLess(ops[-1]['issued'], ops[0]['completed'])
         self.assertAlmostEqual(ops[-1]['scheduled'] - ops[0]['scheduled'], .02)
+        self.assertTrue(all(r['scheduled'] <= r['submitted'] <= r['issued'] for r in ops))
 
     def test_three_windows_with_new_issue_and_git_demand(self):
         result = m.recovery(plan(), events(), lambda *_: True)

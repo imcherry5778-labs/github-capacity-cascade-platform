@@ -24,7 +24,7 @@ REPO, PR, HEAD, BASE = "owner/repo", "7", "a" * 40, "c" * 40
 TF = "infra/terraform/environment/main.tf"
 
 
-def api(files, head=HEAD, changed_files=None, pages=None, heads=None):
+def api(files, head=HEAD, changed_files=None, pages=None, heads=None, base_sha=BASE):
     """Fake GitHub API. `pages`로 page 응답을, `heads`로 연속 PR 조회의 (head, count[, base ref, base SHA])를 바꿀 수 있다."""
     entries = [f if isinstance(f, dict) else {"filename": f} for f in files]
     count = len(entries) if changed_files is None else changed_files
@@ -32,7 +32,7 @@ def api(files, head=HEAD, changed_files=None, pages=None, heads=None):
 
     def get_json(path):
         if path == f"/repos/{REPO}/pulls/{PR}":
-            sha, n, ref, base = (*next(pr_calls, (head, count)), "main", BASE)[:4]
+            sha, n, ref, base = (*next(pr_calls, (head, count)), "main", base_sha)[:4]
             return {"head": {"sha": sha}, "base": {"ref": ref, "sha": base}, "changed_files": n}
         prefix = f"/repos/{REPO}/pulls/{PR}/files?per_page=100&page="
         assert path.startswith(prefix), path
@@ -282,24 +282,37 @@ class FakeGitHubHandler(http.server.BaseHTTPRequestHandler):
 class WorkflowDecisionTest(unittest.TestCase):
     """Classifier 판정 → workflow runtime_changed 판정. Docs-only shortcut은 검증된 complete diff 뒤에만 열린다."""
     def setUp(self):
+        self.proof_mutation = lambda path, response: response
+        self.previous_job = None
         self.work = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.work)
         self.repo, self.bin = self.work / "repo", self.work / "bin"
         self.repo.mkdir()
         self.bin.mkdir()
         git(self.repo, "init", "-q", "-b", "main")
-        commit(self.repo, "README.md")
+        self.base = commit(self.repo, "README.md")
         git(self.repo, "switch", "-qc", "feature")
         self.before = commit(self.repo, TF, RUNTIME)
         self.after = commit(self.repo, DOCS)  # 최신 push delta는 docs-only
         (self.repo / "scripts").mkdir()
         shutil.copy(ROOT / "scripts/ci-change-impact.py", self.repo / "scripts/ci-change-impact.py")
-        # 직전 head check-run 조회만 대체한다. Classifier는 curl이 아니라 urllib로 fake API를 호출한다.
-        curl = self.bin / "curl"
-        curl.write_text('#!/bin/sh\nprintf "%s" "$FAKE_CHECK_RUNS"\n')
-        curl.chmod(0o755)
 
     def run_block(self, get_json, event="synchronize", after=None, previous=check_runs("success")):
+        original = get_json
+        def get_json(path):
+            if '/actions/workflows/' in path:
+                return self.proof_mutation(path, {'total_count': 1, 'workflow_runs': [{'id': 1, 'run_attempt': 1, 'head_sha': self.before,
+                    'path': '.github/workflows/local-platform.yml', 'event': 'pull_request', 'status': 'completed',
+                    'conclusion': 'success', 'pull_requests': [{'number': int(PR), 'head': {'sha': self.before},
+                    'base': {'ref': 'main', 'sha': self.base}}]}]})
+            if '/actions/runs/' in path:
+                return self.proof_mutation(path, self.previous_job or {'total_count': 1, 'jobs': [{'name': 'static + fresh local lifecycle',
+                    'head_sha': self.before, 'status': 'completed',
+                    'conclusion': json.loads(previous)['check_runs'][0]['conclusion'],
+                    'steps': [{'name': n, 'status': 'completed', 'conclusion': 'success',
+                               'started_at': '2026-01-01T00:00:00Z', 'completed_at': '2026-01-01T00:00:01Z'}
+                              for n in impact.RUNTIME_STEPS]}]})
+            return original(path)
         server = FakeGitHub(get_json)
         threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True).start()
         self.addCleanup(server.server_close)
@@ -328,7 +341,7 @@ class WorkflowDecisionTest(unittest.TestCase):
         self.assertEqual(out["pr_diff"], pr_diff, out)
 
     def complete(self, files=(TF, RUNTIME, DOCS), **kwargs):
-        return api(files, head=self.after, **kwargs)
+        return api(files, head=self.after, base_sha=self.base, **kwargs)
 
     # 1-3. 검증된 complete diff
     def test_terraform_only_complete_diff_skips_runtime(self):
@@ -345,6 +358,89 @@ class WorkflowDecisionTest(unittest.TestCase):
     def test_docs_only_shortcut_still_requires_previous_success(self):
         out = self.run_block(self.complete(), previous=check_runs("failure"))
         self.assert_outcome(out, "true", "full-runtime", "runtime-impacting")
+
+    def p9_delta(self, path='scripts/azure-mitigation.py'):
+        self.after = commit(self.repo, path)
+        return self.complete([TF, RUNTIME, DOCS, path])
+
+    def test_exclusive_p9_source_and_evidence_delta(self):
+        for path in ('scripts/azure-mitigation.py', 'tests/e2e/test-azure-mitigation.py',
+                     'experiments/fixtures/shared-gate/mitigation-candidate.json',
+                     'docs/p9-mitigation-recovery.md', 'docs/evidence/p9-cost-free-20261103/README.md'):
+            with self.subTest(path=path):
+                self.before = git(self.repo, 'rev-parse', 'HEAD').strip()
+                get_json = self.p9_delta(path)
+                full = git(self.repo, 'diff', '--name-only', f'{self.base}...{self.after}').splitlines()
+                out = self.run_block(self.complete(full))
+                self.assert_outcome(out, 'false', 'p9-only-synchronize', 'runtime-impacting')
+
+    def test_previous_success_with_skipped_or_missing_runtime_forces_full(self):
+        self.previous_job = {'total_count': 1, 'jobs': [{'name': 'static + fresh local lifecycle',
+            'head_sha': self.before, 'status': 'completed', 'conclusion': 'success', 'steps': []}]}
+        self.assert_outcome(self.run_block(self.complete()), 'true', 'full-runtime', 'runtime-impacting')
+
+    def test_shared_workflow_generic_unknown_and_renames_force_full(self):
+        for path in ('.github/workflows/local-platform.yml', 'scripts/azure-cascade.py',
+                     'experiments/fixtures/shared-gate/resources.yaml', 'docs/unrelated.md', 'unknown/file'):
+            with self.subTest(path=path):
+                self.after = commit(self.repo, path)
+                full = git(self.repo, 'diff', '--name-only', f'{self.base}...{self.after}').splitlines()
+                self.assert_outcome(self.run_block(self.complete(full)), 'true', 'full-runtime', 'runtime-impacting')
+        git(self.repo, 'mv', DOCS, 'docs/p9-mitigation-recovery.md')
+        git(self.repo, 'commit', '-qm', 'rename')
+        self.after = git(self.repo, 'rev-parse', 'HEAD').strip()
+        self.assert_outcome(self.run_block(self.complete()), 'true', 'full-runtime', 'runtime-impacting')
+
+    def test_previous_base_or_head_mismatch_and_api_failure_force_full(self):
+        # Exercise the actual classifier with immutable Git history and selectively malformed provenance.
+        get_json = self.complete()
+        for field in ('head_sha', 'conclusion', 'steps'):
+            job = {'name': 'static + fresh local lifecycle', 'head_sha': self.before, 'status': 'completed',
+                   'conclusion': 'success', 'steps': []}
+            job[field] = 'wrong' if field != 'steps' else [{'name': 'Change-impact summary', 'conclusion': 'success'}]
+            self.previous_job = {'total_count': 1, 'jobs': [job]}
+            self.assert_outcome(self.run_block(get_json), 'true', 'full-runtime', 'runtime-impacting')
+
+    def test_runtime_provenance_failure_paths(self):
+        def mutate(label, path, response):
+            if 'workflow_runs' in response:
+                run = response['workflow_runs'][0]
+                if label == 'run-api-error': raise RuntimeError('API unavailable')
+                if label == 'run-truncated': response['total_count'] = 101
+                if label == 'run-failed': run['conclusion'] = 'failure'
+                if label == 'run-wrong-head': run['head_sha'] = 'b' * 40
+                if label == 'run-wrong-workflow': run['path'] = '.github/workflows/other.yml'
+                if label == 'run-wrong-event': run['event'] = 'push'
+                if label == 'run-wrong-pr': run['pull_requests'][0]['number'] = 99
+                if label == 'run-wrong-base': run['pull_requests'][0]['base']['sha'] = 'b' * 40
+                if label == 'run-ambiguous-pr': run['pull_requests'] *= 2
+            else:
+                job = response['jobs'][0]
+                if label == 'jobs-api-error': raise RuntimeError('API unavailable')
+                if label == 'jobs-truncated': response['total_count'] = 2
+                if label == 'jobs-ambiguous': response['jobs'] *= 2; response['total_count'] = 2
+                if label == 'job-wrong-head': job['head_sha'] = 'b' * 40
+                if label == 'job-pending': job['status'] = 'in_progress'
+                if label == 'runtime-skipped': job['steps'][0]['conclusion'] = 'skipped'
+                if label == 'runtime-missing': job['steps'].pop()
+                if label == 'runtime-no-clock': job['steps'][0].pop('started_at')
+            return response
+        for label in ('run-api-error', 'run-truncated', 'run-failed', 'run-wrong-head', 'run-wrong-workflow',
+                      'run-wrong-event', 'run-wrong-pr', 'run-wrong-base', 'run-ambiguous-pr', 'jobs-api-error',
+                      'jobs-truncated', 'jobs-ambiguous', 'job-wrong-head', 'job-pending', 'runtime-skipped',
+                      'runtime-missing', 'runtime-no-clock'):
+            with self.subTest(label=label):
+                self.proof_mutation = lambda p,r: mutate(label,p,r)
+                self.assert_outcome(self.run_block(self.complete()), 'true', 'full-runtime', 'runtime-impacting')
+
+    def test_p9_delta_requires_real_previous_history_and_complete_local_match(self):
+        # P9-only latest update cannot hide a fabricated full API file set or absent previous commit.
+        self.after = commit(self.repo, 'scripts/azure-mitigation.py')
+        out = self.run_block(self.complete([RUNTIME, 'scripts/azure-mitigation.py']))
+        self.assert_outcome(out, 'true', 'full-runtime', 'runtime-impacting')
+        self.before = '0' * 40
+        out = self.run_block(self.complete([TF, RUNTIME, DOCS, 'scripts/azure-mitigation.py']))
+        self.assert_outcome(out, 'true', 'full-runtime', 'runtime-impacting')
 
     # 4-9. Docs-only delta + 직전 성공이 있어도 uncertain이면 shortcut 없이 full runtime
     def test_uncertain_diff_never_uses_docs_only_shortcut(self):

@@ -264,13 +264,16 @@ def render(identity, v, arm):
     config = hp['data']['haproxy.cfg'].replace('timeout connect 5s', 'timeout connect 250ms').replace('timeout server 10s', 'timeout server 2s').replace('timeout client 10s', 'timeout client 4s')
     # Same logging policy for all arms; no URL, credentials or bodies.
     config = 'global\n  log stdout format raw local0\n' + config
-    config = config.replace('  mode http\n', '  mode http\n  log global\n  log-format "{\\"status\\":%ST,\\"termination\\":\\"%ts\\",\\"queue_ms\\":%Tw,\\"connect_ms\\":%Tc,\\"response_ms\\":%Tr,\\"total_ms\\":%Ta}"\n')
+    config = config.replace('  mode http\n', '  mode http\n  log global\n  log-format "{\\"status\\":%ST,\\"termination\\":\\"%ts\\",\\"queue_ms\\":%Tw,\\"connect_ms\\":%Tc,\\"response_ms\\":%Tr,\\"total_ms\\":%Ta,\\"accept_epoch\\":%Ts,\\"accept_ms\\":%ms,\\"request_counter\\":%rt,\\"log_counter\\":%lc,\\"request_ms\\":%TR,\\"pid\\":%pid}"\n')
     if arm == 'C2':
         config = config.replace('  timeout connect 250ms', '  timeout queue ' + str(v['queue_timeout_ms']) + 'ms\n  timeout connect 250ms')
         config = config.replace('  default_backend ext_authz', '  http-request deny deny_status 429 if { queue(ext_authz) ge ' + str(v['queue_limit']) + ' }\n  default_backend ext_authz')
         config = config.replace('svc.cluster.local:8080\n', 'svc.cluster.local:8080 maxconn 2 maxqueue ' + str(v['queue_limit']) + '\n')
     config = config.replace('listen local_stats\n', 'listen local_stats\n  no log\n')
     hp['data']['haproxy.cfg'] = config
+    hp_deployment = next(o for o in items if o['kind'] == 'Deployment' and o['metadata']['name'] == 'haproxy')
+    hp_deployment['spec']['template']['spec']['containers'][0]['readinessProbe'] = {
+        'exec': {'command': ['wget', '-q', '-O', '/dev/null', 'http://127.0.0.1:8404/stats']}}
     if arm == 'C3':
         items[:] = [o for o in items if o['kind'] != 'HorizontalPodAutoscaler']
         items += [dict(apiVersion='keda.sh/v1alpha1', kind='TriggerAuthentication',
@@ -630,11 +633,11 @@ def drive(v, arm, issue, git, emit, release, *, clock=time.monotonic, wait=time.
     futures = []
     cancelled = threading.Event()
     emit({'record': 'schedule', 'origin': origin, 'origin_utc': p8.utc(), 'items': arrivals, 'sha256': digest(arrivals)})
-    def operation(item):
+    def operation(item, submitted):
         scheduled = origin + item['at']
         issued = clock()
         if cancelled.is_set() or issued >= origin + v['mitigation_seconds'] + v['recovery_seconds']:
-            emit({'record': 'operation', **item, 'scheduled': scheduled, 'issued': None, 'completed': clock(), 'outcome': 'cancelled', 'attempts': [], 'backoff_seconds': 0})
+            emit({'record': 'operation', **item, 'scheduled': scheduled, 'submitted': submitted, 'issued': None, 'completed': clock(), 'outcome': 'cancelled', 'attempts': [], 'backoff_seconds': 0})
             return
         attempts, delayed = [], 0
         for index in range(1, 3 if item['kind'] == 'issue' else 2):
@@ -650,7 +653,7 @@ def drive(v, arm, issue, git, emit, release, *, clock=time.monotonic, wait=time.
                 break
             delay = retry_delay(v, arm, item)
             wait(delay); delayed += delay
-        emit({'record': 'operation', **item, 'scheduled': scheduled, 'issued': issued, 'completed': clock(),
+        emit({'record': 'operation', **item, 'scheduled': scheduled, 'submitted': submitted, 'issued': issued, 'completed': clock(),
               'outcome': 'completed', 'attempts': attempts, 'backoff_seconds': delayed})
     with concurrent.futures.ThreadPoolExecutor(max_workers=12) as issues, concurrent.futures.ThreadPoolExecutor(max_workers=1) as reads:
         for item in arrivals:
@@ -671,7 +674,8 @@ def drive(v, arm, issue, git, emit, release, *, clock=time.monotonic, wait=time.
                 cancelled.set()
                 emit({'record': 'operation', **item, 'scheduled': due, 'issued': None, 'completed': clock(), 'outcome': 'not-issued', 'attempts': [], 'backoff_seconds': 0})
             else:
-                futures.append((issues if item['kind'] == 'issue' else reads).submit(operation, item))
+                submitted = clock()
+                futures.append((issues if item['kind'] == 'issue' else reads).submit(operation, item, submitted))
         end = origin + v['mitigation_seconds'] + v['recovery_seconds']
         if not cancelled.is_set() and end > clock():
             wait(end - clock())
@@ -697,6 +701,8 @@ def demand_report(v, events):
             continue
         require(r['scheduled'] <= r['issued'] <= r['completed'] and
                 1 <= len(r['attempts']) <= (2 if r['kind'] == 'issue' else 1), 'operation/attempt timing')
+        if 'submitted' in r:
+            require(r['scheduled'] <= r['submitted'] <= r['issued'], 'scheduler submission timing drift')
         prev = r['issued']
         for index, a in enumerate(r['attempts'], 1):
             require(type(a['semantic_result']) is bool and a['error_class'] in {'none', 'http_status', 'semantic_error', 'timeout', 'transport', 'git_command', 'driver-error'}, 'attempt semantic/error schema')
@@ -712,6 +718,8 @@ def demand_report(v, events):
             'failed': sum(r['issued'] is not None and not r['attempts'][-1]['semantic_result'] for r in rows),
             'attempts': sum(len(r['attempts']) for r in rows),
             'driver_lag_max_seconds': max((r['issued'] - r['scheduled'] for r in rows if r['issued'] is not None), default=None),
+            'scheduler_dispatch_lag_seconds': [r['submitted'] - r['scheduled'] for r in rows if r['issued'] is not None and 'submitted' in r],
+            'worker_queue_seconds': [r['issued'] - r['submitted'] for r in rows if r['issued'] is not None and 'submitted' in r],
             'command_seconds': [a['duration_seconds'] for r in rows for a in r['attempts']],
             'end_to_end_seconds': [r['completed'] - r['scheduled'] for r in rows if r['issued'] is not None]}, rows, origin
 
@@ -727,17 +735,22 @@ def recovery(v, events, observation_good):
     for offset in range(v['mitigation_seconds'], v['mitigation_seconds'] + v['recovery_seconds'], 10):
         start, end = origin + offset, origin + offset + 10
         group = [r for r in rows if start <= r['scheduled'] < end]
-        good = stable is not None and start >= stable and observation_good(start, end)
-        good = good and len(group) == 50 and sum(r['kind'] == 'issue' for r in group) == 48
+        reasons = {}
+        def fail(reason):
+            reasons[reason] = reasons.get(reason, 0) + 1
+        if stable is None or start < stable: fail('release-not-converged')
+        elif not observation_good(start, end): fail('observation-gap')
+        if len(group) != 50 or sum(r['kind'] == 'issue' for r in group) != 48: fail('demand-count')
         for r in group:
-            good = good and r['outcome'] == 'completed' and r['issued'] is not None
-            if not good:
-                break
-            good = (r['issued'] - r['scheduled'] <= .2 and r['completed'] <= end and
-                    len(r['attempts']) == 1 and r['attempts'][0]['semantic_result'] is True)
-            if r['kind'] == 'issue':
-                good = good and r['attempts'][0]['duration_seconds'] <= .2
-        windows.append({'start': start, 'end': end, 'scheduled': len(group), 'good': bool(good)})
+            if r['outcome'] != 'completed' or r['issued'] is None:
+                fail('unissued-or-cancelled'); continue
+            if r['issued'] - r['scheduled'] > .2: fail('driver-lag')
+            if r['completed'] > end: fail('completion-outside-window')
+            if len(r['attempts']) != 1: fail('retry')
+            if not r['attempts'][0]['semantic_result']: fail('semantic-failure')
+            if r['kind'] == 'issue' and r['attempts'][0]['duration_seconds'] > .2: fail('issue-command-slo')
+        good = not reasons
+        windows.append({'start': start, 'end': end, 'scheduled': len(group), 'good': good, 'failure_counts': reasons})
         if good:
             streak += 1
             if streak == 1:
@@ -911,6 +924,16 @@ class Runtime(p8.Runtime):
         require(set(self.admin_observations) == {t['uid'] for t in actual['targets']}, 'admin target inventory drift')
         return {uid: o['values'] for uid, o in self.admin_observations.items() if o['status'] == 'observed'}
 
+    def j(self, *args):
+        started = time.monotonic()
+        value = super().j(*args)
+        if args == ('-n', NS, 'get', 'hpa', self.hpa_name, '-o', 'json'):
+            self.hpa_observation = {'request_at': started, 'at': time.monotonic(),
+                'source_sha': self.value['source_sha'], 'status_sha256': digest(value['status']),
+                'metadata': {k: value['metadata'][k] for k in ('uid', 'resourceVersion', 'generation') if k in value['metadata']}}
+            getattr(self, 'emit', lambda _: None)({'record': 'hpa_observation', **self.hpa_observation})
+        return value
+
     def guard(self):
         return super().guard(hpa_name=self.hpa_name, event_timestamps=True,
                              cpu_preparation=getattr(self, 'preparation', False),
@@ -1046,10 +1069,14 @@ def collect_snapshot(runtime, config, before, emit, release_started):
     config_guard(before, actual, runtime.arm, healthy, releasing)
     stats = runtime.stats(actual)
     runtime.lifecycle.admin(actual['targets'], runtime.admin_observations, stats, at)
+    logs_at = time.monotonic()
     logs = runtime.logs(actual)
-    # HAProxy's stdout log-format contains only timing/status/termination fields.
+    target_ingress_logs_end = time.monotonic()
+    # Fixed numeric log provenance; no peer/header/URL/body values.
     hp = runtime.pod(NS, 'app=haproxy')
+    hp_logs_at = time.monotonic()
     hp_logs = [json.loads(line) for line in runtime.k('-n', NS, 'logs', hp['metadata']['name'], '-c', 'haproxy').splitlines() if line.startswith('{')]
+    hp_logs_end = time.monotonic()
     signal = runtime.signal(inventory, at=at)
     resource = runtime.lifecycle.resources(guard, [p8.p4.pod_guard(p) for p in inventory], signal, time.monotonic())
     all_converged = healthy and signal['status'] == resource['status'] == 'observed' and {p['metadata']['uid'] for p in inventory} == {t['uid'] for t in actual['targets']}
@@ -1065,6 +1092,10 @@ def collect_snapshot(runtime, config, before, emit, release_started):
             'configuration': actual, 'guard': guard, 'stats': stats, 'logs': logs, 'haproxy': haproxy,
             'haproxy_logs': hp_logs, 'signal': signal, 'resource_readiness': resource, 'fault_healthy': healthy, 'healthy': all_converged,
             'release_started': releasing, 'admin_stats': runtime.admin_observations, 'target_inventory': [p8.p4.pod_guard(p) for p in inventory]}
+    snap['path_observation'] = {'target_ingress_request_at': logs_at, 'target_ingress_end': target_ingress_logs_end,
+        'haproxy_request_at': hp_logs_at, 'haproxy_end': hp_logs_end}
+    if hasattr(runtime, 'hpa_observation'):
+        snap['hpa_observation'] = copy.deepcopy(runtime.hpa_observation)
     emit(snap)
     if all_converged:
         emit({'record': 'convergence', 'at': snap['end'], 'healthy': True, 'targets': [t['uid'] for t in actual['targets']]})
