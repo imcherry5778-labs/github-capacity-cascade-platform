@@ -1,0 +1,68 @@
+{
+  "P9_acceptance": "not met",
+  "additional_mapping_boundary": {
+    "HAProxy_other_log_rows": 3112,
+    "HAProxy_status400_CR_Tw_minus1": 44,
+    "HAProxy_total_log_delta": 3156,
+    "ingress_record_delta": 3141,
+    "interpretation": "Simply filtering all44 CR rows would still not establish path equality:3112 other logs vs3141 ingress records. Origin of29 difference remains unknown. Original rows and invalid verdict unchanged."
+  },
+  "all_snapshot_lifecycle_replay": [
+    {
+      "lifecycle_signal_resources": "exact marker equality; invalid controller/accounting verdict preserved",
+      "scope": "original",
+      "snapshots": 45
+    },
+    {
+      "lifecycle_signal_resources": "exact marker equality; invalid controller/accounting verdict preserved",
+      "scope": "public",
+      "snapshots": 45
+    }
+  ],
+  "archive_file_count": 45,
+  "archive_path_size_SHA256_roundtrip": "pass",
+  "calibration_saved_validity": "invalid; not upgraded by partial checks",
+  "cleanup": "actual same-parent comparisons and final absence checks; cleanup-summary.json",
+  "known_credential_JWT_subscription_private_path_scan": "pass",
+  "limitations": [
+    "No C0-C3 measured run, freeze or completed cloud confounder review. Calibration observations are not measured acceptance.",
+    "Metrics-server phase/cache and HPA vs AMW backend transaction/ingestion atomicity remain unknown.",
+    "HPA was read earlier in the snapshot than observed AMW; this does not prove the scaler evaluation used the collector ingestion state.",
+    "44 HAProxy400/CR Tw=-1 rows are consistent with configured TCP readiness probes; no peer/timestamp/correlation fields identify each row. Do not filter all400/CR.",
+    "Stable full specs and named Secret values were compared in parent memory. Stable before/after digests are published; Secret values/full pairs are not.",
+    "Redacted identity prevents independent full original render-hash reconstruction; original hash values are preserved and partial source predicate replays are exact.",
+    "Historical subscription identifier was printed once during early local identity read; public artifacts redact it. No authentication token/Secret value was printed in that read."
+  ],
+  "normal_healthy_original_public": "valid/success,9 operations/9 attempts each",
+  "original_full_saved_validator_failure": "controller metric/status failure",
+  "original_public_partial_source_replay_equal": {
+    "CPU_polls": 10,
+    "all_snapshot_signal_clock_envelopes_checked": true,
+    "calibration_raw_complete": true,
+    "calibration_saved_validity": "invalid",
+    "demand": {
+      "attempts": 3102,
+      "driver_lag_max_seconds": 1.5012070420198143,
+      "failed": 1047,
+      "issued": 2100,
+      "scheduled": 2100,
+      "unissued": 0
+    },
+    "initialize_complete": true,
+    "initialize_queries": 17,
+    "snapshots": 45,
+    "strict_accounting_failure": "competing HAProxy queue",
+    "strict_guard_failure": "controller metric/status failure",
+    "telemetry_polls": 4
+  },
+  "owned_private_copy_cleanup": {
+    "global_Azure_cache": "preserved",
+    "one_off_operator_sources_absent": true,
+    "original_credential_free_raw_retained": true,
+    "private_directory_absent": true,
+    "recovered_operator_sources_absent": true,
+    "secure_erasure_claim": false
+  },
+  "source_sha": "ab59fda4d9e0f0ed837b77794b6d03a0db07d832",
+  "source_tests": "reuse ab59 exact-source118:117 PASS/optional promtool1SKIP; no executable changes"
+}
