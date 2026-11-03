@@ -282,9 +282,9 @@ CLOSED/invalid evidence다. 신규 source로 과거 manifest/hash를 재결합�
 Azure/AKS/AMW/credential/Secret GET 또는 mutation 없이 수행한 source/archived-negative/synthetic 검증은 paid acceptance가 아니다.
 
 CI는 complete exact-head PR file set와 immutable base SHA를 검증한 뒤 exclusive P9 delta만 shortcut으로 허용한다.
-직전 exact HEAD의 동일 PR/base `local-platform` SUCCESS와 실제 local/recovery/upgrade/ownership/cleanup steps SUCCESS를
+직전 immutable `run.head_sha`/`job.head_sha`의 동일 PR `local-platform` SUCCESS와 실제 local/recovery/upgrade/ownership/cleanup steps SUCCESS를
 [Actions job metadata](https://docs.github.com/en/rest/actions/workflow-jobs)로 확인한다. Public metadata read만 사용하며
-GitHub token 권한은 늘리지 않는다. API 오류·rename·shared/unknown path·base drift는 full runtime이다.
+GitHub token 권한은 늘리지 않는다. 과거 run의 `pull_requests[].head/base`는 현재 PR을 가리키는 mutable link이므로 과거 실행 SHA/base 증거로 쓰지 않는다. Current base는 PR API의 전후 일치와 literal SHA의 local full diff로 따로 고정한다. API 오류·rename·shared/unknown path·base drift는 full runtime이다.
 생략된 runtime은 다음 shortcut 근거가 되지 않는다. `make static`/CodeQL과 required check 이름은 유지하며,
 생략 HEAD의 runtime은 명시적으로 **SKIPPED / not verified**다. Workflow/classifier 자체 변경은 full runtime이다.
 

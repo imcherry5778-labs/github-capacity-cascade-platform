@@ -179,9 +179,12 @@ def incremental(get_json, repository, number, head, previous, paths, meta):
             len(run['pull_requests']) == 1):
         raise Uncertain('previous exact-head workflow not successful/unique')
     pr = run['pull_requests'][0]
-    if not (str(pr['number']) == number and pr['head']['sha'] == previous and
+    # pull_requests[].head/base are LIVE PR links, not historical run snapshots.
+    # Only run.head_sha + job.head_sha bind the immutable executed source. Current base
+    # is pinned independently by pr_files and the local immutable full diff.
+    if not (str(pr['number']) == number and
             pr['base']['sha'] == meta['base_sha'] and pr['base']['ref'] == meta['base_ref']):
-        raise Uncertain('previous PR head/base binding differs')
+        raise Uncertain('previous run PR association/current base differs')
     jobs = get_json(endpoint + f"/actions/runs/{run['id']}/attempts/{run['run_attempt']}/jobs?per_page=100")
     matches = [j for j in jobs['jobs'] if j['name'] == 'static + fresh local lifecycle']
     if jobs['total_count'] != len(jobs['jobs']) or len(matches) != 1:

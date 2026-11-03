@@ -303,7 +303,7 @@ class WorkflowDecisionTest(unittest.TestCase):
             if '/actions/workflows/' in path:
                 return self.proof_mutation(path, {'total_count': 1, 'workflow_runs': [{'id': 1, 'run_attempt': 1, 'head_sha': self.before,
                     'path': '.github/workflows/local-platform.yml', 'event': 'pull_request', 'status': 'completed',
-                    'conclusion': 'success', 'pull_requests': [{'number': int(PR), 'head': {'sha': self.before},
+                    'conclusion': 'success', 'pull_requests': [{'number': int(PR), 'head': {'sha': self.after},
                     'base': {'ref': 'main', 'sha': self.base}}]}]})
             if '/actions/runs/' in path:
                 return self.proof_mutation(path, self.previous_job or {'total_count': 1, 'jobs': [{'name': 'static + fresh local lifecycle',
@@ -351,7 +351,9 @@ class WorkflowDecisionTest(unittest.TestCase):
         out = self.run_block(self.complete(), event="opened")
         self.assert_outcome(out, "true", "full-runtime", "runtime-impacting")
 
-    def test_verified_runtime_diff_keeps_docs_only_shortcut(self):
+    def test_verified_runtime_diff_keeps_docs_only_shortcut_with_live_pr_head_link(self):
+        # Real GitHub run.pull_requests[].head.sha advances to current PR HEAD after each push.
+        # The immutable run.head_sha and job.head_sha must still be the previous commit.
         out = self.run_block(self.complete())
         self.assert_outcome(out, "false", "docs-only-synchronize", "runtime-impacting")
 
