@@ -1,9 +1,10 @@
 # P9-W1 Mitigation & Recovery
 
 목표는 동일 fault/demand의 C0–C3 비교, continuing-demand recovery, 실제 request accounting과 P9-owned 원복 evidence다.
-P9 acceptance는 아직 미충족이다. 제22차는 CLOSED/invalid이며 새 paid campaign 승인은 없다.
-누적 campaign22 / public initialize19 / healthy10 / started-invalid calibration7 / measured 각0 / KEDA apply·restore7/7을 보존한다.
-현재 source-only 교정의 Azure 효과는 NOT VERIFIED다. Source CI나 synthetic 성공을 runtime 성공으로 승격하지 않는다.
+P9 acceptance는 아직 미충족이다. [제23차 실제 결과](evidence/p9-mitigation-twenty-third-20261103/README.md)는 CLOSED/invalid이며 남은 실행 권한은 close와 함께 소멸했다.
+누적 campaign23 / public initialize20 / healthy11 / started-invalid calibration8 / measured 각0 / KEDA apply·restore8/8을 보존한다.
+Exact source `076bc8a3dbd09e8192057e19df8b6cc5cb55274d`의 실제 initialize/KEDA/partial joint observation 뒤 controller·HAProxy log 결손으로 calibration이 invalid였다.
+Source CI·synthetic·부분 positive를 valid calibration, measured 성과 또는 recovered로 승격하지 않는다.
 
 현재 실행 범위·보존은 [Paid Azure boundary](implementation-plan.md#paid-azure-boundary--p6p11)와 별도 실제 사용자 결정을 따른다.
 Environment 기한은 2026-11-05 10:30 KST, Foundation/Bootstrap은 11월6일00:33 KST다. 자동 연장·전체 teardown·merge/P10은 없다.

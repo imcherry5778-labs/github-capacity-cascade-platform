@@ -1,0 +1,14 @@
+{
+  "source_sha": "076bc8a3dbd09e8192057e19df8b6cc5cb55274d",
+  "status": "not performed",
+  "reason": "first C3 calibration invalid: controller status and log accounting blockers",
+  "freeze": false,
+  "measured": {
+    "C0": 0,
+    "C1": 0,
+    "C2": 0,
+    "C3": 0
+  },
+  "P9_acceptance": "not met",
+  "no_hypothesis_comparison": true
+}
