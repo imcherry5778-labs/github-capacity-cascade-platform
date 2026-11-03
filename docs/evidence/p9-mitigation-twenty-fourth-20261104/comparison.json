@@ -1,0 +1,106 @@
+{
+  "whole_run_validity": "INVALID; partial observations never measured acceptance",
+  "strict_blockers": {
+    "AMW": {
+      "offset_seconds": 368.7026023340877,
+      "exact_signal_hash_reconstruction": true,
+      "source_predicate": "empty/invalid guarded scale query",
+      "inventory_max_age_seconds": 61.51200008392334,
+      "freshness_guard_seconds": 60,
+      "rate_and_fresh_rate_count": 2,
+      "inventory_count": 2,
+      "up_count": 2,
+      "up_min": 1,
+      "guarded_scale_rows": 0,
+      "lifecycle_replay": {
+        "class": "ValueError",
+        "reason": "empty/invalid guarded scale query"
+      }
+    },
+    "native_nonstartup_warnings": [
+      {
+        "reason": "FailedGetExternalMetric",
+        "native_timestamp_utc": "2026-11-03T19:04:19Z",
+        "demand_offset_seconds": 220.0979199409485,
+        "count": 1
+      },
+      {
+        "reason": "FailedComputeMetricsReplicas",
+        "native_timestamp_utc": "2026-11-03T19:04:19Z",
+        "demand_offset_seconds": 220.0979199409485,
+        "count": 1
+      }
+    ],
+    "independent_clocks": "earlier HPA Warning/current positive and later AMW freshness are not one evaluation or causal proof"
+  },
+  "demand": {
+    "scheduled": 2100,
+    "issued": 1850,
+    "unissued": 250,
+    "failed": 1051,
+    "attempts": 2855,
+    "driver_lag_max_seconds": 1.4975532919634134
+  },
+  "partial_scaling": {
+    "new_Ready_observed_offsets": [
+      57.05770383402705
+    ],
+    "first_full_joint_offset_seconds": 152.78185008396395,
+    "observed_Ready_to_joint_seconds": [
+      95.7241462499369
+    ],
+    "post_joint_reference_start_offset_seconds": 153.81396212498657,
+    "both_UID_counter_advance_after_reference_offset_seconds": 192.89891379210167,
+    "before_mitigation240": true
+  },
+  "ring": {
+    "lifetime_rows": 2913,
+    "initial_rows": 30,
+    "delta_rows": 2883,
+    "frontend_stot_delta": 2883,
+    "path_checks": 2883,
+    "path_errors": 0,
+    "ring_dropped_max": 0,
+    "stdio_dropped_diagnostic_max": 63,
+    "400_CR": 0,
+    "synthetic_rows": 0,
+    "filters": 0
+  },
+  "snapshots": {
+    "completed": 20,
+    "max_collection_seconds": 19.712449500104412,
+    "max_ring_capture_seconds": 0.7592339999973774,
+    "all_completed_HPA_states_positive": true,
+    "failed_cycle_guard_HPA_status_not_saved": true
+  },
+  "memory": {
+    "actual_preflight_cgroup_current_bytes": 86765568,
+    "actual_cgroup_limit_bytes": 268435456,
+    "preflight_oom_kill": 0,
+    "max_retained_PodMetrics_memory_bytes": 87044096.0,
+    "postload_cgroup_peak": "not collected before owned Pod deletion; no claim of measured peak",
+    "completed_guard_container_restarts_OOM": "zero"
+  },
+  "driver_whole_run": {
+    "scheduler_dispatch_max_seconds": 0.05516754207201302,
+    "worker_queue_max_seconds": 1.469377625035122
+  },
+  "recovery_partial": {
+    "full_180_seconds_complete": false,
+    "issued_Issue_commands": 644,
+    "Issue_commands_over_0_2s": 466,
+    "not_valid_negative_result": true,
+    "SLO_threshold_seconds": 0.2,
+    "scheduler_dispatch_max_seconds": 0.05516754207201302,
+    "worker_queue_max_seconds": 1.469377625035122,
+    "total_driver_max_seconds": 1.4975532919634134
+  },
+  "full_cloud_confounder_review": "not performed after INVALID close; no competing_bottleneck=false claim",
+  "measured_arms": {
+    "C0": "not started",
+    "C1": "not started",
+    "C2": "not started",
+    "C3": "not started"
+  },
+  "Campaign23_stdout_loss_hop": "still UNKNOWN; current ring conservation and global DroppedLogs63 do not map every historical missing row"
+}

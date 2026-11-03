@@ -1839,7 +1839,14 @@ def common_guards(snapshots, baseline, arm, v):
                 if uid in fixed or uid in first_targets:
                     require(current == images, 'runtime image/lifetime drift')
                 else:
-                    require(arm == 'C3' and all(current.get(name) == image for name, image in images.items()), 'new Pod runtime image drift')
+                    prior = next(p for p in previous['guard']['pods'] if p['uid'] == uid)
+                    pending = prior['phase'] == 'Pending' and not prior['ready']
+                    # CRI reports imageID="" before a new container starts.
+                    # Preserve that unknown; freeze every nonempty ID immediately.
+                    # The lifecycle below still bounds Pending and checks Ready.
+                    require(arm == 'C3' and all(type(image) is str and
+                            (image == '' and pending or image and current.get(name) == image)
+                            for name, image in images.items()), 'new Pod runtime image drift')
         require({p['uid']: p for p in guard['pods'] if p['uid'] in fixed} == fixed and
                 {p['uid'] for p in guard['pods'] if not p['name'].startswith('ext-authz-sim-')} == set(fixed), 'stable/helper Pod drift')
         require(guard['nodes'] and all(n['conditions'] == {'Ready': 'True', 'MemoryPressure': 'False', 'DiskPressure': 'False', 'PIDPressure': 'False'} for n in guard['nodes']), 'node pressure')

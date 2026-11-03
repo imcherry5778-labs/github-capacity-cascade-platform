@@ -1,9 +1,10 @@
 # P9-W1 Mitigation & Recovery
 
 목표는 동일 fault/demand의 C0–C3 비교, continuing-demand recovery, 실제 request accounting과 P9-owned 원복 evidence다.
-P9 acceptance는 아직 미충족이다. [제23차 실제 결과](evidence/p9-mitigation-twenty-third-20261103/README.md)는 CLOSED/invalid이며 남은 실행 권한은 close와 함께 소멸했다.
-누적 campaign23 / public initialize20 / healthy11 / started-invalid calibration8 / measured 각0 / KEDA apply·restore8/8을 보존한다.
-Exact source `076bc8a3dbd09e8192057e19df8b6cc5cb55274d`의 실제 initialize/KEDA/partial joint observation 뒤 controller·HAProxy log 결손으로 calibration이 invalid였다.
+P9 acceptance는 아직 미충족이다. [제24차 실제 결과](evidence/p9-mitigation-twenty-fourth-20261104/README.md)는 CLOSED/invalid이며 남은 실행 권한은 close와 함께 소멸했다.
+누적 campaign24 / public initialize21 / healthy12 / started-invalid calibration9 / measured 각0 / KEDA apply·restore actions9/9을 보존한다.
+Paid source `d1ed52b8ba14d77345df5b3f19ae8a599421e516`는 native post-startup Warning과 AMW inventory age61.512초의60초 guard 초과로 중단했다. Ring conservation 부분 관측과 원복은 확인했지만 valid calibration은 없다.
+[제23차](evidence/p9-mitigation-twenty-third-20261103/README.md)의 source `076bc8a3dbd09e8192057e19df8b6cc5cb55274d`와 controller·HAProxy log 결손 negative도 그대로 보존한다.
 Source CI·synthetic·부분 positive를 valid calibration, measured 성과 또는 recovered로 승격하지 않는다.
 
 현재 실행 범위·보존은 [Paid Azure boundary](implementation-plan.md#paid-azure-boundary--p6p11)와 별도 실제 사용자 결정을 따른다.
@@ -12,8 +13,8 @@ Environment 기한은 2026-11-05 10:30 KST, Foundation/Bootstrap은 11월6일00:
 ## Campaign23 이후 cost-free candidate
 
 [독립 review](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/49#pullrequestreview-5755324677) 뒤의
-source/test 변경은 **future candidate**다. Campaign22·23 archive/실행 source·negative·누적 횟수는 불변이다.
-이 정책으로 과거 manifest를 다시 서명하거나 Campaign23을 valid로 바꾸지 않는다. 새 paid source 승인은 없다.
+source/test 변경은 당시 **future candidate**였고 이후 exact source d1ed로 제24차를 실행했다. Campaign22·23·24 archive/실행 source/negative는 불변이다.
+제24차 cleanup 뒤의 Pending 빈 imageID 교정만 새 cost-free candidate다. 과거 manifest 재서명·valid 승격은 없으며 Campaign25 권한도 없다.
 
 - **DECIDED — C3 bounded degraded startup 기록.** 새 형식은 guard HPA GET의 source/spec/status hash,
   HPA UID·ScaledObject owner UID와 request/response monotonic clock을 configuration에 결합한다.
@@ -155,6 +156,7 @@ HPA metric·desired·Ready·각 target의 traffic timeline과 함께 기록한�
 전체 live target UID/inventory에는 Pending도 포함하고, runtime config/counter/log는 Ready target에서 수집한다.
 Collector와 saved-run validator는 같은 lifecycle 경계를 적용한다. 신규 C3 UID의 Pending→Ready는
 첫 관측부터 최대90초, Ready 이후 series 초기화는 `ingestion+3×scrape` 이내만 허용한다.
+신규 Pending Pod의 빈 CRI `imageID`는 미관측 값으로 보존하며 첫 nonempty ID부터 변경·재누락을 거부한다. 기존 UID와 Ready image/config 검증은 유지한다.
 Ready 직후 admin stat가 아직 materialize되지 않은 상태도 같은 Ready budget 안에서만 허용한다.
 구조/config invariant는 stat 유무와 독립적으로 검사한다. `Pending → Ready/no-admin-stat → 첫 계획된 traffic →
 admin/native stat → rate 최소2 samples`를 `admin_stats`의 실제 값/누락과 `warming-new-pod` not-ready/no-data로 보존한다.

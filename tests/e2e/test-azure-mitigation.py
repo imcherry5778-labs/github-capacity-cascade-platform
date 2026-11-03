@@ -4510,6 +4510,40 @@ class C3StartupControllerTests(unittest.TestCase):
         s['controller_state']['status'] = 'degraded'
         s['healthy'] = False
 
+    def pending_image_fixture(self):
+        f = LiveFixture('C3')
+        snapshots = [next(r for r in f.collect(0) if r['record'] == 'snapshot')]
+        pending = f.pod('new', 'ext-authz-sim-new', ready=False)
+        pending['status']['containerStatuses'] = [
+            {'name': 'app', 'imageID': '', 'ready': False, 'restartCount': 0}]
+        f.pods.append(pending)
+        snapshots.append(next(r for r in f.collect(20) if r['record'] == 'snapshot'))
+        f.pods[-1] = f.pod('new', 'ext-authz-sim-new')
+        snapshots += [next(r for r in f.collect(at) if r['record'] == 'snapshot') for at in (35, 50, 65)]
+        return snapshots, f.baseline
+
+    def test_pending_empty_image_id_is_unknown_until_actual_ready_image(self):
+        snapshots, baseline = self.pending_image_fixture()
+        self.assertEqual(snapshots[1]['guard']['runtime_images']['new'], {'app': ''})
+        self.assertEqual(snapshots[1]['target_inventory'][-1]['phase'], 'Pending')
+        self.assertEqual(m.common_guards(snapshots, baseline, 'C3', plan()), {'target', 'new'})
+        self.assertEqual(snapshots[1]['guard']['runtime_images']['new'], {'app': ''})  # No synthesis.
+
+    def test_known_pending_ready_and_initial_image_ids_remain_immutable(self):
+        for case in ('known-pending', 'known-ready', 'ready-empty', 'ready-missing', 'initial', 'invalid-unknown'):
+            snapshots, baseline = self.pending_image_fixture()
+            expected = 'new Pod runtime image drift'
+            if case == 'known-pending': snapshots[1]['guard']['runtime_images']['new']['app'] = 'different-known-image'
+            elif case == 'known-ready': snapshots[-1]['guard']['runtime_images']['new']['app'] = 'different-known-image'
+            elif case == 'ready-empty': snapshots[-1]['guard']['runtime_images']['new']['app'] = ''
+            elif case == 'ready-missing': snapshots[-1]['guard']['runtime_images']['new'] = {}
+            elif case == 'invalid-unknown': snapshots[1]['guard']['runtime_images']['new']['app'] = None
+            else:
+                snapshots[-1]['guard']['runtime_images']['target']['app'] = 'different-known-image'
+                expected = 'runtime image/lifetime drift'
+            with self.subTest(case=case), self.assertRaisesRegex(ValueError, expected):
+                m.common_guards(snapshots, baseline, 'C3', plan())
+
     def test_future_bounded_explicit_degradation_then_real_joint_positive(self):
         snapshots, baseline = self.fixture()
         self.assertEqual(snapshots[2]['signal']['status'], 'observed')
@@ -4566,6 +4600,53 @@ class C3StartupControllerTests(unittest.TestCase):
         for r in s['signal']['pods']: r['timestamp'] = 1160
         with self.assertRaisesRegex(ValueError, 'controller joint initialization timeout'):
             m.common_guards(snapshots[:4], baseline, 'C3', plan())
+
+
+class Campaign24BoundaryTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.archive = ROOT / 'docs/evidence/p9-mitigation-twenty-fourth-20261104/raw-evidence.tar.gz'
+        cls.original = m.hashlib.sha256(cls.archive.read_bytes()).hexdigest()
+        assert cls.original == 'f6483cb38d63e45af28b02f3b13ce066266153dc99bdcf938d2ed96253718be0'
+        with tarfile.open(cls.archive) as raw:
+            cls.manifest = json.load(raw.extractfile('calibration-C3-1/configuration.json'))
+            cls.rows = [json.loads(line) for line in raw.extractfile('calibration-C3-1/events.jsonl')]
+            cls.failure = json.load(raw.extractfile('failed-cycle-analysis.json'))
+        cls.snapshots = [e for e in cls.rows if e['record'] == 'snapshot']
+
+    @classmethod
+    def tearDownClass(cls):
+        assert m.hashlib.sha256(cls.archive.read_bytes()).hexdigest() == cls.original
+
+    def test_actual_pending_empty_ids_can_materialize_without_revalidating_run(self):
+        prefix = self.snapshots[:13]  # Stops before the independent post-startup metric Warning.
+        initial = {t['uid'] for t in self.manifest['baseline']['targets']}
+        pending = next(s for s in prefix if any(p['phase'] == 'Pending' for p in s['target_inventory']))
+        uid = next(p['uid'] for p in pending['target_inventory'] if p['uid'] not in initial)
+        before = copy.deepcopy(pending['guard']['runtime_images'][uid])
+        self.assertEqual({k: before[k] for k in ('app', 'istio-proxy')}, {'app': '', 'istio-proxy': ''})
+        self.assertTrue(before['istio-validation'])  # Known init-container ID stays frozen too.
+        self.assertEqual(m.common_guards(prefix, self.manifest['baseline'], 'C3', self.manifest['plan']), initial | {uid})
+        self.assertEqual(pending['guard']['runtime_images'][uid], before)
+
+    def test_actual_late_warning_and_61_second_inventory_empty_query_remain_invalid(self):
+        with self.assertRaisesRegex(ValueError, 'metric failure outside bounded new-Pod warmup'):
+            m.common_guards(self.snapshots, self.manifest['baseline'], 'C3', self.manifest['plan'])
+        failure_index = next(i for i, e in enumerate(self.rows) if e['record'] == 'monitor_failure')
+        lifecycle = m.TargetLifecycle('C3', {t['uid'] for t in self.manifest['baseline']['targets']}, self.manifest['plan'])
+        for s in (e for e in self.rows[:failure_index] if e['record'] == 'snapshot'):
+            inventory = s['target_inventory']
+            lifecycle.inventory(inventory, s['inventory_at'], s['inventory_epoch'])
+            lifecycle.admin(s['configuration']['targets'], s['admin_stats'], s['stats'], s['at'])
+            lifecycle.signal(s['signal'], inventory, s['signal']['evaluation']['at'], s['signal']['evaluation']['epoch'])
+            lifecycle.resources(s['guard'], inventory, s['signal'], s['resource_readiness']['observed_at'])
+        signal = self.failure['reconstructed_actual_signal']
+        self.assertEqual(signal['query'], [])  # No [] -> zero or startup exception.
+        self.assertAlmostEqual(float(signal['query_diagnostics']['operands']['inventory_max_age'][0]['value'][1]), 61.51200008392334)
+        timeline = next(e for e in reversed(self.rows[:failure_index]) if e['record'] == 'replica_timeline')
+        with self.assertRaisesRegex(ValueError, 'empty/invalid guarded scale query'):
+            lifecycle.signal(signal, timeline['pods'], signal['evaluation']['at'], signal['evaluation']['epoch'])
+        self.assertEqual(self.rows[-1]['record'], 'run_failure')
 
 
 class HaproxyRingTests(unittest.TestCase):

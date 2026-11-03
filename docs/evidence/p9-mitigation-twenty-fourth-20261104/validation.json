@@ -1,0 +1,53 @@
+{
+  "paid_campaign": "INVALID; original d1ed source and archive negative preserved",
+  "future_cost_free_candidate": {
+    "scope": "new C3 Pending CRI empty imageID stays unknown until first nonempty value; known ID change/disappearance and original lifecycle budgets remain strict",
+    "source_content_sha256": "ceee55ac515479a3bb6605a7054503669e24698904abfdff3651a343cc84bd58",
+    "candidate_was_used_on_Azure": false,
+    "native_startup_controller_exceptions_changed": false,
+    "canonical_inventory_freshness_seconds": 60,
+    "SLO_seconds": 0.2,
+    "retained_prefix_replay": {
+      "prefix_completed_snapshots": 13,
+      "retained_prefix_common_guards": "passed",
+      "full_retained_common_guards_still_invalid": {
+        "error": "metric failure outside bounded new-Pod warmup"
+      },
+      "no_historical_run_revalidation": true
+    },
+    "full_original_local_validator": "failed/incomplete run; never revalidated"
+  },
+  "local_validation": {
+    "focused_startup_and_Campaign24_archive_tests": 8,
+    "P9_total": 142,
+    "P9_pass": 139,
+    "P9_skip": 3,
+    "P8_pass": 38,
+    "new_Docker_execution": false,
+    "Docker_evidence_reused": "unchanged pinned HAProxy render/capture; prior reviewed 32667-row same-process proof",
+    "exact_head_CI": "result linked in PR49 final report after commit; not self-referential evidence"
+  },
+  "acceptance": {
+    "DECIDED": [
+      "Campaign24 CLOSED/invalid; no remaining run rights",
+      "ring conservation passed for actual bounded partial run",
+      "known imageID lifecycle bug corrected cost-free; original negative unchanged"
+    ],
+    "REVALIDATE": [
+      "kube_pod_info timestamp cadence/ingestion freshness independently of raw proxy counters",
+      "actual scaler evaluation cause for native +220s Warning",
+      "full valid calibration/review/freeze then measured C0-C3, continuing-demand recovery and cloud confounders"
+    ],
+    "DEFERRED": [
+      "new paid campaign/source/image decision pending independent exact-head review; campaign25 not authorized",
+      "P9 exit/merge/P10"
+    ]
+  },
+  "publication": {
+    "known_credential_values": 0,
+    "JWT": 0,
+    "subscription_identifier": 0,
+    "host_private_path": 0,
+    "archive_members_verified": 67
+  }
+}
