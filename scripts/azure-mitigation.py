@@ -938,8 +938,9 @@ def demand_report(v, events):
 
 
 def require_complete_demand(report):
-    """A complete issued denominator is validity; latency remains measured SLO."""
-    require(report['unissued'] == 0, 'unissued demand invalidates comparison')
+    """Preserve comparison cadence; recovery-window SLO is checked separately."""
+    require(report['unissued'] == 0 and report['driver_lag_max_seconds'] <= 2,
+            'driver demand reduction/lag invalidates comparison')
 
 
 def recovery(v, events, observation_good):

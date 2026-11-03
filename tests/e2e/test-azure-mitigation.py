@@ -620,7 +620,7 @@ class CollectorQueryTests(unittest.TestCase):
                                            ('up', {'job': c['job']}, up), ('kube_pod_info', {'uid': uid}, info)):
                     if values is not None: inputs.append(series(name, pod, more, values))
             if case == 'zero': expected['guarded'] = 0
-            elif case == 'fresh-boundary': expected.update(raw_max_age=45, guarded=79 / 48)
+            elif case == 'fresh-boundary': expected.update(raw_max_age=45, guarded=1.6458333333333335)
             elif case not in {'healthy', 'inventory-stale'}: expected.pop('guarded')
             if case == 'raw-stale': expected.update(fresh_rate_count=1, raw_max_age=50, matched_pod_count=1)
             elif case in {'raw-absent', 'one-sample'}: expected.update(rate_count=1, fresh_rate_count=1, matched_pod_count=1)
@@ -635,7 +635,8 @@ class CollectorQueryTests(unittest.TestCase):
             elif case == 'uid-duplicate': expected['inventory_uid_count'] = 1
             elif case in {'up-extra', 'inventory-extra'}:
                 name = 'up' if case == 'up-extra' else 'kube_pod_info'
-                inputs.append(series(name, 'extra', {'job': c['job']} if name == 'up' else {}, '1+0x36'))
+                extra_labels = {'job': c['job']} if name == 'up' else {'uid': 'uid-extra'}
+                inputs.append(series(name, 'extra', extra_labels, '1+0x36'))
                 expected['up_count' if name == 'up' else 'inventory_count'] = 3
                 if name != 'up': expected.update(inventory_pod_count=3, inventory_uid_count=3, identified_inventory_count=3, matched_pod_count=2, matched_up_pod_count=2)
             elif case == 'all-absent': inputs, expected = [], {'evaluation_epoch': 180}
@@ -4711,10 +4712,12 @@ class Campaign24BoundaryTests(unittest.TestCase):
             lifecycle.signal(signal, timeline['pods'], signal['evaluation']['at'], signal['evaluation']['epoch'])
         self.assertEqual(self.rows[-1]['record'], 'run_failure')
 
-    def test_complete_slow_demand_is_not_invalid_but_unissued_demand_is(self):
-        m.require_complete_demand({'unissued': 0, 'driver_lag_max_seconds': 9.0})
-        with self.assertRaisesRegex(ValueError, 'unissued demand invalidates comparison'):
-            m.require_complete_demand({'unissued': 1, 'driver_lag_max_seconds': 0.0})
+    def test_demand_fidelity_keeps_two_second_bound_separate_from_recovery_slo(self):
+        m.require_complete_demand({'unissued': 0, 'driver_lag_max_seconds': 1.999})
+        for report in ({'unissued': 0, 'driver_lag_max_seconds': 2.001},
+                       {'unissued': 1, 'driver_lag_max_seconds': 0.0}):
+            with self.subTest(report=report), self.assertRaisesRegex(ValueError, 'driver demand reduction/lag invalidates comparison'):
+                m.require_complete_demand(report)
 
 
 class HaproxyRingTests(unittest.TestCase):

@@ -112,7 +112,7 @@ healthy-gate journey1회, native-deny/controlled-deny/path 확인은 각각1회�
 Scheduler는 wave 완료를 기다리지 않고 같은 monotonic offsets에 arrival을 제출한다.
 Issue12/Git1 worker와 최대49 pending으로 client backlog를 제한한다. 초과 또는 monitor 실패 시
 추가 발행을 중단하고 남은 예정 arrival을 `not-issued/cancelled`로 보존하며 fault release를 시작한다.
-이는 valid mitigation이 아니다. Comparison은 unissued0을 요구하며 driver lag·scheduler/worker/command 시간은 그대로 측정한다.
+이는 valid mitigation이 아니다. Comparison은 unissued0과 max driver lag≤2s를 요구하며 scheduler/worker/command 시간은 그대로 측정한다.
 회복 window의 driver lag와 command latency는 각각≤0.2s로 유지한다. 완전한 otherwise-valid run의 SLO 미달은
 recovery negative로 기록할 수 있으며 recovered로 승격하거나 SLO를 완화하지 않는다.
 
