@@ -365,7 +365,7 @@ jobs:
         run: make down
 
       # Static-only/docs-only 판정은 runtime 생략이며 Local runtime PASS가 아니다. 실제 실행된 stage outcome만 기록한다.
-      - name: Change-impact summary
+      - name: Change-impact summary / base ${{ github.event.pull_request.base.sha }}
         if: always()
         env:
           PR_DIFF: ${{ steps.changes.outputs.pr_diff }}

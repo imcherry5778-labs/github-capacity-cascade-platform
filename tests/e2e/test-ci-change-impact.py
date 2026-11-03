@@ -311,7 +311,7 @@ class WorkflowDecisionTest(unittest.TestCase):
                     'conclusion': json.loads(previous)['check_runs'][0]['conclusion'],
                     'steps': [{'name': n, 'status': 'completed', 'conclusion': 'success',
                                'started_at': '2026-01-01T00:00:00Z', 'completed_at': '2026-01-01T00:00:01Z'}
-                              for n in impact.RUNTIME_STEPS]}]})
+                              for n in impact.RUNTIME_STEPS | {'Change-impact summary / base ' + self.base}]}]})
             return original(path)
         server = FakeGitHub(get_json)
         threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True).start()
@@ -414,7 +414,7 @@ class WorkflowDecisionTest(unittest.TestCase):
                 if label == 'run-wrong-workflow': run['path'] = '.github/workflows/other.yml'
                 if label == 'run-wrong-event': run['event'] = 'push'
                 if label == 'run-wrong-pr': run['pull_requests'][0]['number'] = 99
-                if label == 'run-wrong-base': run['pull_requests'][0]['base']['sha'] = 'b' * 40
+                if label == 'run-live-base': run['pull_requests'][0]['base']['sha'] = 'b' * 40
                 if label == 'run-ambiguous-pr': run['pull_requests'] *= 2
             else:
                 job = response['jobs'][0]
@@ -425,15 +425,30 @@ class WorkflowDecisionTest(unittest.TestCase):
                 if label == 'job-pending': job['status'] = 'in_progress'
                 if label == 'runtime-skipped': job['steps'][0]['conclusion'] = 'skipped'
                 if label == 'runtime-missing': job['steps'].pop()
-                if label == 'runtime-no-clock': job['steps'][0].pop('started_at')
+                if label == 'runtime-no-clock':
+                    next(s for s in job['steps'] if s['name'] in impact.RUNTIME_STEPS).pop('started_at')
+                if label == 'proof-missing': job['steps'] = [s for s in job['steps'] if not s['name'].startswith('Change-impact summary / base ')]
+                if label == 'proof-wrong-base':
+                    next(s for s in job['steps'] if s['name'].startswith('Change-impact summary / base '))['name'] = 'Change-impact summary / base ' + 'b' * 40
+                if label == 'proof-ambiguous':
+                    job['steps'].append(next(s for s in job['steps'] if s['name'].startswith('Change-impact summary / base ')).copy())
             return response
         for label in ('run-api-error', 'run-truncated', 'run-failed', 'run-wrong-head', 'run-wrong-workflow',
-                      'run-wrong-event', 'run-wrong-pr', 'run-wrong-base', 'run-ambiguous-pr', 'jobs-api-error',
+                      'run-wrong-event', 'run-wrong-pr', 'proof-missing', 'proof-wrong-base', 'proof-ambiguous', 'run-ambiguous-pr', 'jobs-api-error',
                       'jobs-truncated', 'jobs-ambiguous', 'job-wrong-head', 'job-pending', 'runtime-skipped',
                       'runtime-missing', 'runtime-no-clock'):
             with self.subTest(label=label):
                 self.proof_mutation = lambda p,r: mutate(label,p,r)
                 self.assert_outcome(self.run_block(self.complete()), 'true', 'full-runtime', 'runtime-impacting')
+
+    def test_live_pr_base_link_is_not_historical_base_proof(self):
+        def live_base(path, response):
+            if 'workflow_runs' in response:
+                response['workflow_runs'][0]['pull_requests'][0]['base']['sha'] = 'b' * 40
+            return response
+        self.proof_mutation = live_base
+        # Current PR API/local immutable base + prior captured event base remain equal.
+        self.assert_outcome(self.run_block(self.complete()), 'false', 'docs-only-synchronize', 'runtime-impacting')
 
     def test_p9_delta_requires_real_previous_history_and_complete_local_match(self):
         # P9-only latest update cannot hide a fabricated full API file set or absent previous commit.

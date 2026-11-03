@@ -179,18 +179,21 @@ def incremental(get_json, repository, number, head, previous, paths, meta):
             len(run['pull_requests']) == 1):
         raise Uncertain('previous exact-head workflow not successful/unique')
     pr = run['pull_requests'][0]
-    # pull_requests[].head/base are LIVE PR links, not historical run snapshots.
-    # Only run.head_sha + job.head_sha bind the immutable executed source. Current base
-    # is pinned independently by pr_files and the local immutable full diff.
-    if not (str(pr['number']) == number and
-            pr['base']['sha'] == meta['base_sha'] and pr['base']['ref'] == meta['base_ref']):
-        raise Uncertain('previous run PR association/current base differs')
+    # pull_requests[].head/base are LIVE PR links, not historical snapshots.
+    if str(pr['number']) != number:
+        raise Uncertain('previous run PR association differs')
     jobs = get_json(endpoint + f"/actions/runs/{run['id']}/attempts/{run['run_attempt']}/jobs?per_page=100")
     matches = [j for j in jobs['jobs'] if j['name'] == 'static + fresh local lifecycle']
     if jobs['total_count'] != len(jobs['jobs']) or len(matches) != 1:
         raise Uncertain('previous job set incomplete/ambiguous')
     job = matches[0]
     steps = job['steps']
+    # Step names are captured from the immutable workflow event. Do not infer the
+    # historical base from run.pull_requests[].base, which follows the live PR.
+    base_proof = [s for s in steps if s['name'].startswith('Change-impact summary / base ')]
+    if not (len(base_proof) == 1 and base_proof[0]['name'] == 'Change-impact summary / base ' + meta['base_sha'] and
+            base_proof[0]['status'] == 'completed' and base_proof[0]['conclusion'] == 'success'):
+        raise Uncertain('previous immutable base proof missing/ambiguous/different')
     if not (job['head_sha'] == previous and job['status'] == 'completed' and job['conclusion'] == 'success' and
             all(len([s for s in steps if s['name'] == name and s['status'] == 'completed' and
                      s['conclusion'] == 'success' and s.get('started_at') and s.get('completed_at') and
