@@ -3,6 +3,7 @@ import copy
 import importlib.util
 import json
 import os
+import shlex
 from pathlib import Path
 import tempfile
 import threading
@@ -4330,6 +4331,14 @@ class Campaign22BoundaryTests(unittest.TestCase):
             self.assertIn('listen local_stats\n  no log\n', cfg)
             self.assertIn('%lc', cfg); self.assertIn('%rt', cfg); self.assertIn('%TR', cfg)
             self.assertNotIn('%ci', cfg); self.assertNotIn('req.hdr', cfg)
+            template = shlex.split(next(line.strip() for line in cfg.splitlines() if 'log-format' in line))[1]
+            fields = {'%ST': '400', '%ts': 'CR', '%Tw': '-1', '%Tc': '-1', '%Tr': '-1', '%Ta': '0',
+                      '%Ts': '1793698200', '%ms': '007', '%rt': '1', '%lc': '2', '%TR': '-1', '%pid': '123'}
+            for token, value in fields.items(): template = template.replace(token, value)
+            logged = json.loads(template)  # Zero-padded milliseconds must be a string, never a JSON numeric literal.
+            self.assertEqual(logged['accept_time'], '1793698200.007')
+            self.assertEqual(logged['queue_ms'], -1)
+
 
     def test_future_hpa_observation_brackets_same_failed_get_without_extra_api(self):
         runtime = m.Runtime.__new__(m.Runtime)

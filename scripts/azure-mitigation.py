@@ -264,7 +264,7 @@ def render(identity, v, arm):
     config = hp['data']['haproxy.cfg'].replace('timeout connect 5s', 'timeout connect 250ms').replace('timeout server 10s', 'timeout server 2s').replace('timeout client 10s', 'timeout client 4s')
     # Same logging policy for all arms; no URL, credentials or bodies.
     config = 'global\n  log stdout format raw local0\n' + config
-    config = config.replace('  mode http\n', '  mode http\n  log global\n  log-format "{\\"status\\":%ST,\\"termination\\":\\"%ts\\",\\"queue_ms\\":%Tw,\\"connect_ms\\":%Tc,\\"response_ms\\":%Tr,\\"total_ms\\":%Ta,\\"accept_epoch\\":%Ts,\\"accept_ms\\":%ms,\\"request_counter\\":%rt,\\"log_counter\\":%lc,\\"request_ms\\":%TR,\\"pid\\":%pid}"\n')
+    config = config.replace('  mode http\n', '  mode http\n  log global\n  log-format "{\\"status\\":%ST,\\"termination\\":\\"%ts\\",\\"queue_ms\\":%Tw,\\"connect_ms\\":%Tc,\\"response_ms\\":%Tr,\\"total_ms\\":%Ta,\\"accept_time\\":\\"%Ts.%ms\\",\\"request_counter\\":%rt,\\"log_counter\\":%lc,\\"request_ms\\":%TR,\\"pid\\":%pid}"\n')
     if arm == 'C2':
         config = config.replace('  timeout connect 250ms', '  timeout queue ' + str(v['queue_timeout_ms']) + 'ms\n  timeout connect 250ms')
         config = config.replace('  default_backend ext_authz', '  http-request deny deny_status 429 if { queue(ext_authz) ge ' + str(v['queue_limit']) + ' }\n  default_backend ext_authz')
