@@ -1,0 +1,39 @@
+{
+  "P9_acceptance": "not met",
+  "archive_file_count": 26,
+  "archive_path_size_SHA256_roundtrip": "pass",
+  "cleanup": "actual same-parent comparison/commands passed; cleanup-summary.json",
+  "evidence_limitations": [
+    "Full stable before/after spec and named Secret value pairs were compared in parent memory, not emitted as raw pairs. No independent full spec-pair replay is claimed.",
+    "No complete failed CPU guard payload was reconstructed. CPU poll/window/HPA/timestamp predicates are recorded.",
+    "Metrics API cadence/cache, unseen overlap between polls and AMW ingestion atomicity remain unknown."
+  ],
+  "full_failed_guard_reconstructed": false,
+  "known_credential_JWT_subscription_private_path_scan": "pass",
+  "normal_and_healthy_original_and_public": "existing operation validator valid/success,9 operations/9 attempts each",
+  "original_and_public_negative_predicate_clock_replay": {
+    "AMW_statuses": [
+      "uninitialized",
+      "uninitialized",
+      "uninitialized",
+      "uninitialized",
+      "observed"
+    ],
+    "CPU_ages_seconds": [
+      31.223968982696533,
+      46.06021308898926,
+      62.92845392227173,
+      20.952315092086792,
+      35.17149496078491
+    ],
+    "CPU_polls": 8,
+    "initialize_verdict": "failed; preserved",
+    "joint_ready_observed": false,
+    "strict_fifth_envelopes": 1,
+    "strict_signal_evaluations": 5,
+    "telemetry_polls": 5
+  },
+  "query_max_elapsed_seconds": 1.134375249966979,
+  "source_sha": "2bccb693f25dd1add56650b1a1e1ac1398de2504",
+  "source_tests_CI": "reuse exact-source2bccb69 independent review5747912114; no executable source changes"
+}

@@ -1,0 +1,98 @@
+{
+  "CPU_polls": 8,
+  "Environment_deadline": "2026-11-05T01:30:00Z",
+  "Foundation_Bootstrap_deadline": "2026-11-05T15:33:00Z",
+  "KEDA_apply_restore": [
+    0,
+    0
+  ],
+  "KEDA_authentication": "not attempted",
+  "Prometheus_request_bound": 25,
+  "Prometheus_requests": 21,
+  "approval": "https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6596832794",
+  "calibration": 0,
+  "campaign": 21,
+  "campaign_closed_UTC": "2026-11-03T06:36:48.704281+00:00",
+  "cleanup_complete": true,
+  "cost": {
+    "Secret_action_allowlist_test_passed": true,
+    "USD290_exceedance_is_NO_GO": false,
+    "actor_matches": true,
+    "actual_cost": "shared/delayed/unknown",
+    "approval": "https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6596832794",
+    "basis": "same retained fixed34 resources/2nodes; previous retention/lag/overlap/cleanup reserves reused; bounded6x600s variable estimate; no new billing GET",
+    "campaign21_variable_estimate_usd": 5,
+    "cleanup_handlers_registered": true,
+    "environment_remaining_seconds": 155267.095201,
+    "fixed_nodes": 2,
+    "new_numeric_cap": null,
+    "owned_cleanup_reserve_seconds": 1800,
+    "plan_sha256": "ab6e1a64c4b56d8b0ea6e814cd4b041d7af00c11841a5019b8930e7800bf3912",
+    "prior_projection_usd": 290.3566776355216,
+    "projection_usd": 295.3566776355216,
+    "resource_inventory_count": 34,
+    "source_image_tag": "acrccpp6krc57781024.azurecr.io/ext-authz-sim:2bccb693f25dd1add56650b1a1e1ac1398de2504",
+    "source_local_image_id": "sha256:64d411a442249893352eea4fc066692c75175849e923991e75494ffb68f5e523",
+    "source_sha": "2bccb693f25dd1add56650b1a1e1ac1398de2504",
+    "subscription_matches": true,
+    "whole_reserve_seconds": 8045
+  },
+  "cumulative": {
+    "KEDA_apply_restore": [
+      6,
+      6
+    ],
+    "campaign": 21,
+    "healthy": 9,
+    "initialize": 18,
+    "measured": {
+      "C0": 0,
+      "C1": 0,
+      "C2": 0,
+      "C3": 0
+    },
+    "started_invalid_calibration": 6
+  },
+  "fault_runs_started": 0,
+  "first_mutation_UTC": "2026-11-03T06:22:12.905272+00:00",
+  "freeze": false,
+  "healthy_client": "valid/success,9 operations/9 attempts; initialization gate failed",
+  "healthy_journey": 1,
+  "measured": {
+    "C0": 0,
+    "C1": 0,
+    "C2": 0,
+    "C3": 0
+  },
+  "mitigation240_recovery180": "not exercised",
+  "new_C3_UID_resource_150s": "not exercised",
+  "no_extra_campaign": true,
+  "normal": 1,
+  "normal_client": "valid/success,9 operations/9 attempts",
+  "owned_cleanup_start_UTC": "2026-11-03T06:35:24.446812+00:00",
+  "paid_source_changed": false,
+  "parent_exit": 0,
+  "parent_exit_UTC": "2026-11-03T06:39:00.580194+00:00",
+  "prior_cumulative": {
+    "KEDA_apply_restore": [
+      6,
+      6
+    ],
+    "campaign": 20,
+    "healthy": 8,
+    "initialize": 17,
+    "measured": {
+      "C0": 0,
+      "C1": 0,
+      "C2": 0,
+      "C3": 0
+    },
+    "started_invalid_calibration": 6
+  },
+  "public_initialize": "1 consumed; failed, retry0",
+  "ready_for_keda_authentication": false,
+  "runtime_preflight_passed": false,
+  "source_sha": "2bccb693f25dd1add56650b1a1e1ac1398de2504",
+  "status": "CLOSED_INVALID",
+  "telemetry_polls": 5
+}
