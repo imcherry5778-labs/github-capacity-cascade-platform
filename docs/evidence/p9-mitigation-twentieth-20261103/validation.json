@@ -1,0 +1,35 @@
+{
+  "source_sha": "8741cf275888ee5760c6b22562182c13105b417e",
+  "source_changed": false,
+  "resource_caps_observed": {
+    "pod_max": 4,
+    "requests_cpu_max_m": 650,
+    "requests_memory_max_Mi": 832.0,
+    "limits_cpu_max_m": 1450,
+    "limits_memory_max_Mi": 1664.0
+  },
+  "saved_snapshot_end_signal_rejections": {
+    "calibration-C3-1": [],
+    "calibration-C3-2": [
+      {
+        "offset_seconds": 112.01482116710395,
+        "predicate": "strict60s sample age exceeded at saved snapshot end"
+      }
+    ]
+  },
+  "original_and_sanitized_saved_validation_reject_both_incomplete_runs": true,
+  "both_failure_cycle_AMW_signals_replayed_and_accepted": true,
+  "resource_marker_replay_matches_all_complete_snapshots": true,
+  "75s_resource_deadline_operand_replay_rejects_both": true,
+  "all_actual_fifth_envelopes_strict_extraction_provenance_clocks_validated": true,
+  "normal_and_healthy_sanitized_journeys_valid9_each": true,
+  "archive_path_size_sha256_roundtrip_verified": 35,
+  "known_credential_and_JWT_and_subscription_and_private_path_scan": "passed",
+  "actual_failed_cycle_resource_values": "unknown; no synthetic guard or backfilled historical query",
+  "source_exact_head_CI_reused": {
+    "local_platform": "https://github.com/imcherry5778-labs/github-capacity-cascade-platform/actions/runs/41560902944",
+    "CodeQL": "https://github.com/imcherry5778-labs/github-capacity-cascade-platform/actions/runs/41560898674"
+  },
+  "evidence_exact_head_CI": "reported in PR result comment",
+  "owned_private_copy_cleanup": "completed; own credential/kubeconfig/operator/tool copies removed; original credential-free raw retained; global Azure cache preserved"
+}

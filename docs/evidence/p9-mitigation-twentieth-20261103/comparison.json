@@ -1,0 +1,25 @@
+{
+  "source_sha": "8741cf275888ee5760c6b22562182c13105b417e",
+  "P9_acceptance": false,
+  "frozen": false,
+  "measured": {
+    "C0": "not invoked",
+    "C1": "not invoked",
+    "C2": "not invoked",
+    "C3": "not invoked"
+  },
+  "result": "two calibration invalids; 75s new-UID resource joint readiness not established; no valid mitigation/recovery comparison",
+  "known": {
+    "AMW_2m_both_UID_rate_and_guarded": "present in both failure-cycle responses",
+    "calibration2_AMW_observed_Ready_age_seconds": 63.749824959086254,
+    "calibration2_CPU_metric": "fresh first sample remained same timestamp through last complete snapshot; advancing sample not observed"
+  },
+  "unknown": [
+    "exact first exception predicate inside unsaved failed-cycle guard",
+    "Metrics API export/cache versus kubelet/server contributions",
+    "next resource timestamp after failure",
+    "AMW ingestion/backend transaction atomicity",
+    "campaign18 original empty predicate"
+  ],
+  "next_decision": "Current75s plus advancing-resource-sample contract was not met. Acceptance/source adjustment needs independent review and user authority; no additional paid run proposed."
+}
