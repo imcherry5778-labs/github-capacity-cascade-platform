@@ -206,8 +206,8 @@ class PlanTests(unittest.TestCase):
         with patch.dict(os.environ, {'P9_AZURE_APPROVED': identity['source_sha']}, clear=True), patch.object(m.p8.p7, 'command') as command:
             for v in (plan(), plan() | {'mitigation_seconds': 300, 'recovery_seconds': 240},
                       plan() | {'mitigation_seconds': 300, 'recovery_seconds': 240,
-                                'scrape_seconds': 60, 'ingestion_seconds': 39,
-                                'controller_seconds': 1, 'freshness_seconds': 99}):
+                                'scrape_seconds': 40, 'ingestion_seconds': 20,
+                                'controller_seconds': 40, 'freshness_seconds': 60}):
                 approved = approval() | {'plan_sha256': m.digest(v)}
                 run = v['mitigation_seconds'] + v['recovery_seconds']
                 self.assertLessEqual(run + 60, 600)  # Existing measured run + drain bound.
@@ -384,6 +384,25 @@ class CompleteEvidenceTests(unittest.TestCase):
 
 
 class CollectorQueryTests(unittest.TestCase):
+    def test_two_minute_candidate_has_one_canonical_source_and_old_freeze_drifts(self):
+        v, identity = plan(), t8.identity()
+        queries = m.signal_queries(v)
+        self.assertEqual(m.RATE_WINDOW, '2m')
+        self.assertEqual(queries['rate'], 'rate(' + queries['raw'] + '[2m])')
+        self.assertEqual(queries['samples'], 'count_over_time(' + queries['raw'] + '[2m])')
+        for query in (m.scale_query(v), m.collector_query(v)):
+            self.assertIn(queries['rate'], query)
+            self.assertNotIn('[1m]', query)
+        so = next(o for o in m.render(identity, v, 'C3')['fixtures.json']['items'] if o['kind'] == 'ScaledObject')
+        metadata = so['spec']['triggers'][0]['metadata']
+        self.assertEqual(metadata['query'], m.scale_query(v))
+        self.assertEqual((metadata['ignoreNullValues'], metadata['unsafeSsl'], metadata['threshold']), ('false', 'false', '0.5'))
+        self.assertEqual(v['freshness_seconds'], 60)
+        with self.assertRaises(ValueError): m.plan(v | {'freshness_seconds': 61})
+        current = m.digest(m.render(identity, v, 'C3'))
+        with patch.object(m, 'RATE_WINDOW', '1m'):
+            self.assertNotEqual(current, m.digest(m.render(identity, v, 'C3')))
+
     def setUp(self):
         env = patch.dict(os.environ, {'FORGEJO_URL': 'https://forgejo.example.com'}, clear=True)
         # Preserve the explicitly selected optional cost-free PromQL tool.
@@ -508,7 +527,7 @@ class CollectorQueryTests(unittest.TestCase):
                 with self.subTest(case=case), patch.object(m, 'path_accounting', return_value={'admitted_checks': [], 'checks': 1800}), self.assertRaises((ValueError, KeyError)):
                     m.validate(directory)
 
-    def test_eighteenth_negative_and_canonical_query_remain_unchanged(self):
+    def test_eighteenth_negative_retains_original_one_minute_provenance(self):
         with tarfile.open(ROOT / 'docs/evidence/p9-mitigation-eighteenth-20261103/raw-evidence.tar.gz') as archive:
             manifest = json.load(archive.extractfile('calibration-C3-1/configuration.json'))
             events = [json.loads(line) for line in archive.extractfile('calibration-C3-1/events.jsonl')]
@@ -517,7 +536,9 @@ class CollectorQueryTests(unittest.TestCase):
         self.assertEqual(response['payload']['status'], 'success')
         self.assertEqual(response['payload']['data'], {'resultType': 'vector', 'result': []})
         v = manifest['plan']
-        self.assertEqual(response['query_sha256'], m.digest(m.scale_query(v)))
+        with patch.object(m, 'RATE_WINDOW', '1m'):
+            self.assertEqual(response['query_sha256'], m.digest(m.scale_query(v)))
+        self.assertNotEqual(response['query_sha256'], m.digest(m.scale_query(v)))
         self.assertTrue(any(e['record'] == 'monitor_failure' for e in events))
         lifecycle = m.TargetLifecycle('C3', {t['uid'] for t in manifest['baseline']['targets']}, v)
         snapshots = [e for e in events if e['record'] == 'snapshot']
@@ -530,7 +551,7 @@ class CollectorQueryTests(unittest.TestCase):
             lifecycle.signal(last['signal'] | {'query': []}, last['target_inventory'], last['at'], last['epoch'])
         self.assertNotIn('query_observation', last['signal'])  # No retrospective observation invention.
 
-    def test_promtool_real_evaluation_guard_operands_and_original_equivalence(self):
+    def test_promtool_real_evaluation_guard_operands_and_canonical_equivalence(self):
         import shutil
         import subprocess
         tool = os.environ.get('PROMTOOL') or shutil.which('promtool')
@@ -542,7 +563,7 @@ class CollectorQueryTests(unittest.TestCase):
             return {'series': name + '{' + ','.join(k + '=' + json.dumps(val) for k, val in (labels | {'pod': 'ext-authz-sim-' + pod} | more).items()) + '}', 'values': values}
         tests = []
         # 5s samples keep rate present when a raw sample is older than the
-        # 45s freshness predicate, independently of the 1m rate window.
+        # 45s freshness predicate, independently of the 2m rate window.
         for case in ('healthy', 'zero', 'raw-stale', 'raw-absent', 'one-sample', 'up-zero', 'up-absent', 'up-extra', 'up-stale', 'inventory-absent', 'inventory-extra', 'inventory-stale', 'all-absent', 'fresh-boundary'):
             inputs = []
             expected = {'guarded': 2, 'rate_count': 2, 'fresh_rate_count': 2, 'raw_max_age': 0, 'inventory_count': 2,
@@ -564,7 +585,7 @@ class CollectorQueryTests(unittest.TestCase):
                                            ('up', {'job': c['job']}, up), ('kube_pod_info', {}, info)):
                     if values is not None: inputs.append(series(name, pod, more, values))
             if case == 'zero': expected['guarded'] = 0
-            elif case == 'fresh-boundary': expected.update(raw_max_age=45, guarded=31 / 24)
+            elif case == 'fresh-boundary': expected.update(raw_max_age=45, guarded=79 / 48)
             elif case != 'healthy': expected.pop('guarded')
             if case == 'raw-stale': expected.update(fresh_rate_count=1, raw_max_age=50)
             elif case in {'raw-absent', 'one-sample'}: expected.update(rate_count=1, fresh_rate_count=1)
@@ -703,10 +724,13 @@ class LiveFixture:
 
     def guard(self):
         guard = t8.metric_guard()
+        guard['timestamp_utc'] = m.datetime.fromtimestamp(self.epoch or time.time(), m.timezone.utc).isoformat()
         guard['pods'] = [m.p8.p4.pod_guard(p) for p in self.pods]
         guard['runtime_images'] = {p['metadata']['uid']: {c['name']: c['imageID'] for c in p['status'].get('containerStatuses', [])} for p in self.pods}
         guard['pod_metrics'] = [copy.deepcopy(guard['pod_metrics'][0]) | {'metadata': {'name': p['metadata']['name'], 'namespace': m.NS}}
                                 for p in self.pods if m.p8.p4.pod_guard(p)['ready']]
+        for metric in guard['pod_metrics']:
+            metric['timestamp'] = guard['timestamp_utc']
         guard['admission'] = m.p8.admission(self.runtime.value, self.pods)
         guard['hpa'].update(currentReplicas=len(self.pods), desiredReplicas=len(self.pods))
         return guard
@@ -718,6 +742,120 @@ class LiveFixture:
         with patch.object(m.time, 'monotonic', return_value=at), patch.object(m.time, 'time', return_value=self.epoch):
             m.collect_snapshot(self.runtime, self.config, self.baseline, rows.append, started)
         return rows
+
+
+class ResourceReadinessTests(unittest.TestCase):
+    def setUp(self):
+        env = patch.dict(os.environ, {'FORGEJO_URL': 'https://forgejo.example.com'}, clear=True)
+        env.start(); self.addCleanup(env.stop)
+
+    def test_campaign19_resource_only_replay_converges_at_ready_plus_54_seconds(self):
+        archive = ROOT / 'docs/evidence/p9-mitigation-nineteenth-20261103/raw-evidence.tar.gz'
+        original = archive.read_bytes()
+        with tarfile.open(archive) as raw:
+            manifest = json.load(raw.extractfile('calibration-C3-1/configuration.json'))
+            events = [json.loads(line) for line in raw.extractfile('calibration-C3-1/events.jsonl')]
+        snapshots = [e for e in events if e['record'] == 'snapshot']
+        initial = {p['uid'] for p in manifest['baseline']['targets']}
+        life = m.TargetLifecycle('C3', initial, manifest['plan'])
+        states = []
+        # Replay only resource initialization with the recorded AMW status.
+        # The archived one-minute queries/run are never revalidated as 2m.
+        for s in snapshots[:8]:
+            life.inventory(s['target_inventory'], s['at'])
+            states.append(life.resources(s['guard'], s['target_inventory'], s['signal'], s['at']))
+        self.assertEqual([s['status'] for s in states], ['observed'] * 3 + ['initializing-new-pod'] * 4 + ['observed'])
+        uid = states[-1]['initialized_uids'][0]
+        self.assertAlmostEqual(snapshots[7]['at'] - life.ready_since[uid], 54.236286792, places=5)
+        self.assertEqual(snapshots[6]['signal']['status'], 'observed')
+        self.assertEqual(states[6]['pending_uids'], [uid])
+        for case in ('missing', 'stale', 'reverse', 'changed-same-timestamp', 'future', 'invalid'):
+            guard = copy.deepcopy(snapshots[7]['guard'])
+            metric = next(p for p in guard['pod_metrics'] if p['metadata']['name'] == next(p['name'] for p in snapshots[7]['target_inventory'] if p['uid'] == uid))
+            if case == 'missing': guard['pod_metrics'].remove(metric)
+            elif case == 'stale': guard['timestamp_utc'] = (m.p8.p7.utc(guard['timestamp_utc']) + m.timedelta(seconds=200)).isoformat()
+            elif case == 'reverse': metric['timestamp'] = snapshots[4]['guard']['pod_metrics'][-1]['timestamp']
+            elif case == 'changed-same-timestamp': metric['window'] = '1s'
+            elif case == 'future': metric['timestamp'] = '2099-01-01T00:00:00Z'
+            else: metric['containers'][0]['usage']['cpu'] = 'NaN'
+            with self.subTest(case=case), self.assertRaises(ValueError):
+                copy.deepcopy(life).resources(guard, snapshots[7]['target_inventory'], snapshots[7]['signal'], snapshots[7]['at'] + 1)
+        self.assertEqual(archive.read_bytes(), original)
+        with tempfile.TemporaryDirectory() as d, tarfile.open(archive) as raw:
+            raw.extractall(d, filter='data')
+            with self.assertRaisesRegex(ValueError, 'manifest drift|failed/incomplete'):
+                m.validate(Path(d) / 'calibration-C3-1')
+
+    def test_collector_observed_amw_with_cached_first_metric_is_not_success(self):
+        f = LiveFixture(); f.collect(0)
+        f.pods.append(f.pod('new', 'ext-authz-sim-new'))
+        original_guard = f.guard
+        advance = [False]
+        def guard():
+            g = original_guard()
+            metric = next(p for p in g['pod_metrics'] if p['metadata']['name'] == 'ext-authz-sim-new')
+            metric.update(timestamp=m.datetime.fromtimestamp(1060 if advance[0] else 1002, m.timezone.utc).isoformat(), window='12.319758336s')
+            return g
+        f.runtime.guard = guard
+        for p in f.pods:
+            f.holds[p['metadata']['name']], f.capacities[p['metadata']['name']] = 0, 1024
+        for at in (2, 37, 56):
+            rows = f.collect(at, released=True); s = next(r for r in rows if r['record'] == 'snapshot')
+            self.assertEqual(s['signal']['status'], 'observed')
+            self.assertEqual(s['resource_readiness']['status'], 'initializing-new-pod')
+            self.assertFalse(s['healthy'])
+            self.assertFalse(any(r['record'] == 'convergence' for r in rows))
+            self.assertTrue(any(r['record'] == 'snapshot_gap' and r['reason'] == 'resource-initializing' for r in rows))
+        advance[0] = True
+        rows = f.collect(60, released=True); s = next(r for r in rows if r['record'] == 'snapshot')
+        self.assertTrue(s['healthy']); self.assertEqual(s['resource_readiness']['initialized_uids'], ['new'])
+        with self.assertRaisesRegex(ValueError, 'stale resource metric'): f.collect(95, released=True)
+
+    def test_resource_latch_is_strict_even_before_amw_and_deadline_is_inclusive(self):
+        for case in ('missing', 'stale'):
+            f = LiveFixture(); f.collect(0); f.pods.append(f.pod('new', 'ext-authz-sim-new')); f.missing = {'new'}
+            f.collect(2); f.collect(3)
+            self.assertIn('new', f.runtime.lifecycle.resource_observed)
+            self.assertNotIn('new', f.runtime.lifecycle.resource_complete)
+            original = f.guard
+            def guard():
+                g = original(); metric = next(p for p in g['pod_metrics'] if p['metadata']['name'] == 'ext-authz-sim-new')
+                if case == 'missing': g['pod_metrics'].remove(metric)
+                else: metric['timestamp'] = m.datetime.fromtimestamp(1003, m.timezone.utc).isoformat()
+                return g
+            f.runtime.guard = guard
+            with self.subTest(case=case), self.assertRaisesRegex(ValueError, 'missing container metric|stale resource metric'):
+                f.collect(40)
+        for delta in (75, 75.001):
+            f = LiveFixture(); f.collect(0); f.pods.append(f.pod('new', 'ext-authz-sim-new')); f.collect(2)
+            if delta == 75:
+                rows = f.collect(2 + delta)
+                self.assertEqual(next(r for r in rows if r['record'] == 'snapshot')['resource_readiness']['status'], 'observed')
+            else:
+                with self.assertRaisesRegex(ValueError, 'resource startup timeout'): f.collect(2 + delta)
+
+    def test_confounder_review_must_explicitly_exclude_initialization_intervals(self):
+        with tempfile.TemporaryDirectory() as d:
+            window = {'start': '2026-11-03T00:00:00Z', 'end': '2026-11-03T00:06:00Z'}
+            intervals = [{'at': 2, 'end': 3, 'pending_uids': ['new']}]
+            result = {'source_sha': 'a' * 40, 'fingerprint': 'b' * 64, 'window_utc': window,
+                      'arm': 'C3', 'resource_initialization': intervals}
+            path = Path(d, 'signals.json'); path.write_text('{}')
+            signals = {name: {'file': path.name, 'sha256': m.hashlib.sha256(path.read_bytes()).hexdigest(),
+                             'status': 'observed', 'samples': 1, 'interpretation': 'synthetic; not-ready intervals excluded',
+                             'start_utc': window['start'], 'end_utc': window['end']}
+                       for name in m.p8.REVIEW_SIGNALS | {'proxy_series_freshness', 'scaling_ownership_audit'}}
+            review = result | {'competing_bottleneck': False, 'missing_required_signals': [], 'signals': signals,
+                               'haproxy_queue_role': 'competing-bottleneck-guard', 'manual_replica_changes': 0}
+            for excluded in (None, [], intervals):
+                obj = copy.deepcopy(review)
+                if excluded is not None: obj['excluded_resource_initialization'] = excluded
+                Path(d, 'confounder-review.json').write_text(json.dumps(obj))
+                with patch.object(m, 'validate', return_value=copy.deepcopy(result)):
+                    if excluded == intervals:
+                        self.assertEqual(m.reviewed(d)['validity'], 'valid')  # Schema-only synthetic review.
+                    else:
+                        with self.assertRaisesRegex(ValueError, 'cannot be confounder proof'): m.reviewed(d)
 
 
 class ArchivedScaledObjectTests(unittest.TestCase):
@@ -734,8 +872,13 @@ class ArchivedScaledObjectTests(unittest.TestCase):
         env = patch.dict(os.environ, {'FORGEJO_URL': 'https://forgejo.example.com'}, clear=True)
         env.start(); self.addCleanup(env.stop)
 
+    # These archived policy-normalization regressions replay the historical
+    # one-minute source, not an authorized deployment of the new candidate.
+
     def fixture(self):
         if hasattr(self, 'parent_patch'): self.parent_patch.stop()
+        historical = patch.object(m, 'RATE_WINDOW', '1m')
+        historical.start(); self.addCleanup(historical.stop)
         with patch.dict(os.environ, {'FORGEJO_URL': 'https://forgejo.example.com'}):
             f = LiveFixture('C3')
         r = f.runtime
@@ -754,6 +897,11 @@ class ArchivedScaledObjectTests(unittest.TestCase):
         self.parent_patch = patch.object(m.p8.Runtime, 'configuration', side_effect=lambda *a, **kw: copy.deepcopy(base))
         self.parent_patch.start(); self.addCleanup(self.parent_patch.stop)
         return f
+
+    def test_historical_one_minute_policy_is_rejected_by_two_minute_source(self):
+        f = self.fixture()
+        with patch.object(m, 'RATE_WINDOW', '2m'), self.assertRaisesRegex(ValueError, 'ScaledObject policy drift'):
+            f.runtime.configuration(f.config)
 
     def test_creation_and_later_empty_are_stable_without_rewriting_observed_spec(self):
         f = self.fixture(); r = f.runtime
@@ -864,7 +1012,7 @@ class CollectionGateTests(unittest.TestCase):
         # a valid-run replay or a promotion of campaign19's negative result.
         snapshots = [e for e in events if e['record'] == 'snapshot'][:5]
         self.assertEqual(snapshots[-1]['signal']['status'], 'warming-new-pod')
-        m.common_guards(snapshots, manifest['baseline'], 'C3')
+        m.common_guards(snapshots, manifest['baseline'], 'C3', manifest['plan'])
         existing = {p['name'] for p in snapshots[0]['guard']['pods']}
         new = {p['name'] for p in snapshots[-1]['guard']['pods']} - existing
         self.assertEqual(len(new), 1)
@@ -876,10 +1024,15 @@ class CollectionGateTests(unittest.TestCase):
                 guard['pod_metrics'] = [p for p in guard['pod_metrics'] if p['metadata']['name'] != name]
                 self.assertEqual(len(guard['pod_metrics']), before - 1)
                 if name in new:
-                    m.common_guards(changed, manifest['baseline'], 'C3')
+                    m.common_guards(changed, manifest['baseline'], 'C3', manifest['plan'])
                 else:
                     with self.assertRaisesRegex(ValueError, 'missing container metric'):
-                        m.common_guards(changed, manifest['baseline'], 'C3')
+                        m.common_guards(changed, manifest['baseline'], 'C3', manifest['plan'])
+        for name in sorted(existing):
+            changed = copy.deepcopy(snapshots)
+            next(p for p in changed[-1]['guard']['pod_metrics'] if p['metadata']['name'] == name)['timestamp'] = '2000-01-01T00:00:00Z'
+            with self.subTest(stale_existing=name), self.assertRaisesRegex(ValueError, 'stale resource metric'):
+                m.common_guards(changed, manifest['baseline'], 'C3', manifest['plan'])
 
     def setUp(self):
         env = patch.dict(os.environ, {'FORGEJO_URL': 'https://forgejo.example.com'}, clear=True)
@@ -902,6 +1055,15 @@ class CollectionGateTests(unittest.TestCase):
         # Pending time does not consume the separate Ready -> series budget.
         f.pods[1] = f.pod('new', 'ext-authz-sim-new')
         f.missing = {'new'}; f.no_admin = {'new'}
+        original_guard = f.guard
+        resource_advanced = [False]
+        def guard():
+            result = original_guard()
+            for metric in result['pod_metrics']:
+                if metric['metadata']['name'] == 'ext-authz-sim-new':
+                    metric.update(timestamp=m.datetime.fromtimestamp(1280 if resource_advanced[0] else 1270, m.timezone.utc).isoformat(), window='1s')
+            return result
+        f.runtime.guard = guard
         f.traffic = 1  # Ready/traffic during warmup still cannot prove scaling.
         ready = f.collect(270)
         self.assertEqual(next(e for e in ready if e['record'] == 'snapshot')['signal']['status'], 'warming-new-pod')
@@ -914,6 +1076,11 @@ class CollectionGateTests(unittest.TestCase):
         sample = f.collect(275)
         self.assertEqual(next(e for e in sample if e['record'] == 'snapshot')['signal']['status'], 'warming-new-pod')
         f.one_sample.clear()
+        resource_pending = f.collect(277)
+        pending_snap = next(e for e in resource_pending if e['record'] == 'snapshot')
+        self.assertEqual(pending_snap['signal']['status'], 'observed')
+        self.assertEqual(pending_snap['resource_readiness']['status'], 'initializing-new-pod')
+        resource_advanced[0] = True
         f.capacities = {p['metadata']['name']: 1024 for p in f.pods}
         f.holds = {p['metadata']['name']: 0 for p in f.pods}
         observed = f.collect(280, released=True)
@@ -926,8 +1093,8 @@ class CollectionGateTests(unittest.TestCase):
             manifest = m.load(Path(directory) / 'configuration.json')
             manifest.update(arm='C3', baseline=f.baseline)
             Path(directory, 'configuration.json').write_text(json.dumps(manifest))
-            collected = {e['at']: e for e in initial + pending + ready + sample + observed if e['record'] == 'snapshot'}
-            timeline = [(-5, collected[-5]), (185, collected[185]), (270, collected[270]), (275, collected[275]), (280, collected[280])]
+            collected = {e['at']: e for e in initial + pending + ready + sample + resource_pending + observed if e['record'] == 'snapshot'}
+            timeline = [(-5, collected[-5]), (185, collected[185]), (270, collected[270]), (275, collected[275]), (277, collected[277]), (280, collected[280])]
             for i, row in enumerate(rows):
                 if row['record'] != 'snapshot': continue
                 source_at, source = max((x for x in timeline if x[0] <= row['at']), key=lambda x: x[0])
@@ -943,15 +1110,29 @@ class CollectionGateTests(unittest.TestCase):
                         if r['metric'][m.QUERY_TERM_LABEL] == 'evaluation_epoch': r['value'][1] = str(row['epoch'])
                     signal['query'], signal['query_diagnostics'] = m.extract_collector_query(obs['payload']['data']['result'], plan())
                 rows[i] = replacement
+            rows.insert(next(i for i, e in enumerate(rows) if e['record'] == 'snapshot' and e['at'] == 280), copy.deepcopy(collected[277]))
             # Preserve the collector's convergence and release-gap events.
-            rows[-1:-1] = [e for e in initial + pending + ready + sample + observed if e['record'] in {'convergence', 'replica_timeline'}]
+            rows[-1:-1] = [e for e in initial + pending + ready + sample + resource_pending + observed
+                          if e['record'] in {'convergence', 'replica_timeline', 'snapshot_gap'}]
             path = Path(directory, 'events.jsonl')
             path.write_text(''.join(json.dumps(r) + '\n' for r in rows))
             with patch.object(m, 'path_accounting', return_value={'admitted_checks': [], 'checks': 1800}):
                 result = m.validate(directory)
                 self.assertEqual(result['recovery']['first_good_window'], 290)
                 self.assertEqual(result['scaling']['signal_to_desired_ready_traffic'][-1], 280)
+                self.assertEqual(result['scaling']['signal_to_desired_ready_traffic'][2], 280)
                 self.assertFalse(any(w['good'] for w in result['recovery']['windows'] if w['start'] < 280))
+                self.assertTrue(result['resource_initialization'])
+                for case in ('marker', 'missing-marker', 'healthy'):
+                    changed = copy.deepcopy(rows)
+                    warm = next(e for e in changed if e['record'] == 'snapshot' and e['at'] == 277)
+                    if case == 'marker': warm['resource_readiness'].update(status='observed', pending_uids=[], initialized_uids=['new'])
+                    elif case == 'missing-marker': warm.pop('resource_readiness')
+                    else: warm['healthy'] = True
+                    path.write_text(''.join(json.dumps(r) + '\n' for r in changed))
+                    with self.subTest(case=case), patch.object(m, 'path_accounting') as accounting, self.assertRaisesRegex(ValueError, 'saved .*readiness drift'):
+                        m.validate(directory)
+                    accounting.assert_not_called()
                 for case in ('existing-missing', 'unknown-uid', 'startup-timeout', 'series-timeout', 'stale-existing', 'existing-admin-loss', 'unknown-admin', 'fabricated-new-zero', 'saved-label', 'native-negative'):
                     changed = copy.deepcopy(rows)
                     warm = next(e for e in changed if e['record'] == 'snapshot' and e['at'] == 190)
@@ -985,7 +1166,7 @@ class CollectionGateTests(unittest.TestCase):
                                 e['stats'] = copy.deepcopy(collected[275]['stats'])
                     path.write_text(''.join(json.dumps(r) + '\n' for r in changed))
                     expected = {'existing-missing': 'missing telemetry', 'unknown-uid': 'missing telemetry',
-                                'startup-timeout': 'Pod lifecycle failure', 'series-timeout': 'series startup timeout',
+                                'startup-timeout': 'startup/readiness failure', 'series-timeout': '(series|resource) startup timeout',
                                 'stale-existing': 'stale/error', 'existing-admin-loss': 'unapproved missing admin',
                                 'unknown-admin': 'unknown admin UID', 'fabricated-new-zero': 'stats fabricated',
                                 'saved-label': 'metric contract drift', 'native-negative': 'invalid native metric'}[case]
@@ -2945,7 +3126,7 @@ class MetricInitializationTests(unittest.TestCase):
         self.assertFalse(result['runtime_preflight_passed'])
 
     def test_healthy_poll_cadence_keeps_poll_query_and_deadline_upper_bounds(self):
-        for scrape, ingestion in ((1, 1), (15, 30), (60, 20)):
+        for scrape, ingestion in ((1, 1), (15, 30), (40, 20)):
             for cost in (0, 5, 15, 16.857066803990165, 29.9):
                 with self.subTest(scrape=scrape, ingestion=ingestion, collection_cost=cost):
                     f, now, rows, starts, waits, journeys, guards = self.preparation(), [0.0], [], [], [], [], []
@@ -2997,7 +3178,7 @@ class MetricInitializationTests(unittest.TestCase):
     def test_initialize_process_group_timeout_covers_internal_budgets_and_retention(self):
         v = plan()
         self.assertEqual(m.initialization_process_seconds(v), 840)
-        self.assertEqual(m.initialization_process_seconds(v | {'scrape_seconds': 60, 'ingestion_seconds': 60}), 1005)
+        self.assertEqual(m.initialization_process_seconds(v | {'scrape_seconds': 59, 'ingestion_seconds': 1}), 943)
         original_load = m.load
         with patch.object(m, 'load', side_effect=lambda path: v if path == 'plan' else original_load(path)), patch.object(m.p8.subprocess, 'run') as run, patch.object(m, 'initialize') as initialize:
             m.main(['initialize', 'identity', 'plan', 'approval', 'context', 'private', 'output', 'ledger'])

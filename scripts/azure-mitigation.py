@@ -44,6 +44,10 @@ TARGET_METRIC = {'cluster_label': 'cluster_name', 'cluster': 'inbound|8080||',
                  'active': 'envoy_cluster_upstream_rq_active',
                  'admin_request': 'stats?format=json', 'exposition_request': 'stats/prometheus'}
 
+# Source-bound candidate; canonical query/render hashes bind the freeze. This
+# changes smoothing, not the 60s raw freshness or any calibration threshold.
+RATE_WINDOW = '2m'
+
 
 def metric_contract():
     return copy.deepcopy(TARGET_METRIC)
@@ -54,8 +58,8 @@ def signal_queries(v):
     base = 'cluster=' + json.dumps(v['prometheus_cluster']) + ',namespace=' + json.dumps(NS)
     selector = base + ',job=' + json.dumps(c['job']) + ',' + c['cluster_label'] + '=' + json.dumps(c['cluster'])
     raw = c['overflow'] + '{' + selector + '}'
-    return {'raw': raw, 'rate': 'rate(' + raw + '[1m])', 'active': c['active'] + '{' + selector + '}',
-            'timestamp': 'timestamp(' + raw + ')', 'samples': 'count_over_time(' + raw + '[1m])'}
+    return {'raw': raw, 'rate': 'rate(' + raw + '[' + RATE_WINDOW + '])', 'active': c['active'] + '{' + selector + '}',
+            'timestamp': 'timestamp(' + raw + ')', 'samples': 'count_over_time(' + raw + '[' + RATE_WINDOW + '])'}
 
 
 def selected_mapping(mapping):
@@ -136,7 +140,7 @@ def plan(v):
             all(bounded(x, 100, 1000) for x in v['backoff_ms']) and v['backoff_ms'][0] <= v['backoff_ms'][1], 'bounded deterministic backoff+jitter')
     require(type(v['queue_limit']) is int and 1 <= v['queue_limit'] <= 24 and bounded(v['queue_timeout_ms'], 100, 500), 'bounded admission queue')
     require(bounded(v['threshold'], .25, 1) and type(v['freshness_seconds']) is int and
-            v['scrape_seconds'] + v['ingestion_seconds'] <= v['freshness_seconds'] <= 120, 'rate threshold/freshness')
+            v['scrape_seconds'] + v['ingestion_seconds'] <= v['freshness_seconds'] <= 60, 'rate threshold/freshness')
     require(re.fullmatch(r'https://[a-z0-9.-]+\.prometheus\.monitor\.azure\.com', v['prometheus']) and
             re.fullmatch(r'[a-zA-Z0-9_-]+', v['prometheus_cluster']), 'exact Managed Prometheus target')
     require(re.fullmatch(r'[0-9a-f-]{36}', v['identity_client_id']) and re.fullmatch(r'2\.\d+\.\d+(?:[-+][a-zA-Z0-9.-]+)?', v['keda_version']), 'actual KEDA version/identity required')
@@ -163,12 +167,13 @@ def scale_query_parts(v):
     # Keep the canonical KEDA expression and collector operands on the same
     # fragments. No fallback, boolean conversion or altered matching semantics.
     base = 'cluster=' + json.dumps(v['prometheus_cluster']) + ',namespace=' + json.dumps(NS)
-    raw = signal_queries(v)['raw']
+    queries = signal_queries(v)
+    raw = queries['raw']
     fresh = f'(time() - timestamp({raw}) <= {v["freshness_seconds"]})'
-    rates = f'(rate({raw}[1m]) and {fresh})'
+    rates = f'({queries["rate"]} and {fresh})'
     info = 'kube_pod_info{' + base + ',pod=~"ext-authz-sim-.+"}'
     up = 'up{' + base + ',job=' + json.dumps(metric_contract()['job']) + '}'
-    return rates, {'rate_count': f'count(rate({raw}[1m]))', 'fresh_rate_count': f'count({rates})',
+    return rates, {'rate_count': f'count({queries["rate"]})', 'fresh_rate_count': f'count({rates})',
                    'raw_max_age': f'max(time() - timestamp({raw}))', 'inventory_count': f'count({info})',
                    'up_min': f'min({up})', 'up_count': f'count({up})',
                    'up_max_age': f'max(time() - timestamp({up}))',
@@ -423,6 +428,7 @@ class TargetLifecycle:
     def __init__(self, arm, initial_uids, v):
         self.arm, self.initial, self.v = arm, set(initial_uids), v
         self.first_seen, self.ready_since, self.observed, self.admin_seen = {}, {}, set(), set()
+        self.resource_samples, self.resource_observed, self.resource_complete = {}, set(), set()
 
     def inventory(self, pods, at):
         names = {p['uid']: p['name'] for p in pods}
@@ -481,6 +487,66 @@ class TargetLifecycle:
         value = telemetry(rows, ready_names, epoch, self.v['freshness_seconds'])
         self.observed.update(observed)
         return None if missing else value
+
+    def resources(self, guard, pods, signal, at):
+        """New C3 UID only: bounded not-ready, then irreversible strict metrics.
+
+        A short first CPU averaging window is not an API refresh interval. A
+        first sample is only a candidate; an advancing fresh export latches the
+        strict resource guard even if AMW is still warming. Joint completion
+        requires AMW readiness too. Raw counters/logs remain in the denominator.
+        """
+        names = {p['uid']: p['name'] for p in pods}
+        require(set(names) <= set(self.first_seen), 'unknown resource target UID')
+        pending = set()
+        for pod in guard['pods']:
+            uid = pod['uid']
+            new = self.arm == 'C3' and uid in names and uid not in self.initial
+            if new:
+                require(pod['name'] == names[uid], 'resource target name drift')
+                since = self.ready_since.get(uid)
+                if uid not in self.resource_complete:
+                    require(since is None or 0 <= at - since <= self.v['ingestion_seconds'] + 3 * self.v['scrape_seconds'],
+                            'new-Pod resource startup timeout')
+            obs = [o for o in guard['pod_metrics'] if o['metadata']['name'] == pod['name']]
+            if not obs and new and uid not in self.resource_observed:
+                pending.add(uid)
+                continue
+            require(len(obs) == 1 and {c['name'] for c in pod['containers']} <= {c['name'] for c in obs[0]['containers']},
+                    'missing container metric')
+            metric = obs[0]
+            require(uid not in names or metric['metadata']['namespace'] == NS, 'resource target namespace drift')
+            require(len({c['name'] for c in metric['containers']}) == len(metric['containers']) and
+                    all(math.isfinite(p8.quantity(c['usage'][k])) and p8.quantity(c['usage'][k]) >= 0
+                        for c in metric['containers'] for k in ('cpu', 'memory')), 'invalid resource metric')
+            window = p8.metric_window(metric['window'])
+            stamp = p8.p7.utc(metric['timestamp'])
+            age = (p8.p7.utc(guard['timestamp_utc']) - stamp).total_seconds()
+            require(age >= 0, 'future resource metric')
+            fresh = age <= 2 * window
+            if not new:
+                require(fresh, 'stale resource metric')
+                continue
+            if since is None:
+                # Guard collection may see Ready after the snapshot inventory
+                # still saw Pending. Start resource history at observed Ready.
+                pending.add(uid)
+                continue
+            previous = self.resource_samples.get(uid)
+            require(previous is None or stamp >= previous, 'resource sample history drift')
+            advancing = previous is not None and stamp > previous
+            self.resource_samples[uid] = stamp
+            if uid in self.resource_observed:
+                require(fresh, 'stale resource metric')
+            elif fresh and advancing and since is not None:
+                self.resource_observed.add(uid)
+            if uid in self.resource_observed and signal['status'] == 'observed' and uid in {r['pod_uid'] for r in signal['pods']}:
+                self.resource_complete.add(uid)
+            if uid not in self.resource_complete:
+                pending.add(uid)
+        require(set(names) <= {p['uid'] for p in guard['pods']}, 'missing resource target inventory')
+        return {'status': 'initializing-new-pod' if pending else 'observed',
+                'pending_uids': sorted(pending), 'initialized_uids': sorted(self.resource_complete)}
 
 
 def accounting(arm, v):
@@ -943,7 +1009,10 @@ def collect_snapshot(runtime, config, before, emit, release_started):
     hp = runtime.pod(NS, 'app=haproxy')
     hp_logs = [json.loads(line) for line in runtime.k('-n', NS, 'logs', hp['metadata']['name'], '-c', 'haproxy').splitlines() if line.startswith('{')]
     signal = runtime.signal(inventory, at=at)
-    all_converged = healthy and signal['status'] == 'observed' and {p['metadata']['uid'] for p in inventory} == {t['uid'] for t in actual['targets']}
+    resource = runtime.lifecycle.resources(guard, [p8.p4.pod_guard(p) for p in inventory], signal, at)
+    all_converged = healthy and signal['status'] == resource['status'] == 'observed' and {p['metadata']['uid'] for p in inventory} == {t['uid'] for t in actual['targets']}
+    if resource['pending_uids']:
+        emit({'record': 'snapshot_gap', 'at': at, 'reason': 'resource-initializing', 'pending_uids': resource['pending_uids']})
     if releasing and not healthy:
         emit({'record': 'snapshot_gap', 'at': at, 'reason': 'release-not-converged', 'fault_state': actual['fault_state']})
     haproxy = runtime.haproxy()
@@ -952,7 +1021,7 @@ def collect_snapshot(runtime, config, before, emit, release_started):
         raise SnapshotBudgetExceeded('snapshot collection budget exceeded')
     snap = {'record': 'snapshot', 'at': at, 'end': end, 'epoch': time.time(), 'timestamp_utc': p8.utc(),
             'configuration': actual, 'guard': guard, 'stats': stats, 'logs': logs, 'haproxy': haproxy,
-            'haproxy_logs': hp_logs, 'signal': signal, 'fault_healthy': healthy, 'healthy': all_converged,
+            'haproxy_logs': hp_logs, 'signal': signal, 'resource_readiness': resource, 'fault_healthy': healthy, 'healthy': all_converged,
             'release_started': releasing, 'admin_stats': runtime.admin_observations, 'target_inventory': [p8.p4.pod_guard(p) for p in inventory]}
     emit(snap)
     if all_converged:
@@ -1505,10 +1574,11 @@ def transition(identity, v, target, output, approval):
                   'manual_scale_success': False, 'rollback': 'remove CUSTOM policy first on uncertainty; preserve original controller manifests; no overlapping owners'})
 
 
-def common_guards(snapshots, baseline, arm):
+def common_guards(snapshots, baseline, arm, v):
     require(len(snapshots) >= 3, 'missing observation snapshots')
     fixed = {p['uid']: p for p in snapshots[0]['guard']['pods'] if not p['name'].startswith('ext-authz-sim-')}
     first_targets = {t['uid'] for t in baseline['targets']}
+    lifecycle = TargetLifecycle(arm, first_targets, v)
     seen = set()
     pending_since = {}
     warm_epochs = [s['epoch'] for s in snapshots if s['signal'].get('status') == 'warming-new-pod']
@@ -1540,6 +1610,9 @@ def common_guards(snapshots, baseline, arm):
                 require(arm == 'C3' and e.get('timestamp_utc') and any(abs(p8.p7.utc(e['timestamp_utc']).timestamp() - epoch) <= 35 for epoch in warm_epochs), 'metric failure outside bounded new-Pod warmup')
         require(any(n['schedulable'] and n['cpu_free'] >= .15 and n['memory_free'] >= 192 * 1024**2 for n in guard['node_headroom']), 'node headroom')
         require(guard['node_metrics'] and guard['pod_metrics'], 'missing node/Pod metrics')
+        inventory = s.get('target_inventory', [p for p in guard['pods'] if p['name'].startswith('ext-authz-sim-')])
+        lifecycle.inventory(inventory, s['at'])
+        lifecycle.resources(guard, inventory, s['signal'], s['at'])
         for p in guard['pods']:
             new_target = arm == 'C3' and p['uid'] not in fixed and p['uid'] not in first_targets
             pending_since.setdefault(p['uid'], s['at'])
@@ -1548,14 +1621,6 @@ def common_guards(snapshots, baseline, arm):
             require(p['ready'] or new_target and s['at'] - pending_since[p['uid']] <= 90, 'unbounded new-Pod readiness gap')
             if p['uid'] in fixed or p['uid'] in first_targets:
                 require(p['ready'] and all(c['ready'] for c in p['containers']), 'baseline readiness failure')
-            obs = [m for m in guard['pod_metrics'] if m['metadata']['name'] == p['name']]
-            # A newly admitted C3 Pod can await its first resource metric. It
-            # cannot contribute to recovery until full observations are present.
-            if not obs and warming and new_target:
-                continue
-            require(len(obs) == 1 and {c['name'] for c in p['containers']} <= {c['name'] for c in obs[0]['containers']}, 'missing container metric')
-            age = (p8.p7.utc(guard['timestamp_utc']) - p8.p7.utc(obs[0]['timestamp'])).total_seconds()
-            require(0 <= age <= 2 * p8.metric_window(obs[0]['window']), 'stale resource metric')
         hpa = guard['hpa']
         cond = {c['type']: c for c in hpa.get('conditions', [])}
         require(cond.get('AbleToScale', {}).get('status') == 'True' and 1 <= hpa['desiredReplicas'] <= 2, 'controller scale/status failure')
@@ -1659,7 +1724,7 @@ def validate(directory):
     require(events[0]['transport'] == manifest['transport'] and events[0]['transport'] == p8.p7.operations.transport(events[0]['transport']['endpoint'], 'azure-aks',
             events[0]['transport'].get('dns_client_override')) and urllib.parse.urlsplit(events[0]['transport']['endpoint']).hostname == identity['forgejo_hostname'], 'transport/hostname drift')
     snapshots = [e for e in events if e['record'] == 'snapshot']
-    uids = common_guards(snapshots, manifest['baseline'], arm)
+    uids = common_guards(snapshots, manifest['baseline'], arm, v)
     report, rows, origin = demand_report(v, events)
     require(report['unissued'] == 0 and report['driver_lag_max_seconds'] <= 2, 'driver demand reduction/lag invalidates comparison')
     for r in rows:
@@ -1678,7 +1743,13 @@ def validate(directory):
         lifecycle.inventory(inventory, s['at'])
         lifecycle.admin(s['configuration']['targets'], s['admin_stats'], s['stats'], s['at'])
         require(s['configuration']['metric_contract'] == metric_contract(), 'snapshot metric contract drift')
-        signals.append(lifecycle.signal(s['signal'], inventory, s['at'], s['epoch']))
+        value = lifecycle.signal(s['signal'], inventory, s['at'], s['epoch'])
+        resource = lifecycle.resources(s['guard'], inventory, s['signal'], s['at'])
+        require(s.get('resource_readiness') == resource, 'saved resource readiness drift')
+        converged = (s.get('fault_healthy', False) and s['signal']['status'] == resource['status'] == 'observed' and
+                     {p['uid'] for p in inventory} == {t['uid'] for t in s['configuration']['targets']})
+        require(s['healthy'] == converged, 'saved healthy/readiness drift')
+        signals.append(value if resource['status'] == 'observed' else None)
         require(s['signal']['query_sha256'] == digest(scale_query(v)), 'scale query drift')
         if not s['signal']['missing_uids']:
             require('query_observation' in s['signal'], 'missing collector query observation')
@@ -1688,6 +1759,7 @@ def validate(directory):
     require(signals[-1] is not None and all(b['end'] - a['end'] <= 35 for a, b in zip(snapshots, snapshots[1:])), 'final/missing observation gap')
     require(snapshots[0]['end'] <= origin and snapshots[-1]['at'] >= origin + v['mitigation_seconds'] + v['recovery_seconds'] and
             snapshots[-1]['end'] <= origin + v['mitigation_seconds'] + v['recovery_seconds'] + 60, 'full observation/drain deadline coverage')
+    require(all(s['resource_readiness']['status'] == 'observed' for s in (snapshots[0], snapshots[-1])), 'accounting endpoints not ready')
     path = path_accounting(arm, snapshots)
     require(path['checks'] >= report['attempts'], 'attempt/check denominator incomplete')
     known = {c['attempt_id']: c['operation_id'] for c in path.pop('admitted_checks')}
@@ -1702,7 +1774,7 @@ def validate(directory):
     def observed(start, end):
         points = [s for s in snapshots if s['at'] <= end and s['end'] >= start - 10]
         return (points and points[0]['end'] <= start + 5 and points[-1]['end'] >= end - 5 and
-                all(s['healthy'] and s['signal'].get('status') == 'observed' for s in points) and
+                all(s['healthy'] and s['signal'].get('status') == s['resource_readiness']['status'] == 'observed' for s in points) and
                 all(b['end'] - a['end'] <= 15 for a, b in zip(points, points[1:])) and
                 not any(start <= e['at'] < end for e in events if e['record'] == 'snapshot_gap') and
                 all(p['ready'] for s in points for p in s['guard']['pods']))
@@ -1714,7 +1786,8 @@ def validate(directory):
     if arm == 'C3':
         signal_at = next((s['end'] for s, value in zip(snapshots, signals) if value is not None and value > v['threshold']), None)
         desired = next((t['at'] for t in timeline if signal_at is not None and t['at'] >= signal_at and t['hpa']['status'].get('desiredReplicas') == 2), None)
-        ready = next((t['at'] for t in timeline if desired is not None and t['at'] >= desired and sum(p['ready'] for p in t['pods']) == 2), None)
+        ready = next((t['at'] for t in timeline if desired is not None and t['at'] >= desired and sum(p['ready'] for p in t['pods']) == 2 and
+                      any(s['at'] == t['at'] and value is not None for s, value in zip(snapshots, signals))), None)
         traffic = next((s['end'] for s, value in zip(snapshots, signals) if value is not None and ready is not None and
                         s['at'] >= ready and len(s['stats']) == 2 and all(p8.p4.by_suffix(stats)['upstream_rq_total'] > 0 for stats in s['stats'].values())), None)
         if traffic is not None:
@@ -1723,6 +1796,8 @@ def validate(directory):
             'validity': 'pending-cloud-confounder-review', 'hypothesis': 'pending',
             'window_utc': {'start': events[0]['timestamp_utc'], 'end': events[-1]['timestamp_utc']},
             'campaign': report, 'accounting': path, 'recovery': rec, 'scaling': scale,
+            'resource_initialization': [{'at': s['at'], 'end': s['end'], 'pending_uids': s['resource_readiness']['pending_uids']}
+                                        for s in snapshots if s['resource_readiness']['status'] != 'observed'],
             'target_uids': sorted(uids), 'cleanup': 'pending'}
 
 
@@ -1746,6 +1821,9 @@ def reviewed(directory):
     else:
         require(review['haproxy_queue_role'] == 'competing-bottleneck-guard', 'HAProxy guard omitted')
     require(review['manual_replica_changes'] == 0, 'manual scaling is not autoscaling evidence')
+    if result['resource_initialization']:
+        require(review.get('excluded_resource_initialization') == result['resource_initialization'],
+                'resource initialization cannot be confounder proof')
     result['validity'] = 'valid'
     result['hypothesis'] = 'reviewed single contemporaneous comparison; no statistical generalization'
     return result
