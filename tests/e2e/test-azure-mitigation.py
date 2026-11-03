@@ -1103,14 +1103,16 @@ class CollectionGateTests(unittest.TestCase):
         self.assertEqual(len(snap['signal']['query']), 1)
         f.traffic = 2
         post_ready_traffic = f.collect(285, released=True)
+        f.traffic = 3
+        proven_traffic = f.collect(290, released=True)
         # Feed actual collected snapshots through the whole saved-run validator.
         with tempfile.TemporaryDirectory() as directory:
             rows = CompleteEvidenceTests().fixture(directory)
             manifest = m.load(Path(directory) / 'configuration.json')
             manifest.update(arm='C3', baseline=f.baseline)
             Path(directory, 'configuration.json').write_text(json.dumps(manifest))
-            collected = {e['at']: e for e in initial + pending + ready + sample + resource_pending + observed + post_ready_traffic if e['record'] == 'snapshot'}
-            timeline = [(-5, collected[-5]), (185, collected[185]), (270, collected[270]), (275, collected[275]), (277, collected[277]), (280, collected[280]), (285, collected[285])]
+            collected = {e['at']: e for e in initial + pending + ready + sample + resource_pending + observed + post_ready_traffic + proven_traffic if e['record'] == 'snapshot'}
+            timeline = [(-5, collected[-5]), (185, collected[185]), (270, collected[270]), (275, collected[275]), (277, collected[277]), (280, collected[280]), (285, collected[285]), (290, collected[290])]
             for i, row in enumerate(rows):
                 if row['record'] != 'snapshot': continue
                 source_at, source = max((x for x in timeline if x[0] <= row['at']), key=lambda x: x[0])
@@ -1129,14 +1131,14 @@ class CollectionGateTests(unittest.TestCase):
                 rows[i] = replacement
             rows.insert(next(i for i, e in enumerate(rows) if e['record'] == 'snapshot' and e['at'] == 280), copy.deepcopy(collected[277]))
             # Preserve the collector's convergence and release-gap events.
-            rows[-1:-1] = [e for e in initial + pending + ready + sample + resource_pending + observed + post_ready_traffic
+            rows[-1:-1] = [e for e in initial + pending + ready + sample + resource_pending + observed + post_ready_traffic + proven_traffic
                           if e['record'] in {'convergence', 'replica_timeline', 'snapshot_gap'}]
             path = Path(directory, 'events.jsonl')
             path.write_text(''.join(json.dumps(r) + '\n' for r in rows))
             with patch.object(m, 'path_accounting', side_effect=lambda *_: {'admitted_checks': [], 'checks': 1800}):
                 result = m.validate(directory)
                 self.assertEqual(result['recovery']['first_good_window'], 290)
-                self.assertEqual(result['scaling']['signal_to_desired_ready_traffic'][-1], 285)
+                self.assertEqual(result['scaling']['signal_to_desired_ready_traffic'][-1], 290)
                 self.assertEqual(result['scaling']['signal_to_desired_ready_traffic'][2], 280)
                 self.assertFalse(any(w['good'] for w in result['recovery']['windows'] if w['start'] < 280))
                 self.assertTrue(result['resource_initialization'])
@@ -1148,6 +1150,18 @@ class CollectionGateTests(unittest.TestCase):
                             stats[key] = 1
                             s['admin_stats'][uid]['values'][key] = 1
                 path.write_text(''.join(json.dumps(r) + '\n' for r in warm_only))
+                self.assertEqual(m.validate(directory)['scaling']['status'], 'not observed')
+                # An increment seen in the first post-ready collection may
+                # predate readiness within the earlier collection. Without a
+                # subsequent increment it still supplies no traffic proof.
+                reference_only = copy.deepcopy(rows)
+                for s in reference_only:
+                    if s['record'] == 'snapshot' and s['at'] >= 285:
+                        for uid, stats in s['stats'].items():
+                            key = next(k for k in stats if k.endswith('.upstream_rq_total'))
+                            stats[key] = 2
+                            s['admin_stats'][uid]['values'][key] = 2
+                path.write_text(''.join(json.dumps(r) + '\n' for r in reference_only))
                 self.assertEqual(m.validate(directory)['scaling']['status'], 'not observed')
                 for case in ('marker', 'missing-marker', 'missing-clock', 'healthy'):
                     changed = copy.deepcopy(rows)

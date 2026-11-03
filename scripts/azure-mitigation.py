@@ -1799,11 +1799,15 @@ def validate(directory):
         ready_snapshot = next((s for s, value in zip(snapshots, signals) if value is not None and desired is not None and
                                any(t['at'] == s['at'] and t['at'] >= desired and sum(p['ready'] for p in t['pods']) == 2 for t in timeline)), None)
         ready = ready_snapshot['end'] if ready_snapshot is not None else None
-        # Cumulative traffic from initialization is retained for accounting, but
-        # only increases AFTER the ready snapshot can prove scaling traffic.
+        # Stats precede signal/resource reads in a collection. Take a reference
+        # from a collection STARTED after readiness, so even traffic between
+        # those reads cannot turn initialization into scaling proof.
+        traffic_reference = next((s for s, value in zip(snapshots, signals) if value is not None and ready is not None and
+                                  s['at'] > ready and len(s['stats']) == 2 and set(s['stats']) == set(ready_snapshot['stats'])), None)
         traffic = next((s['end'] for s, value in zip(snapshots, signals) if value is not None and ready is not None and
-                        s['at'] >= ready and len(s['stats']) == 2 and set(s['stats']) == set(ready_snapshot['stats']) and
-                        all(p8.p4.by_suffix(stats)['upstream_rq_total'] > p8.p4.by_suffix(ready_snapshot['stats'][uid])['upstream_rq_total']
+                        traffic_reference is not None and s['at'] >= traffic_reference['end'] and len(s['stats']) == 2 and
+                        set(s['stats']) == set(traffic_reference['stats']) and
+                        all(p8.p4.by_suffix(stats)['upstream_rq_total'] > p8.p4.by_suffix(traffic_reference['stats'][uid])['upstream_rq_total']
                             for uid, stats in s['stats'].items())), None)
         if traffic is not None:
             scale = {'status': 'observed; audit scale ownership before autoscaling claim', 'signal_to_desired_ready_traffic': [signal_at, desired, ready, traffic]}
