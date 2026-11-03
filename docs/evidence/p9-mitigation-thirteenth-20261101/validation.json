@@ -1,0 +1,21 @@
+{
+  "execution_source_sha": "453841d4274d6777073a0ed1d5282e3e784461c8",
+  "source_code_changes": 0,
+  "unchanged_source_tests_repeated_manually": false,
+  "normal_saved_validation": "valid/success/warmup9",
+  "healthy_journey_saved_validation": "valid/success/warmup9; not a completed healthy gate",
+  "initialize_exit": 1,
+  "preparation_contract": "invalid",
+  "p9_acceptance_met": false,
+  "raw_archive_member_hash_validation": "194/194 path/size/SHA256 verified; unique safe regular member paths",
+  "prior_archives_preserved": 12,
+  "privacy_scan": "known credentials/encodings and private operator paths matches0 before protected copies removed",
+  "stable_and_azure_preservation_checks": 26,
+  "owned_cleanup": "verified; physical secure erasure and IAM immediate cache expiry not claimed",
+  "final_posted_cost": "unknown; final query failed",
+  "exact_head_ci": "reported in PR after evidence commit; source CI reused before execution",
+  "raw_json_documents_parsed": 171,
+  "raw_jsonl_records_parsed": 335,
+  "historical_archives_exact_source_bytes_verified": 12,
+  "self_review": "preparation invalid, source negative, partial positive, not-reached measurements and cost unknown classified separately; no acceptance relaxation"
+}

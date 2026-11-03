@@ -1,0 +1,115 @@
+{
+  "execution_source_sha": "8741cf275888ee5760c6b22562182c13105b417e",
+  "evidence_sha": "reported in PR result comment; evidence-only descendant",
+  "campaign": "p9t20261103",
+  "host": "Darwin/arm64",
+  "state": "CLOSED",
+  "acceptance": false,
+  "authorization": "https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6593805821",
+  "source_review": "https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#pullrequestreview-5746387442",
+  "source_unchanged_during_execution": true,
+  "image_digest": "sha256:1e8abd90a9d85348a73d93f10a13dda078b94d82a5b9b4d7f5159265faaaf6bf",
+  "counts": {
+    "normal": 1,
+    "initialize": 1,
+    "healthy": 1,
+    "calibration": 2,
+    "C0": 0,
+    "C1": 0,
+    "C2": 0,
+    "C3": 0,
+    "keda_apply": 1,
+    "keda_restore": 1
+  },
+  "historical_before": {
+    "campaign": 19,
+    "initialize": 16,
+    "healthy": 7,
+    "invalid_calibration": 4,
+    "measured": {
+      "C0": 0,
+      "C1": 0,
+      "C2": 0,
+      "C3": 0
+    },
+    "keda_apply": 5,
+    "keda_restore": 5
+  },
+  "cumulative_after": {
+    "campaign": 20,
+    "initialize": 17,
+    "healthy": 8,
+    "invalid_calibration": 6,
+    "measured": {
+      "C0": 0,
+      "C1": 0,
+      "C2": 0,
+      "C3": 0
+    },
+    "keda_apply": 6,
+    "keda_restore": 6
+  },
+  "initialize": {
+    "exit_code": 0,
+    "cpu_polls": 10,
+    "telemetry_polls": 3,
+    "prometheus_requests": 13,
+    "query_cap": 25,
+    "normal_operations": 9,
+    "healthy_operations": 9
+  },
+  "actual_scaler_auth_and_full_gate": true,
+  "calibration": [
+    {
+      "run": "calibration-C3-1",
+      "validity": "invalid",
+      "failure_offset_seconds": 142.69359725015238
+    },
+    {
+      "run": "calibration-C3-2",
+      "validity": "invalid",
+      "failure_offset_seconds": 139.05046600010246
+    }
+  ],
+  "frozen": false,
+  "measured_comparison": false,
+  "recovery_acceptance": "not established; both runs invalid before full demand/recovery",
+  "cost": {
+    "prior_projection_usd": "285.3566776355215859675991667",
+    "campaign20_variable_estimate_usd": 5,
+    "projection_usd": "290.3566776355216",
+    "basis": "same fixed34 resources and2 nodes; retained deadline/overlap/lag/cleanup reserves reused; bounded6x600s campaign; shared delayed actual cost unknown",
+    "actual_cost": "shared/delayed/unknown",
+    "new_numeric_cap": null,
+    "USD290_exceedance_is_NO_GO": false,
+    "environment_remaining_seconds": 169164.780521,
+    "whole_reserve_seconds": 8045,
+    "owned_cleanup_reserve_seconds": 1800,
+    "resource_inventory_count": 34,
+    "fixed_nodes": 2,
+    "source_sha": "8741cf275888ee5760c6b22562182c13105b417e",
+    "approval": "https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6593805821"
+  },
+  "cleanup_errors": [],
+  "cleanup_completed_utc": "2026-11-03T03:20:23.034493+00:00",
+  "environment_deadline_utc": "2026-11-05T01:30:00Z",
+  "foundation_bootstrap_deadline_utc": "2026-11-05T15:33:00Z",
+  "whole_environment_teardown": false,
+  "campaign_parent_exit_code": 0,
+  "resource_caps_observed": {
+    "pod_max": 4,
+    "requests_cpu_max_m": 650,
+    "requests_memory_max_Mi": 832.0,
+    "limits_cpu_max_m": 1450,
+    "limits_memory_max_Mi": 1664.0
+  },
+  "cleanup": {
+    "all_operator_steps_passed": true,
+    "exact_image_digest_absent": true,
+    "exact_AMW_role_absent": true,
+    "original_Owner_assignments_preserved": 2,
+    "ARM_resource_ID_set_preserved": 34,
+    "resource_groups_preserved": 4,
+    "fixture_cleanup_mode": "exact PAT revocation and prohibit_login; no user/repository deletion; no separate post-cleanup SQL replay"
+  }
+}

@@ -1,0 +1,237 @@
+{
+  "basis": "기존 execution summary의 해당 필드만 재사용; 과거 raw/ledger 수정 없음",
+  "historical_campaigns": 14,
+  "public_initialize_invocations": 11,
+  "healthy_journey_invocations": 3,
+  "calibration_consumed": 2,
+  "measured_per_arm": {
+    "C0": 0,
+    "C1": 0,
+    "C2": 0,
+    "C3": 0
+  },
+  "next_requested": {
+    "campaigns": 1,
+    "initial_normal": 1,
+    "final_native_verify": 1,
+    "public_initialize": 1,
+    "healthy_journey": 1,
+    "calibration": 2,
+    "measured_per_arm": 1,
+    "keda_apply_restart_if_needed": 1,
+    "keda_restore_restart_if_changed": 1
+  },
+  "current_authorized_next": {
+    "campaigns": 0,
+    "calibration": 0,
+    "measured": 0,
+    "healthy_journey": 0
+  },
+  "after_new_approval_max_cumulative": {
+    "campaigns": 15,
+    "public_initialize": 12,
+    "healthy_journey": 4,
+    "calibration": 4,
+    "measured_per_arm": 1,
+    "keda_apply_restore_restarts": [
+      4,
+      4
+    ]
+  },
+  "historical_keda_apply_restore_restarts": [
+    3,
+    3
+  ],
+  "historical": [
+    {
+      "evidence": "p9-mitigation-eighth-20261030/execution.json",
+      "source_sha": "98e95e5850f2442e08a6306bf955aa12c0427b17",
+      "initialize_invocations": 1,
+      "healthy_journey_invocations": 0,
+      "calibration_consumed": 0,
+      "measured": {
+        "C0": 0,
+        "C1": 0,
+        "C2": 0,
+        "C3": 0
+      }
+    },
+    {
+      "evidence": "p9-mitigation-eleventh-20261101/execution.json",
+      "source_sha": "94deb6d7b51ab61091f90ee9ad281c4a9afb56cb",
+      "initialize_invocations": 1,
+      "healthy_journey_invocations": 0,
+      "calibration_consumed": 0,
+      "measured": {
+        "C0": 0,
+        "C1": 0,
+        "C2": 0,
+        "C3": 0
+      }
+    },
+    {
+      "evidence": "p9-mitigation-fifth-20261029/execution.json",
+      "source_sha": null,
+      "initialize_invocations": 0,
+      "healthy_journey_invocations": 0,
+      "calibration_consumed": 0,
+      "measured": {
+        "C0": 0,
+        "C1": 0,
+        "C2": 0,
+        "C3": 0
+      }
+    },
+    {
+      "evidence": "p9-mitigation-fourteenth-20261102/execution.json",
+      "source_sha": "69bace6cdb3dabe047a71454528c27111f706c05",
+      "initialize_invocations": 1,
+      "healthy_journey_invocations": 1,
+      "calibration_consumed": 1,
+      "measured": {
+        "C0": 0,
+        "C1": 0,
+        "C2": 0,
+        "C3": 0
+      }
+    },
+    {
+      "evidence": "p9-mitigation-fourth-20261029/execution.json",
+      "source_sha": null,
+      "initialize_invocations": 1,
+      "healthy_journey_invocations": 0,
+      "calibration_consumed": 0,
+      "measured": {
+        "C0": 0,
+        "C1": 0,
+        "C2": 0,
+        "C3": 0
+      }
+    },
+    {
+      "evidence": "p9-mitigation-ninth-20261030/execution.json",
+      "source_sha": "ee75e3a336326ec5567b5f399ec08028169b02f1",
+      "initialize_invocations": 0,
+      "healthy_journey_invocations": 0,
+      "calibration_consumed": 0,
+      "measured": {
+        "C0": 0,
+        "C1": 0,
+        "C2": 0,
+        "C3": 0
+      }
+    },
+    {
+      "evidence": "p9-mitigation-preflight-20261029/execution.json",
+      "source_sha": null,
+      "initialize_invocations": 0,
+      "healthy_journey_invocations": 0,
+      "calibration_consumed": 0,
+      "measured": {
+        "C0": 0,
+        "C1": 0,
+        "C2": 0,
+        "C3": 0
+      }
+    },
+    {
+      "evidence": "p9-mitigation-resume-20261029/execution.json",
+      "source_sha": null,
+      "initialize_invocations": 1,
+      "healthy_journey_invocations": 0,
+      "calibration_consumed": 0,
+      "measured": {
+        "C0": 0,
+        "C1": 0,
+        "C2": 0,
+        "C3": 0
+      }
+    },
+    {
+      "evidence": "p9-mitigation-seventh-20261029/execution.json",
+      "source_sha": "1ce291523ecddb3918e3879f322e45dfca122ee6",
+      "initialize_invocations": 1,
+      "healthy_journey_invocations": 0,
+      "calibration_consumed": 0,
+      "measured": {
+        "C0": 0,
+        "C1": 0,
+        "C2": 0,
+        "C3": 0
+      }
+    },
+    {
+      "evidence": "p9-mitigation-sixth-20261029/execution.json",
+      "source_sha": null,
+      "initialize_invocations": 1,
+      "healthy_journey_invocations": 0,
+      "calibration_consumed": 0,
+      "measured": {
+        "C0": 0,
+        "C1": 0,
+        "C2": 0,
+        "C3": 0
+      }
+    },
+    {
+      "evidence": "p9-mitigation-tenth-20261101/execution.json",
+      "source_sha": "d23e1629d0206db914088a54c6378d17237b67c8",
+      "initialize_invocations": 1,
+      "healthy_journey_invocations": 1,
+      "calibration_consumed": 1,
+      "measured": {
+        "C0": 0,
+        "C1": 0,
+        "C2": 0,
+        "C3": 0
+      }
+    },
+    {
+      "evidence": "p9-mitigation-third-20261029/execution.json",
+      "source_sha": null,
+      "initialize_invocations": 1,
+      "healthy_journey_invocations": 0,
+      "calibration_consumed": 0,
+      "measured": {
+        "C0": 0,
+        "C1": 0,
+        "C2": 0,
+        "C3": 0
+      }
+    },
+    {
+      "evidence": "p9-mitigation-thirteenth-20261101/execution.json",
+      "source_sha": "453841d4274d6777073a0ed1d5282e3e784461c8",
+      "initialize_invocations": 1,
+      "healthy_journey_invocations": 1,
+      "calibration_consumed": 0,
+      "measured": {
+        "C0": 0,
+        "C1": 0,
+        "C2": 0,
+        "C3": 0
+      }
+    },
+    {
+      "evidence": "p9-mitigation-twelfth-20261101/execution.json",
+      "source_sha": "dfdfaabe03d56a5ec9f1dd6f8cffc6627c621d6f",
+      "initialize_invocations": 1,
+      "healthy_journey_invocations": 0,
+      "calibration_consumed": 0,
+      "measured": {
+        "C0": 0,
+        "C1": 0,
+        "C2": 0,
+        "C3": 0
+      }
+    }
+  ],
+  "recovery": {
+    "same_source_pre_measure_operator_repair": "approval required; retain process/log records, recheck affected native/signal/UID gates; no measure entry -> no calibration consumption",
+    "started_invalid_calibration": "consumed; never resume as valid; at most one more if first of this newly approved campaign consumed",
+    "measured_retry": "unsupported; each arm <=1 including invalid",
+    "source_changing_same_ledger": "unsupported; all entries must match exact source SHA",
+    "healthy_reinvocation": "source-keyed consumption gate is not new permission; next approval requests exactly one journey; intent prevents rerun",
+    "freeze": "all measured arms share exact source/frozen configuration; calibration candidates remain in same append-only ledger"
+  }
+}

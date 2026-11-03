@@ -1,0 +1,15 @@
+{
+  "source_sha": "dfdfaabe03d56a5ec9f1dd6f8cffc6627c621d6f",
+  "validity": "not measured; mandatory initialization guard command timeout",
+  "arms": {
+    "C0": "not run",
+    "C1": "not run",
+    "C2": "not run",
+    "C3": "not run"
+  },
+  "mitigation": "not measured",
+  "continuing_demand_recovery": "not measured",
+  "hypothesis": "unknown; no measured comparison",
+  "p9_acceptance_met": false,
+  "owned_cleanup_complete": true
+}

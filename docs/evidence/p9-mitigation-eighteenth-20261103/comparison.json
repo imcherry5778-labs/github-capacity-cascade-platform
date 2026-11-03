@@ -1,0 +1,19 @@
+{
+  "source_sha": "4777ae414c94c22a6226b27fe57a9bffcad8e5e3",
+  "status": "incomplete",
+  "measured_per_arm": {
+    "C0": 0,
+    "C1": 0,
+    "C2": 0,
+    "C3": 0
+  },
+  "calibration_invalid": 1,
+  "reason": "recorded guarded query empty at +202.439s; source rejects and stops subsequent arrivals",
+  "scaling_observations_only": {
+    "two_ready_targets": true,
+    "both_target_traffic": true
+  },
+  "valid_autoscaling_recovery_or_remediation_claim": false,
+  "next_gap": "original-ingestion-state up/inventory/freshness guard subcondition not recorded; post-ingestion historical queries cannot identify it",
+  "next_paid_execution_authorized": false
+}

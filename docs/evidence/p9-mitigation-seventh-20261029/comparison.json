@@ -1,0 +1,37 @@
+{
+  "source_sha": "1ce291523ecddb3918e3879f322e45dfca122ee6",
+  "validity": "not measured",
+  "frozen_plan": null,
+  "arms": [
+    {
+      "arm": "C0",
+      "runs": 0,
+      "mitigation": "not measured",
+      "recovery": "not measured",
+      "recovery_time_seconds": null
+    },
+    {
+      "arm": "C1",
+      "runs": 0,
+      "mitigation": "not measured",
+      "recovery": "not measured",
+      "recovery_time_seconds": null
+    },
+    {
+      "arm": "C2",
+      "runs": 0,
+      "mitigation": "not measured",
+      "recovery": "not measured",
+      "recovery_time_seconds": null
+    },
+    {
+      "arm": "C3",
+      "runs": 0,
+      "mitigation": "not measured",
+      "recovery": "not measured",
+      "recovery_time_seconds": null
+    }
+  ],
+  "reason": "initialization rejected repeated CPU HPA Warning at Pod+91s, before positive CPU recovery or healthy journey",
+  "p9_acceptance_met": false
+}

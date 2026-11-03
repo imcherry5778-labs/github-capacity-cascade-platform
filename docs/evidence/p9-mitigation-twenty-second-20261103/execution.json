@@ -1,0 +1,622 @@
+{
+  "Environment_deadline": "2026-11-05T01:30:00Z",
+  "Foundation_Bootstrap_deadline": "2026-11-05T15:33:00Z",
+  "actual_KEDA_auth_full_gate_passed": true,
+  "actual_initialize_passed": true,
+  "approval": "https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6598614345",
+  "calibration_blockers": [
+    "controller metric/status failure",
+    "competing HAProxy queue (44 queue_ms=-1/status400/CR rows)",
+    "partial recovery replay: no qualifying SLO/driver window"
+  ],
+  "calibration_partial_observation": {
+    "HAProxy_queue_minus1_rows": {
+      "(400, 'CR')": 44
+    },
+    "all_sentinel_semantic": true,
+    "both_UID_counter_increment_end": 1916397.962399833,
+    "both_UID_increment_before_mitigation_end": true,
+    "first_Ready_observation_at": 1916265.113019541,
+    "joint_resource_AMW_end": 1916377.693913333,
+    "new_UID": "c7e8dda4-8fce-424f-964e-5f58cbe6f836",
+    "not_acceptance_proof": "completed calibration remains invalid; no freeze or measured claim",
+    "observed_Ready_to_joint_seconds": 112.58089379197918,
+    "origin": 1916217.630833666,
+    "query_count": 220,
+    "query_max_seconds": 1.3994527501054108,
+    "runtime_elapsed_seconds": 443.8892762500327,
+    "sentinel_count": 377,
+    "separate_post_ready_reference_end": 1916388.181864583,
+    "snapshot_max_seconds": 17.726188624976203,
+    "source_sha": "ab59fda4d9e0f0ed837b77794b6d03a0db07d832"
+  },
+  "calibration_process_complete_but_saved_invalid": true,
+  "calibration_secondary_boundaries": {
+    "HAProxy_configured_probe_inference": "The source uses a TCP readiness probe on HAProxy8080 with its default10s period;44 CR/Tw=-1 rows over443.889s are consistent with probe traffic. Logs omit peer/timestamp/correlation, so per-row attribution is not established. Do not filter all400/CR or synthesize queue0.",
+    "HAProxy_nonzero_queue_logs": [
+      {
+        "connect_ms": -1,
+        "queue_ms": -1,
+        "response_ms": -1,
+        "status": 400,
+        "termination": "CR",
+        "total_ms": 0
+      },
+      {
+        "connect_ms": -1,
+        "queue_ms": -1,
+        "response_ms": -1,
+        "status": 400,
+        "termination": "CR",
+        "total_ms": 0
+      },
+      {
+        "connect_ms": -1,
+        "queue_ms": -1,
+        "response_ms": -1,
+        "status": 400,
+        "termination": "CR",
+        "total_ms": 0
+      },
+      {
+        "connect_ms": -1,
+        "queue_ms": -1,
+        "response_ms": -1,
+        "status": 400,
+        "termination": "CR",
+        "total_ms": 0
+      },
+      {
+        "connect_ms": -1,
+        "queue_ms": -1,
+        "response_ms": -1,
+        "status": 400,
+        "termination": "CR",
+        "total_ms": 0
+      },
+      {
+        "connect_ms": -1,
+        "queue_ms": -1,
+        "response_ms": -1,
+        "status": 400,
+        "termination": "CR",
+        "total_ms": 0
+      },
+      {
+        "connect_ms": -1,
+        "queue_ms": -1,
+        "response_ms": -1,
+        "status": 400,
+        "termination": "CR",
+        "total_ms": 0
+      },
+      {
+        "connect_ms": -1,
+        "queue_ms": -1,
+        "response_ms": -1,
+        "status": 400,
+        "termination": "CR",
+        "total_ms": 0
+      },
+      {
+        "connect_ms": -1,
+        "queue_ms": -1,
+        "response_ms": -1,
+        "status": 400,
+        "termination": "CR",
+        "total_ms": 0
+      },
+      {
+        "connect_ms": -1,
+        "queue_ms": -1,
+        "response_ms": -1,
+        "status": 400,
+        "termination": "CR",
+        "total_ms": 0
+      },
+      {
+        "connect_ms": -1,
+        "queue_ms": -1,
+        "response_ms": -1,
+        "status": 400,
+        "termination": "CR",
+        "total_ms": 0
+      },
+      {
+        "connect_ms": -1,
+        "queue_ms": -1,
+        "response_ms": -1,
+        "status": 400,
+        "termination": "CR",
+        "total_ms": 0
+      },
+      {
+        "connect_ms": -1,
+        "queue_ms": -1,
+        "response_ms": -1,
+        "status": 400,
+        "termination": "CR",
+        "total_ms": 0
+      },
+      {
+        "connect_ms": -1,
+        "queue_ms": -1,
+        "response_ms": -1,
+        "status": 400,
+        "termination": "CR",
+        "total_ms": 0
+      },
+      {
+        "connect_ms": -1,
+        "queue_ms": -1,
+        "response_ms": -1,
+        "status": 400,
+        "termination": "CR",
+        "total_ms": 0
+      },
+      {
+        "connect_ms": -1,
+        "queue_ms": -1,
+        "response_ms": -1,
+        "status": 400,
+        "termination": "CR",
+        "total_ms": 0
+      },
+      {
+        "connect_ms": -1,
+        "queue_ms": -1,
+        "response_ms": -1,
+        "status": 400,
+        "termination": "CR",
+        "total_ms": 0
+      },
+      {
+        "connect_ms": -1,
+        "queue_ms": -1,
+        "response_ms": -1,
+        "status": 400,
+        "termination": "CR",
+        "total_ms": 0
+      },
+      {
+        "connect_ms": -1,
+        "queue_ms": -1,
+        "response_ms": -1,
+        "status": 400,
+        "termination": "CR",
+        "total_ms": 0
+      },
+      {
+        "connect_ms": -1,
+        "queue_ms": -1,
+        "response_ms": -1,
+        "status": 400,
+        "termination": "CR",
+        "total_ms": 0
+      },
+      {
+        "connect_ms": -1,
+        "queue_ms": -1,
+        "response_ms": -1,
+        "status": 400,
+        "termination": "CR",
+        "total_ms": 0
+      },
+      {
+        "connect_ms": -1,
+        "queue_ms": -1,
+        "response_ms": -1,
+        "status": 400,
+        "termination": "CR",
+        "total_ms": 0
+      },
+      {
+        "connect_ms": -1,
+        "queue_ms": -1,
+        "response_ms": -1,
+        "status": 400,
+        "termination": "CR",
+        "total_ms": 0
+      },
+      {
+        "connect_ms": -1,
+        "queue_ms": -1,
+        "response_ms": -1,
+        "status": 400,
+        "termination": "CR",
+        "total_ms": 0
+      },
+      {
+        "connect_ms": -1,
+        "queue_ms": -1,
+        "response_ms": -1,
+        "status": 400,
+        "termination": "CR",
+        "total_ms": 0
+      },
+      {
+        "connect_ms": -1,
+        "queue_ms": -1,
+        "response_ms": -1,
+        "status": 400,
+        "termination": "CR",
+        "total_ms": 0
+      },
+      {
+        "connect_ms": -1,
+        "queue_ms": -1,
+        "response_ms": -1,
+        "status": 400,
+        "termination": "CR",
+        "total_ms": 0
+      },
+      {
+        "connect_ms": -1,
+        "queue_ms": -1,
+        "response_ms": -1,
+        "status": 400,
+        "termination": "CR",
+        "total_ms": 0
+      },
+      {
+        "connect_ms": -1,
+        "queue_ms": -1,
+        "response_ms": -1,
+        "status": 400,
+        "termination": "CR",
+        "total_ms": 0
+      },
+      {
+        "connect_ms": -1,
+        "queue_ms": -1,
+        "response_ms": -1,
+        "status": 400,
+        "termination": "CR",
+        "total_ms": 0
+      },
+      {
+        "connect_ms": -1,
+        "queue_ms": -1,
+        "response_ms": -1,
+        "status": 400,
+        "termination": "CR",
+        "total_ms": 0
+      },
+      {
+        "connect_ms": -1,
+        "queue_ms": -1,
+        "response_ms": -1,
+        "status": 400,
+        "termination": "CR",
+        "total_ms": 0
+      },
+      {
+        "connect_ms": -1,
+        "queue_ms": -1,
+        "response_ms": -1,
+        "status": 400,
+        "termination": "CR",
+        "total_ms": 0
+      },
+      {
+        "connect_ms": -1,
+        "queue_ms": -1,
+        "response_ms": -1,
+        "status": 400,
+        "termination": "CR",
+        "total_ms": 0
+      },
+      {
+        "connect_ms": -1,
+        "queue_ms": -1,
+        "response_ms": -1,
+        "status": 400,
+        "termination": "CR",
+        "total_ms": 0
+      },
+      {
+        "connect_ms": -1,
+        "queue_ms": -1,
+        "response_ms": -1,
+        "status": 400,
+        "termination": "CR",
+        "total_ms": 0
+      },
+      {
+        "connect_ms": -1,
+        "queue_ms": -1,
+        "response_ms": -1,
+        "status": 400,
+        "termination": "CR",
+        "total_ms": 0
+      },
+      {
+        "connect_ms": -1,
+        "queue_ms": -1,
+        "response_ms": -1,
+        "status": 400,
+        "termination": "CR",
+        "total_ms": 0
+      },
+      {
+        "connect_ms": -1,
+        "queue_ms": -1,
+        "response_ms": -1,
+        "status": 400,
+        "termination": "CR",
+        "total_ms": 0
+      },
+      {
+        "connect_ms": -1,
+        "queue_ms": -1,
+        "response_ms": -1,
+        "status": 400,
+        "termination": "CR",
+        "total_ms": 0
+      },
+      {
+        "connect_ms": -1,
+        "queue_ms": -1,
+        "response_ms": -1,
+        "status": 400,
+        "termination": "CR",
+        "total_ms": 0
+      },
+      {
+        "connect_ms": -1,
+        "queue_ms": -1,
+        "response_ms": -1,
+        "status": 400,
+        "termination": "CR",
+        "total_ms": 0
+      },
+      {
+        "connect_ms": -1,
+        "queue_ms": -1,
+        "response_ms": -1,
+        "status": 400,
+        "termination": "CR",
+        "total_ms": 0
+      },
+      {
+        "connect_ms": -1,
+        "queue_ms": -1,
+        "response_ms": -1,
+        "status": 400,
+        "termination": "CR",
+        "total_ms": 0
+      }
+    ],
+    "HAProxy_queue_interpretation": "strict non-C2 all queue_ms==0 predicate failed; queue origin/causality not established from sampled qmax0",
+    "HAProxy_queue_ms_distribution": {
+      "-1": 44,
+      "0": 3112
+    },
+    "HAProxy_sampled_server_backend_qmax": [
+      0,
+      0
+    ],
+    "HAProxy_status_termination_distribution_nonzero_queue": {
+      "400/CR": 44
+    },
+    "demand": {
+      "attempts": 3102,
+      "driver_lag_max_seconds": 1.5012070420198143,
+      "failed": 1047,
+      "issued": 2100,
+      "scheduled": 2100,
+      "unissued": 0
+    },
+    "partial_checks_only": true,
+    "recovery": {
+      "confirmation": null,
+      "converged": 1916516.287912541,
+      "deadline": 1916637.630833666,
+      "first_good_window": null,
+      "release_command": 1916457.633520125,
+      "status": "not recovered within observation window",
+      "windows": [
+        {
+          "end": 1916467.630833666,
+          "good": false,
+          "scheduled": 50,
+          "start": 1916457.630833666
+        },
+        {
+          "end": 1916477.630833666,
+          "good": false,
+          "scheduled": 50,
+          "start": 1916467.630833666
+        },
+        {
+          "end": 1916487.630833666,
+          "good": false,
+          "scheduled": 50,
+          "start": 1916477.630833666
+        },
+        {
+          "end": 1916497.630833666,
+          "good": false,
+          "scheduled": 50,
+          "start": 1916487.630833666
+        },
+        {
+          "end": 1916507.630833666,
+          "good": false,
+          "scheduled": 50,
+          "start": 1916497.630833666
+        },
+        {
+          "end": 1916517.630833666,
+          "good": false,
+          "scheduled": 50,
+          "start": 1916507.630833666
+        },
+        {
+          "end": 1916527.630833666,
+          "good": false,
+          "scheduled": 50,
+          "start": 1916517.630833666
+        },
+        {
+          "end": 1916537.630833666,
+          "good": false,
+          "scheduled": 50,
+          "start": 1916527.630833666
+        },
+        {
+          "end": 1916547.630833666,
+          "good": false,
+          "scheduled": 50,
+          "start": 1916537.630833666
+        },
+        {
+          "end": 1916557.630833666,
+          "good": false,
+          "scheduled": 50,
+          "start": 1916547.630833666
+        },
+        {
+          "end": 1916567.630833666,
+          "good": false,
+          "scheduled": 50,
+          "start": 1916557.630833666
+        },
+        {
+          "end": 1916577.630833666,
+          "good": false,
+          "scheduled": 50,
+          "start": 1916567.630833666
+        },
+        {
+          "end": 1916587.630833666,
+          "good": false,
+          "scheduled": 50,
+          "start": 1916577.630833666
+        },
+        {
+          "end": 1916597.630833666,
+          "good": false,
+          "scheduled": 50,
+          "start": 1916587.630833666
+        },
+        {
+          "end": 1916607.630833666,
+          "good": false,
+          "scheduled": 50,
+          "start": 1916597.630833666
+        },
+        {
+          "end": 1916617.630833666,
+          "good": false,
+          "scheduled": 50,
+          "start": 1916607.630833666
+        },
+        {
+          "end": 1916627.630833666,
+          "good": false,
+          "scheduled": 50,
+          "start": 1916617.630833666
+        },
+        {
+          "end": 1916637.630833666,
+          "good": false,
+          "scheduled": 50,
+          "start": 1916627.630833666
+        }
+      ]
+    },
+    "recovery_driver_lag_max_seconds": 1.5012070420198143,
+    "recovery_issue_attempts_over_point2_seconds": 674,
+    "run_remains_invalid": true,
+    "source_sha": "ab59fda4d9e0f0ed837b77794b6d03a0db07d832"
+  },
+  "campaign": 22,
+  "cleanup_complete": true,
+  "cloud_confounder_review": "not completed; no extra post-run cloud queries after invalid",
+  "cost": {
+    "Secret_action_allowlist_test_passed": true,
+    "USD290_exceedance_is_NO_GO": false,
+    "actor_matches": true,
+    "actual_cost": "shared/delayed/unknown",
+    "approval": "https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6598614345",
+    "basis": "same retained fixed34 resources/2nodes; previous retention/lag/overlap/cleanup reserves reused; bounded6x600s variable estimate; no new billing GET",
+    "campaign22_variable_estimate_usd": 5,
+    "cleanup_handlers_registered": true,
+    "environment_remaining_seconds": 148464.482931,
+    "fixed_nodes": 2,
+    "new_numeric_cap": null,
+    "owned_cleanup_reserve_seconds": 1800,
+    "plan_sha256": "ab6e1a64c4b56d8b0ea6e814cd4b041d7af00c11841a5019b8930e7800bf3912",
+    "prior_projection_usd": 295.3566776355216,
+    "projection_usd": 300.3566776355216,
+    "resource_inventory_count": 34,
+    "source_image_tag": "acrccpp6krc57781024.azurecr.io/ext-authz-sim:ab59fda4d9e0f0ed837b77794b6d03a0db07d832",
+    "source_local_image_id": "sha256:db6c40916052d3a252b414f92c5f2b0046aaca064c5f248ef2236143d1f1123f",
+    "source_sha": "ab59fda4d9e0f0ed837b77794b6d03a0db07d832",
+    "subscription_matches": true,
+    "whole_reserve_seconds": 8045
+  },
+  "counts": {
+    "calibration": 1,
+    "healthy": 1,
+    "initialize": 1,
+    "keda_apply": 1,
+    "keda_restore": 1,
+    "measured": {
+      "C0": 0,
+      "C1": 0,
+      "C2": 0,
+      "C3": 0
+    },
+    "normal": 1
+  },
+  "cumulative": {
+    "KEDA_apply_restore": [
+      7,
+      7
+    ],
+    "campaign": 22,
+    "healthy": 10,
+    "initialize": 19,
+    "measured": {
+      "C0": 0,
+      "C1": 0,
+      "C2": 0,
+      "C3": 0
+    },
+    "started_invalid_calibration": 7
+  },
+  "freeze": false,
+  "initialization_query_count": 17,
+  "initialization_telemetry_polls": 4,
+  "no_extra_campaign": true,
+  "normal_healthy_operations_attempts_each": [
+    9,
+    9
+  ],
+  "output_limitation": "A historical identity file read early in this continuation printed the subscription identifier to tool output. Publication masks it; transcript output is not erased. No authentication token/Secret value was printed in that read.",
+  "paid_attempt_retries": 0,
+  "paid_source_changed": false,
+  "prior_cumulative": {
+    "KEDA_apply_restore": [
+      6,
+      6
+    ],
+    "campaign": 21,
+    "healthy": 9,
+    "initialize": 18,
+    "measured": {
+      "C0": 0,
+      "C1": 0,
+      "C2": 0,
+      "C3": 0
+    },
+    "started_invalid_calibration": 6
+  },
+  "same_source_operator_correction_for_blockers": "not established; no speculative remaining calibration",
+  "source_sha": "ab59fda4d9e0f0ed837b77794b6d03a0db07d832",
+  "status": "CLOSED_INVALID",
+  "unused_attempts_expire_on_close": true,
+  "unused_calibration": 1
+}

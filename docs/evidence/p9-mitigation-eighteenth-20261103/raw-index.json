@@ -1,0 +1,134 @@
+{
+  "actual-keda-scaler-auth.json": {
+    "sha256": "21931e7da6d6ea4314503687caa0085a484cb06303ed232e496344221a1e720d",
+    "bytes": 13717
+  },
+  "actual-plan.json": {
+    "sha256": "94ff85b38697122c0f5eeb1dd0e2cc16bcdbd469aa4a32c7f760f4a8c47b967e",
+    "bytes": 527
+  },
+  "admission-preview-summary.json": {
+    "sha256": "3d0991cd569f7105cfd813c061f8c7fb4652c9e31462b48c852cd74d54f83e12",
+    "bytes": 302
+  },
+  "admitted-actual.json": {
+    "sha256": "2a9bc8a8a4303806cbfc9c9ce3a84b7a031b7cfc38725d26c991f62b3b844b71",
+    "bytes": 2307
+  },
+  "admitted-target-stage.json": {
+    "sha256": "5698b50a4cb121d894c15a3facc710acccf10f82d24cbb197ca56269737df3ac",
+    "bytes": 1850
+  },
+  "approval-healthy.json": {
+    "sha256": "472424698b01f07fee32a29af3cd12807a536bff8ba2f3c833b6ac3586f57354",
+    "bytes": 1442
+  },
+  "approval-initial.json": {
+    "sha256": "ee682966ee31ae64a1f85eb8c883ee3de501b94aa41aa5a8f3eae377eaf2371f",
+    "bytes": 1444
+  },
+  "approval-normal.json": {
+    "sha256": "b34471a55c1b2d3566e8cdb5c88fab1afe6bf61456fe19d3e61bcb6e9eddee4e",
+    "bytes": 1443
+  },
+  "approval-runtime.json": {
+    "sha256": "9fd5674dd945b9accf168b01eaecc50e36e9bf244fef26131f5a0294f14bfbeb",
+    "bytes": 1441
+  },
+  "calibration-C3-1/before.json": {
+    "sha256": "9ed7456980afe636f7d97dbd140a2f5d0e6cefbdf9297bfd1c5a5c63f3245f99",
+    "bytes": 58
+  },
+  "calibration-C3-1/configuration.json": {
+    "sha256": "26d8c96e6c8f00ffe3ea78b67e48be19734a6bdcb3ade1a42c7a10b6cd22207c",
+    "bytes": 13164
+  },
+  "calibration-C3-1/events.jsonl": {
+    "sha256": "040af99c7565cc72b979c900dab78fbcd7879febd407badf90e7c3ec30b9e7e1",
+    "bytes": 9978317
+  },
+  "calibration-C3-1/failure-replay.json": {
+    "sha256": "12a80ecef3c057a20c5d6c6736ac79b8944076bc3d9e5d9bf4a050b9cade9443",
+    "bytes": 494
+  },
+  "calibration-C3-1/invocation-failure.json": {
+    "sha256": "9a31a3f9d80bd4607a94c7bc95d66a0265301c78667444d583286b239ec2a7f1",
+    "bytes": 193
+  },
+  "calibration-C3-1/signal-failure-diagnostic-summary.json": {
+    "sha256": "1e6e694ca76a200376733cf3dd5ca57a32ba976b978eaf90ed5f77a1a4f457ba",
+    "bytes": 1098
+  },
+  "calibration-C3-1/signal-failure-diagnostic.json": {
+    "sha256": "c9afd7307075777c3e19da6b016cb022ef69d19943f39e7313eba1ba9a507647",
+    "bytes": 14734
+  },
+  "context.json": {
+    "sha256": "7262d849bb6543b5994c32ab7dbab9e59a93f8ac8aef9506dfc9173a31cf3eac",
+    "bytes": 1317
+  },
+  "execution-detail.json": {
+    "sha256": "664a410bde9e4831a9cd6cfe9fa7feb4a9648ee91d3f803d2a6a2135fad94ec0",
+    "bytes": 4991
+  },
+  "fixture-cleanup.json": {
+    "sha256": "95b1a22650345d23612a28da3a9d5dc8180d2693bb26389ccede59d5e872aad0",
+    "bytes": 337
+  },
+  "full-runtime-preflight.json": {
+    "sha256": "eb6a0573c637e0d04a042a758f28c2932349d2924af348a4d80bd3729dfcd852",
+    "bytes": 34530
+  },
+  "healthy/events.jsonl": {
+    "sha256": "825bd5938accfc587c62191a8f4be1a072aaf1909b0e8827b591c55477050dbe",
+    "bytes": 13262
+  },
+  "identity.json": {
+    "sha256": "af1b176adc4de4da0fe71827ff9aae3103db4d9b7a0d8927c63c81159b30eab4",
+    "bytes": 889
+  },
+  "initial-probes.json": {
+    "sha256": "873591a8901802835ab32df609c9ff61a9693f0eb259eaa89208443136c7275b",
+    "bytes": 899
+  },
+  "initialize-ledger.jsonl": {
+    "sha256": "07f6c3b7f0c03b7fda6864d0e5cb0b92f5329857d4b7c9e2bfae3d8fd6dfd6bb",
+    "bytes": 117499
+  },
+  "initialize/events.jsonl": {
+    "sha256": "07f6c3b7f0c03b7fda6864d0e5cb0b92f5329857d4b7c9e2bfae3d8fd6dfd6bb",
+    "bytes": 117499
+  },
+  "keda-identity-binding.json": {
+    "sha256": "8b24f186a81e0361ff0abc391290840d8177b0b3d0cb3fb244d3e02ea0466442",
+    "bytes": 659
+  },
+  "normal/events.jsonl": {
+    "sha256": "8875e6c572fe837e4b13799209029a5135eebbe03b9e276dfeab41919a9de621",
+    "bytes": 13262
+  },
+  "operator-events.jsonl": {
+    "sha256": "ccae215b992d07c5630d5a7c8b4dff352584df7cee3b9d40e1873c7310f5a53c",
+    "bytes": 785851
+  },
+  "preadmission-headroom.json": {
+    "sha256": "253471f4d1cbe07a5f515808704e841ae931c3481b909337483c676699f9d88f",
+    "bytes": 137
+  },
+  "preparation-plan.json": {
+    "sha256": "e9984138e83278ff805f48adbcb1f31608975a0e76629dadcd8e180d48d56d23",
+    "bytes": 527
+  },
+  "preservation-binding.json": {
+    "sha256": "fbdd1796cdbaac9572c23f2c18853022c2fb96336ba697ed7a00c60c3d971bba",
+    "bytes": 1528
+  },
+  "preservation.json": {
+    "sha256": "07f3d068a358555e3dbd64c615a299a9c9ccf71efa35a02753183cf43cc03fc1",
+    "bytes": 193
+  },
+  "run-ledger.jsonl": {
+    "sha256": "71449426d7bef24588c47d61c05161f9032417e239026ebdd8550c7fa536eb66",
+    "bytes": 232
+  }
+}

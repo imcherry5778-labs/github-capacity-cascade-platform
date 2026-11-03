@@ -1,0 +1,32 @@
+{
+  "source_sha": "7ee476d01eea6d5df68e7d237bf9ae07c1b1eb72",
+  "normal_and_healthy_valid9_each": true,
+  "public_initialize_once_succeeded": true,
+  "prior_snapshot_lifecycle_replay_count": 15,
+  "actual_four_response_missing_series_replay_rejected": true,
+  "incomplete_run_saved_validation_rejected": "failed/incomplete run",
+  "saved_common_guard_rejection": "stale resource metric",
+  "actual_collector_query_observations_validated": 13,
+  "resource_caps_observed": {
+    "pod_max": 4,
+    "requests_cpu_max_m": 650,
+    "limits_cpu_max_m": 1450,
+    "requests_memory_max_Mi": 832,
+    "limits_memory_max_Mi": 1664
+  },
+  "cleanup_observed": true,
+  "archive_files": 33,
+  "historical_evidence_changed": false,
+  "execution_source_ci_reused": {
+    "local_platform": "https://github.com/imcherry5778-labs/github-capacity-cascade-platform/actions/runs/41490573718",
+    "codeql": "https://github.com/imcherry5778-labs/github-capacity-cascade-platform/actions/runs/41490566988"
+  },
+  "evidence_exact_head_ci": "reported in PR result comment",
+  "publication_scan": "exact known and encoded credentials, subscription UUID and private paths absent in selected public payloads",
+  "archive_roundtrip_path_size_sha256_verified": 33,
+  "sanitized_normal_healthy_operation_replays_valid": 2,
+  "sanitized_negative_replay_rejection": "unapproved missing telemetry",
+  "campaign_parent_exit_code": 0,
+  "owned_private_copies_tools_public_replay_removed": true,
+  "owned_local_image_tag_removed": true
+}

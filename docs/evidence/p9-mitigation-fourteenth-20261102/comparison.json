@@ -1,0 +1,15 @@
+{
+  "source_sha": "69bace6cdb3dabe047a71454528c27111f706c05",
+  "status": "not-performed",
+  "reason": "single C3 calibration invalid before public demand; freeze and C0-C3 measured not reached",
+  "measured_runs": {
+    "C0": 0,
+    "C1": 0,
+    "C2": 0,
+    "C3": 0
+  },
+  "recovery": "not reached",
+  "hypothesis_support": "not assessed",
+  "normal_healthy_keda_partial_positive": "observed; not P9 acceptance",
+  "p9_acceptance_met": false
+}

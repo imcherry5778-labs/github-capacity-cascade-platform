@@ -1,0 +1,33 @@
+{
+  "execution_source_sha": "ffea5cb865728af54554c91460e3b96364d955fb",
+  "implementation_unchanged": true,
+  "direct_p9_tests": 46,
+  "direct_p8_tests": 38,
+  "regressions": "passed",
+  "make_static_exit_code": 0,
+  "archive_files": 153,
+  "archive_sha256": "1e10986b55b33de85a784fae01d40469748a0ae9967850b700e7214e7eb04c22",
+  "member_size_sha256_inventory_verified": true,
+  "restoration_verified": [
+    "shared CM UID/data",
+    "KEDA Deployment/SA UID/spec/annotations Ready2",
+    "stable Deployment UID/spec and Argo Synced/Healthy",
+    "stable Secret UID/data hash",
+    "PVC/PV/node UID sets and existing Disk10GiB",
+    "Owner assignment IDs preserved, owned AKS role absent",
+    "namespace/policy absent; owned registry image/tag/local tag removed",
+    "PAT14 DELETE204/0 bytes/PAT401/list0 before prohibit_login/Basic401",
+    "protected local inputs removed"
+  ],
+  "historical_archive_sha256": {
+    "p8-controlled-cascade-20261029": "8d5681eba3f7d31282ab7bd24a3e226577255ec966ca877b9d871d4fd1d6970f",
+    "p9-mitigation-preflight-20261029": "8dca74dba05b1ae6177d8629274caca0bf34375a096a7e11b93fb38107da7bc2",
+    "p9-mitigation-resume-20261029": "8f706ed5731559f07a5e1c0201470862285f2b86b3a76fb039a4bc6a78f1a41f"
+  },
+  "self_review_completed": true,
+  "p9_acceptance_met": false,
+  "immediate_failure_verified": "readiness_resource_guard / InitializationGuardError / warning_event",
+  "underlying_missing_metric_cause": "not established",
+  "historical_second_attempt_cause": "unknown",
+  "final_exact_head_ci": "See final docs/evidence commit GitHub checks; does not transfer execution approval."
+}

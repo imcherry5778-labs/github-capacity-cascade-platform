@@ -1,0 +1,144 @@
+{
+  "campaign": "eighteenth",
+  "campaign_id": "p9e20261103",
+  "source_sha": "4777ae414c94c22a6226b27fe57a9bffcad8e5e3",
+  "normative_main": "d9977cc9046485bb7b47849297ec9769a3629223",
+  "approval_url": "https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6580372657",
+  "review_url": "https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#pullrequestreview-5738448304",
+  "first_mutation_at_utc": "2026-11-02T15:11:24.536810+00:00",
+  "owned_cleanup_at_utc": "2026-11-02T15:38:06.473769+00:00",
+  "image_binding": {
+    "tag": "acrccpp6krc57781024.azurecr.io/ext-authz-sim:4777ae414c94c22a6226b27fe57a9bffcad8e5e3",
+    "digest": "sha256:3864b2332b5a9419af1e04430afb3d0e4f3cf3b9bc21c96ff79cda069c637651",
+    "source_sha": "4777ae414c94c22a6226b27fe57a9bffcad8e5e3"
+  },
+  "plan_sha256": "e3ebb6f7b5198cbd3af90a29882413f0280af2a05af23bd766d34818a090900b",
+  "normal": {
+    "validity": "valid",
+    "completion": "success",
+    "phase": "warmup",
+    "operation_count": 9,
+    "attempt_count": 9
+  },
+  "public_initialize": {
+    "invocations": 1,
+    "retry": 0,
+    "exit_code": 0,
+    "complete": true,
+    "healthy_invocations": 1,
+    "CPU_polls_including_telemetry": 10,
+    "telemetry_polls": 3,
+    "query_intents": 15,
+    "query_budget": 25,
+    "final_CPU_age_at_poll_seconds": 23.561304092407227,
+    "actual_authorization_checks": 29,
+    "actual_target_requests": 29,
+    "ready_for_keda_authentication": true,
+    "runtime_preflight_passed_at_initialize": false
+  },
+  "healthy_journey": {
+    "validity": "valid",
+    "completion": "success",
+    "phase": "warmup",
+    "operation_count": 9,
+    "attempt_count": 9
+  },
+  "actual_KEDA_scaler_auth": true,
+  "full_runtime_preflight_before_calibration": true,
+  "keda_apply_restore_restarts": [
+    1,
+    1
+  ],
+  "calibration": {
+    "invocations": 1,
+    "phase": "C3",
+    "validity": "invalid",
+    "source_exit_code": 1,
+    "scheduled_logical_operations": 1800,
+    "issued_completed_logical_operations": 1025,
+    "not_issued_logical_operations": 775,
+    "actual_client_attempts": 1793,
+    "window_utc": {
+      "start": "2026-11-02T15:26:39.341897+00:00",
+      "failure": "2026-11-02T15:30:37.928097+00:00"
+    },
+    "monitor_failure": {
+      "record": "monitor_failure",
+      "at": 128310.766145885,
+      "exception_class": "ValueError",
+      "error_code": "validation_failed"
+    },
+    "failure_seconds_after_schedule_origin": 202.43897922500037,
+    "last_failed_query": {
+      "http_status": 200,
+      "status": "success",
+      "resultType": "vector",
+      "result": []
+    },
+    "snapshot_count": 12,
+    "snapshot_max_seconds": 19.289765167006408,
+    "sentinel_requests": 189,
+    "all_sentinels_semantic_success": true,
+    "release_command_seconds_after_origin": 180.00034517099266,
+    "final_healthy_snapshot_end_seconds_after_origin": 221.8590714109887,
+    "final_all_Pod_hold0_capacity1024": true,
+    "complete_run_end": false,
+    "second_calibration_used": false
+  },
+  "freeze": null,
+  "measured": {
+    "C0": 0,
+    "C1": 0,
+    "C2": 0,
+    "C3": 0
+  },
+  "continuing_demand_recovery": "invalid/incomplete; no full recovery or C0-C3 comparison claim",
+  "P9_acceptance_met": false,
+  "source_changes": false,
+  "paid_source_fixed": true,
+  "campaign_closed": true,
+  "unused_budget_transferable": false,
+  "historical_cumulative": {
+    "campaigns": 18,
+    "public_initialize": 15,
+    "healthy_journeys": 6,
+    "started_invalid_calibrations": 3,
+    "measured_per_arm": 0,
+    "KEDA_apply_restore_restarts": [
+      4,
+      4
+    ]
+  },
+  "retention": {
+    "Environment": "2026-11-05T01:30:00Z",
+    "Foundation_Bootstrap": "2026-11-05T15:33:00Z",
+    "extended": false
+  },
+  "money_scope": {
+    "existing_approval_cap_USD": 290,
+    "new_allowance": false,
+    "new_cost_model_or_cost_query": false,
+    "P9_actual": "unknown/shared/delayed; no invoice or remaining balance claim"
+  },
+  "owned_cleanup": {
+    "custom_removed": true,
+    "shared_restored": true,
+    "namespace_removed": true,
+    "final_verify": true,
+    "fixtures_invalidated": true,
+    "keda_restored": true,
+    "keda_identity_removed": true,
+    "image_removed": true,
+    "preservation": true,
+    "forward_closed": true,
+    "role_removed": true
+  },
+  "operator_corrections": {
+    "startup_module_filename_collision": "cost-free, before credentials/cloud",
+    "pre_journey_context_argument_type": "corrected before normal subprocess, no repeated journey",
+    "admin_ID_vs_username": "reused existing named Secret read; verified actual id1 and is_admin",
+    "KEDA_replicas": "actual managed Deployment replicas2; captured response check; no extra restart",
+    "external_metric_nullable_labels": "exact request/generated-HPA selector and SO UID; reject empty/foreign result; no coercion",
+    "fixture_login_block_422": "omit unneeded login_name; only prohibit_login true; successful token DELETE/final verify not repeated"
+  }
+}

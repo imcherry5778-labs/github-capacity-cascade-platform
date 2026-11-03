@@ -1,0 +1,84 @@
+{
+  "approved_source_sha": "9c7b4be942e534dff2e36fe069e144bfa96d045a",
+  "execution_source_sha": "9c7b4be942e534dff2e36fe069e144bfa96d045a",
+  "approval_url": "https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6486166268",
+  "main_sha": "3f788a9c1d103f6c07bd403af269133fac287002",
+  "image": "acrccpp6krc57781024.azurecr.io/ext-authz-sim@sha256:5b4e76aadcf02de20718170a2c36e82cdbd965ce43466ab449ccfec15d3d6b56",
+  "outcome": "mandatory healthy initialization preparation gate failed; safe rollback completed",
+  "normal_journey_create_this_resume": 1,
+  "normal_journey_attempts": 9,
+  "normal_final_verify_this_resume": 1,
+  "initialize_invocations": 1,
+  "healthy_journey_invocations": 0,
+  "fault_invocations": 0,
+  "calibration": 0,
+  "measured": {
+    "C0": 0,
+    "C1": 0,
+    "C2": 0,
+    "C3": 0
+  },
+  "frozen_plan": null,
+  "candidate_plan": {
+    "mitigation_seconds": 180,
+    "recovery_seconds": 180,
+    "backoff_ms": [
+      250,
+      750
+    ],
+    "seed": 5778,
+    "queue_limit": 12,
+    "queue_timeout_ms": 250,
+    "threshold": 0.5,
+    "scrape_seconds": 15,
+    "ingestion_seconds": 30,
+    "controller_seconds": 15,
+    "freshness_seconds": 60,
+    "prometheus": "https://amw-ccp-krc-p6-frh3gzbxdugmffa7.koreacentral.prometheus.monitor.azure.com",
+    "prometheus_cluster": "aks-ccp-krc-p6",
+    "identity_client_id": "00000000-0000-0000-0000-000000000000",
+    "keda_version": "2.19.0-25"
+  },
+  "candidate_plan_sha256": "ec82078689d9d5df7e15a3315ceefbd6c82bb375a8c8efd1f9bab785a008958e",
+  "mitigation": "not measured",
+  "recovery": "not measured; no fault/recovery observation window",
+  "keda_apply_restarts_this_resume": 0,
+  "keda_restore_restarts_this_resume": 0,
+  "keda_uami_fic_workspace_rbac_created": false,
+  "admitted_initial": {
+    "requests": {
+      "cpu": 0.4,
+      "memory": 536870912.0
+    },
+    "limits": {
+      "cpu": 0.9,
+      "memory": 1073741824.0
+    }
+  },
+  "historical": {
+    "source_sha": "c06ce67b2d438c7affde6b6934368b43afa4c1f4",
+    "normal_create": 1,
+    "final_verify": 1,
+    "calibration": 0,
+    "measured": {
+      "C0": 0,
+      "C1": 0,
+      "C2": 0,
+      "C3": 0
+    },
+    "keda_apply_restarts": 1,
+    "keda_restore_restarts": 1,
+    "cost_krw": 18845.545320581
+  },
+  "cost_before_resume_krw": 24292.445425032,
+  "cost_final_krw": 24292.445425032,
+  "cost_usage_date": 20261028,
+  "p9_incremental_actual": "unknown; delayed/shared-resource billing",
+  "planning_increment_usd": 5,
+  "cumulative_review_budget_usd": 10,
+  "p9_acceptance_met": false,
+  "owned_cleanup_complete": true,
+  "whole_environment_teardown": false,
+  "environment_retained_until": "2026-10-30T10:30:00+09:00",
+  "foundation_retained_until": "2026-10-31T00:33:00+09:00"
+}

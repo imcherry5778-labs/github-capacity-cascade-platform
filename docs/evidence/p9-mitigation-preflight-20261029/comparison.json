@@ -1,0 +1,68 @@
+{
+  "source_sha": "c06ce67b2d438c7affde6b6934368b43afa4c1f4",
+  "status": "not evaluated: required runtime telemetry gate did not pass",
+  "frozen_plan": null,
+  "recovery_criterion_unchanged": {
+    "window_seconds": 10,
+    "consecutive_good_windows": 3,
+    "new_issue_operations_per_window": 48,
+    "new_git_operations_per_window": 2,
+    "issue_first_attempt_semantic_success": true,
+    "issue_command_latency_max_seconds": 0.2,
+    "driver_lag_max_seconds": 0.2,
+    "unissued": 0,
+    "full_fresh_observation_and_ready_inventory_required": true
+  },
+  "arms": [
+    {
+      "arm": "C0",
+      "calibration_runs": 0,
+      "measured_runs": 0,
+      "mitigation": "not measured",
+      "recovery": "not measured (preflight stopped; no observation window)",
+      "release_command": null,
+      "convergence": null,
+      "confirmation": null,
+      "recovery_seconds": null,
+      "hypothesis": "not evaluated"
+    },
+    {
+      "arm": "C1",
+      "calibration_runs": 0,
+      "measured_runs": 0,
+      "mitigation": "not measured",
+      "recovery": "not measured (preflight stopped; no observation window)",
+      "release_command": null,
+      "convergence": null,
+      "confirmation": null,
+      "recovery_seconds": null,
+      "hypothesis": "not evaluated"
+    },
+    {
+      "arm": "C2",
+      "calibration_runs": 0,
+      "measured_runs": 0,
+      "mitigation": "not measured",
+      "recovery": "not measured (preflight stopped; no observation window)",
+      "release_command": null,
+      "convergence": null,
+      "confirmation": null,
+      "recovery_seconds": null,
+      "hypothesis": "not evaluated"
+    },
+    {
+      "arm": "C3",
+      "calibration_runs": 0,
+      "measured_runs": 0,
+      "mitigation": "not measured",
+      "recovery": "not measured (preflight stopped; no observation window)",
+      "release_command": null,
+      "convergence": null,
+      "confirmation": null,
+      "recovery_seconds": null,
+      "hypothesis": "not evaluated"
+    }
+  ],
+  "manual_scale_success_claim": false,
+  "warmup_or_empty_as_zero": false
+}

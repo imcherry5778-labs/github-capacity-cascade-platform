@@ -1,0 +1,37 @@
+{
+  "source_sha": "98e95e5850f2442e08a6306bf955aa12c0427b17",
+  "validity": "not measured",
+  "frozen_plan": null,
+  "arms": [
+    {
+      "arm": "C0",
+      "runs": 0,
+      "mitigation": "not measured",
+      "recovery": "not measured",
+      "recovery_time_seconds": null
+    },
+    {
+      "arm": "C1",
+      "runs": 0,
+      "mitigation": "not measured",
+      "recovery": "not measured",
+      "recovery_time_seconds": null
+    },
+    {
+      "arm": "C2",
+      "runs": 0,
+      "mitigation": "not measured",
+      "recovery": "not measured",
+      "recovery_time_seconds": null
+    },
+    {
+      "arm": "C3",
+      "runs": 0,
+      "mitigation": "not measured",
+      "recovery": "not measured",
+      "recovery_time_seconds": null
+    }
+  ],
+  "reason": "CPU ready0 after9 pending polls; fresh positive CPU/HPA observations3/5 separated by invalid poll; final settling-loop collection command_timeout at300.004s",
+  "p9_acceptance_met": false
+}

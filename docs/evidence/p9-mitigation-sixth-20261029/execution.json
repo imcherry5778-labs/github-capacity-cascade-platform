@@ -1,0 +1,121 @@
+{
+  "approved_execution_source_sha": "30271ea59c4824b9bf4455ec038528891692d434",
+  "execution_source_sha": "30271ea59c4824b9bf4455ec038528891692d434",
+  "approval_url": "https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6494902133",
+  "source_unchanged_during_runtime": true,
+  "image": {
+    "source_sha": "30271ea59c4824b9bf4455ec038528891692d434",
+    "tag": "acrccpp6krc57781024.azurecr.io/ext-authz-sim:30271ea59c4824b9bf4455ec038528891692d434",
+    "digest": "sha256:e0a95cf4d2431ad719c6638282a2638d713c83840d53b534128cad378d4b2fef",
+    "base": "docker.io/library/python:3.14.7-alpine3.24@sha256:9e9fde4d32eedce0b661d9ab91e826b62dddf28e928c230ec55f1866cac66b01",
+    "at_utc": "2026-10-29T11:10:30.237882+00:00",
+    "builder": "podman5.8.9"
+  },
+  "normal_create_invocations": 1,
+  "normal_structured_validation": "valid",
+  "normal_phase": "warmup",
+  "normal_operation_count": 9,
+  "normal_attempt_count": 9,
+  "fresh_tool_context_generated_before_normal": true,
+  "selected_kubectl_version": "v1.36.4",
+  "selected_kubectl_path": ".tmp/bin/kubectl",
+  "selected_kubectl_sha256": "8b8f088da2dab964f853b38464033b1be15ede2839eca751482357c45abdd05a",
+  "initialize_invocations": 1,
+  "initialize": {
+    "source_sha": "30271ea59c4824b9bf4455ec038528891692d434",
+    "invocations": 1,
+    "at_utc": "2026-10-29T11:16:40.496293+00:00",
+    "exit_code": 1,
+    "elapsed_seconds": 29.468315
+  },
+  "direct_failure": {
+    "record": "healthy_initialization_failure",
+    "source_sha": "30271ea59c4824b9bf4455ec038528891692d434",
+    "at": 20904.725640157,
+    "stage": "readiness_resource_guard",
+    "elapsed_seconds": 25.138057685002423,
+    "stage_elapsed_seconds": 10.54322688799948,
+    "exception_class": "InitializationGuardError",
+    "error_code": "pod_not_ready_or_restarted",
+    "runtime_preflight_passed": false,
+    "ready_for_keda_authentication": false,
+    "measured_denominator": false
+  },
+  "CPU_poll_count": 0,
+  "CPU_preparation_completed": false,
+  "healthy_journey": 0,
+  "fault": 0,
+  "calibration": 0,
+  "frozen_plan": null,
+  "measured": {
+    "C0": 0,
+    "C1": 0,
+    "C2": 0,
+    "C3": 0
+  },
+  "mitigation": "not measured",
+  "recovery": "not measured; no fault/recovery observation window",
+  "keda_mutations": 0,
+  "keda_apply_restart_this_attempt": 0,
+  "keda_restore_restart_this_attempt": 0,
+  "historical_keda_restart_counts": [
+    1,
+    1
+  ],
+  "historical_preparation_cleanup_count": 5,
+  "cumulative_preparation_cleanup_count": 6,
+  "cost_before_rows": [
+    [
+      30259.1340498108,
+      20261028,
+      "KRW"
+    ],
+    [
+      4068.5293715974,
+      20261029,
+      "KRW"
+    ]
+  ],
+  "cost_final_rows": [
+    [
+      30259.1340498108,
+      20261028,
+      "KRW"
+    ],
+    [
+      4068.5293715974,
+      20261029,
+      "KRW"
+    ]
+  ],
+  "p9_incremental_actual": "unknown; delayed/shared billing",
+  "planning_increment_usd": 5,
+  "cumulative_review_usd": 10,
+  "billing_hard_cap": false,
+  "normal_final_verify_invocations": 1,
+  "normal_final_verify_exit_code": 0,
+  "PAT_id": 17,
+  "experiment_pods_initial": 3,
+  "initial_admission": {
+    "requests": {
+      "cpu": 0.4,
+      "memory": 536870912.0
+    },
+    "limits": {
+      "cpu": 0.9,
+      "memory": 1073741824.0
+    }
+  },
+  "resource_caps": {
+    "pods": 4,
+    "cpu_m_requests_and_limits": 1500,
+    "memory_mi_requests_and_limits": 2048
+  },
+  "owned_cleanup_complete": true,
+  "whole_environment_teardown": false,
+  "environment_retained_until": "2026-10-30T10:30:00+09:00",
+  "foundation_bootstrap_retained_until": "2026-10-31T00:33:00+09:00",
+  "p9_acceptance_met": false,
+  "cost_before_aggregate_krw": 34327.6634214082,
+  "cost_final_aggregate_krw": 34327.6634214082
+}

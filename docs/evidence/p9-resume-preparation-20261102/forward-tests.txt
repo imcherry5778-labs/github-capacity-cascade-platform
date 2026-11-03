@@ -1,0 +1,9 @@
+test_bounded_termination_escalates_and_records_wait (__main__.ForwardOwnershipTests.test_bounded_termination_escalates_and_records_wait) ... ok
+test_exception_cleanup_and_no_overwrite_or_unapproved_spawn (__main__.ForwardOwnershipTests.test_exception_cleanup_and_no_overwrite_or_unapproved_spawn) ... ok
+test_real_child_detached_stdin_poll_and_intentional_reap (__main__.ForwardOwnershipTests.test_real_child_detached_stdin_poll_and_intentional_reap) ... ok
+test_unexpected_exit_blocks_next_phase_and_preserves_returncode (__main__.ForwardOwnershipTests.test_unexpected_exit_blocks_next_phase_and_preserves_returncode) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 2.020s
+
+OK

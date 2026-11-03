@@ -1,0 +1,89 @@
+{
+  "source_sha": "4777ae414c94c22a6226b27fe57a9bffcad8e5e3",
+  "source_unchanged_during_execution": true,
+  "normal_healthy_journey_valid9_each": true,
+  "public_initialize_once_succeeded": true,
+  "guarded_empty_query_saved_raw_replay_rejected": true,
+  "calibration_invalid_preserved": true,
+  "no_second_calibration_or_measured": true,
+  "all_owned_cleanup_steps_true": true,
+  "final_native_verify_count": 1,
+  "fixture_cleanup": [
+    {
+      "token_id": 34,
+      "delete_status": 204,
+      "reuse_status": 401,
+      "token_list_count": 0,
+      "login_block_status": 401,
+      "DB_records": "retained"
+    },
+    {
+      "token_id": 35,
+      "delete_status": 204,
+      "reuse_status": 401,
+      "token_list_count": 0,
+      "login_block_status": 401,
+      "DB_records": "retained"
+    }
+  ],
+  "forward_wait": {
+    "pid": 2720584,
+    "returncode": -15,
+    "intentional_stop_requested": true,
+    "exited_before_stop": false,
+    "kill_requested": false,
+    "observation_failed": false
+  },
+  "secret_GET_count": 4,
+  "operator_cost_free_checks": 47,
+  "archive_members": 33,
+  "archive_sha256": "535b80583196b1303c453783dc264ce68b2d215ca347a8f6284c23cfad19550f",
+  "credential_matches_in_publication": 0,
+  "private_paths_in_publication": 0,
+  "scan_scope": "only current campaign actual admin/DB/fixture passwords/PATs and observed Azure/ACR tokens, encoded/Basic variants; no old exposed credential/transcript/cache read",
+  "raw_traces_secret_objects_private_programs_excluded": true,
+  "publication_scan_before_copy": true,
+  "private_copy_removal": {
+    "owned_RAM_files_removed": 636,
+    "owned_downloaded_kubelogin_binary_removed": 1,
+    "current_campaign_only": true,
+    "global_Azure_cache_and_unrelated_image_cache_preserved": true,
+    "physical_secure_erasure_claimed": false
+  },
+  "exact_head_CI": "execution source checks reused; final evidence HEAD checks recorded in result comment",
+  "cost_free_evidence_checks": {
+    "JSON_archive_members_and_hashes": 33,
+    "historical_archive_hashes_unchanged": 17,
+    "normal_and_healthy_existing_validator": "valid/success/warmup9 each",
+    "failed_calibration_denominators": "1025 issued/completed + 775 not-issued = 1800; attempts1793",
+    "README_relative_links": "valid",
+    "saved_raw_failure_replay": "11 pre-failure snapshots replayed; empty guarded query rejected"
+  },
+  "historical_archive_sha256": {
+    "docs/evidence/p9-mitigation-eighth-20261030/raw-evidence.tar.gz": "4864a6a5438e6ef48be7cb9b08d862993aadffe9f19974d4ea74573f857e3e0c",
+    "docs/evidence/p9-mitigation-eleventh-20261101/raw-evidence.tar.gz": "0ff59629a0ebe513179878bcac4c00bc2018f6ef232a9b4c35188a3a04799cf7",
+    "docs/evidence/p9-mitigation-fifteenth-20261102/raw-evidence.tar.gz": "bd308dfcbd641433062c1a8e30d1e40fb3b84d15594f1a69c1bf11a8027d9589",
+    "docs/evidence/p9-mitigation-fifth-20261029/raw-evidence.tar.gz": "618ba1357800d547fbebe72fec215908f50a49b030ac438b298373016a4686b7",
+    "docs/evidence/p9-mitigation-fourteenth-20261102/raw-evidence.tar.gz": "4a641565d606f8ebd811515ea1e1ebf50c09a04fe06f698767eae217357ef367",
+    "docs/evidence/p9-mitigation-fourth-20261029/raw-evidence.tar.gz": "e9d4cf692c124bfe09c80a4c281b7b9b701ca9f1820846cacde251fab938582d",
+    "docs/evidence/p9-mitigation-ninth-20261030/raw-evidence.tar.gz": "3ed885e18457997996a150401bbfc97aa2211cd8c5b255d9e4c357474110d7b9",
+    "docs/evidence/p9-mitigation-preflight-20261029/raw-evidence.tar.gz": "8dca74dba05b1ae6177d8629274caca0bf34375a096a7e11b93fb38107da7bc2",
+    "docs/evidence/p9-mitigation-resume-20261029/raw-evidence.tar.gz": "8f706ed5731559f07a5e1c0201470862285f2b86b3a76fb039a4bc6a78f1a41f",
+    "docs/evidence/p9-mitigation-seventh-20261029/raw-evidence.tar.gz": "1eb8d059688fd214ab3dca0452af96d32b07de6cdef82c7b19a28ae6277c5be1",
+    "docs/evidence/p9-mitigation-sixteenth-20261102/raw-evidence.tar.gz": "ef560fa432de1b71b8473b5cd1172f8e39f55058107e225d32263c4643fbeac1",
+    "docs/evidence/p9-mitigation-sixth-20261029/raw-evidence.tar.gz": "0145380edc3741577f6b5560042bec5f93e4c3ad2715f185d0cbe1778340ecf1",
+    "docs/evidence/p9-mitigation-tenth-20261101/raw-evidence.tar.gz": "5ff8400aa7b292d2490a82d94775890f5916e8078ae8429246c816bffd8b4811",
+    "docs/evidence/p9-mitigation-third-20261029/raw-evidence.tar.gz": "1e10986b55b33de85a784fae01d40469748a0ae9967850b700e7214e7eb04c22",
+    "docs/evidence/p9-mitigation-thirteenth-20261101/raw-evidence.tar.gz": "7ef5d4d4d4eeb59e1a614892169cb02aa7460077e1d7253b93319c715f0da091",
+    "docs/evidence/p9-mitigation-twelfth-20261101/raw-evidence.tar.gz": "849cb2f5228d92302827f6884f273c469934641e1d059f084671efc31ea198c0",
+    "docs/evidence/p9-mitigation-seventeenth-20261102/raw-evidence.tar.gz": "f806b2cca28ce115645a824ed362e9bd7c0ccd1a6e5024d31b07cbc3e861e241"
+  },
+  "self_review": "fixed execution source unchanged; failed calibration/recovery not promoted; historical query ingestion limitation explicit; no new allowance or acceptance relaxation",
+  "parent_process": {
+    "pid": 2698674,
+    "exit_code": 0,
+    "positive_exec_wait": true
+  },
+  "owned_processes_absent": true,
+  "parent_finished_at_utc": "2026-11-02T15:44:48.288097+00:00"
+}

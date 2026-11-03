@@ -4,16 +4,18 @@
 Decision (machine-readable):
   static-only        complete PR diff의 모든 path가 Azure Terraform source/static verifier allowlist에 속함
   runtime-impacting  complete PR diff에 allowlist 밖 path가 있음
+  p9-only-synchronize / docs-only-synchronize: immutable delta + previous full runtime proof
   uncertain          API 오류, HEAD/base 불일치, 불완전/잘린/malformed file list 등 complete diff를 증명하지 못함
 Workflow는 uncertain(및 classifier 실패/잘못된 출력)에서 어떤 shortcut도 없이 full runtime을 실행한다.
 
-usage: ci-change-impact.py REPOSITORY PR_NUMBER PR_HEAD_SHA CHECKED_OUT_SHA
-stdout: "<static-only|runtime-impacting|uncertain>\t<reason>" 한 줄. Changed path는 stderr에 기록한다.
+usage: ci-change-impact.py REPOSITORY PR_NUMBER PR_HEAD_SHA CHECKED_OUT_SHA [PREVIOUS_SHA EVENT_ACTION]
+stdout: "<decision>\t<reason>" 한 줄. Changed path는 stderr에 기록한다.
 """
 import json
 import os
 import re
 import sys
+import subprocess
 import urllib.request
 
 sys.dont_write_bytecode = True
@@ -48,7 +50,7 @@ def classify(paths):
     return "static-only", f"all {len(paths)} changed paths are Azure Terraform static-only"
 
 
-def pr_files(get_json, repository, number, head):
+def pr_files(get_json, repository, number, head, metadata=None):
     """Exact HEAD의 complete PR changed-file set. Rename은 이전/새 path를 모두 포함한다."""
     def snapshot():
         pr = get_json(f"/repos/{repository}/pulls/{number}")
@@ -101,6 +103,8 @@ def pr_files(get_json, repository, number, head):
         raise Uncertain("PR base ref/SHA changed during listing")
     if after[2] != count:
         raise Uncertain("PR changed_files changed during listing")
+    if metadata is not None:
+        metadata.update(base_ref=before[0], base_sha=before[1])
     return paths
 
 
@@ -120,20 +124,123 @@ def decide(get_json, repository, number, head, checked_out, log=lambda path: Non
     return classify(paths)
 
 
+# Exclusive P9 surfaces: shared fixture resources, generic scripts, workflows and unrelated docs are excluded.
+P9_FILES = {'scripts/azure-mitigation.py', 'tests/e2e/test-azure-mitigation.py',
+            'experiments/fixtures/shared-gate/mitigation-candidate.json', 'docs/p9-mitigation-recovery.md'}
+RUNTIME_STEPS = {'Source / static / render validation', 'Fresh lifecycle (make local) + owned cleanup',
+                 'Verify same-cluster healthy gate and removal evidence',
+                 'Verify frozen saturation and bounded retry evidence', 'Fresh coordinated backup and restore',
+                 'Forgejo patch upgrade and fresh state-aware rollback', 'Guard cluster owned by another invocation',
+                 'Ownership guard (existing / concurrent create-delete / replaced / ambiguous / uninspectable cluster)',
+                 'Cleanup error path (k3d cluster delete failure)', 'Cleanup'}
+
+
+def delta_path(path):
+    parts = path.split('/')
+    return (all(p not in {'', '.', '..'} for p in parts) and
+            (path in P9_FILES or
+             re.fullmatch(r'docs/evidence/p9-[a-z0-9-]+/[^\s]+', path) is not None))
+
+
+def git(*args):
+    return subprocess.check_output(['git', *args], stderr=subprocess.DEVNULL).decode().strip()
+
+
+def incremental(get_json, repository, number, head, previous, paths, meta):
+    """One-hop reuse only. A skipped predecessor can never seed another skipped runtime."""
+    if not SHA.fullmatch(previous) or previous == head:
+        raise Uncertain('missing/invalid previous SHA')
+    git('merge-base', '--is-ancestor', previous, head)
+    # Immutable local full PR diff must agree with the complete, twice-read API file set.
+    def names(spec):
+        raw = git('diff', '--name-status', '-z', '--find-renames', spec)
+        rows = raw.split('\0')[:-1] if raw else []
+        if not rows:
+            return set()
+        result = set()
+        for i in range(0, len(rows), 2):
+            if i + 1 >= len(rows) or rows[i] not in {'A', 'M', 'D'} or rows[i + 1] in result:
+                raise Uncertain('rename/ambiguous changed path')
+            result.add(rows[i + 1])
+        return result
+    if names(f"{meta['base_sha']}...{head}") != paths:
+        raise Uncertain('local/API full PR changed-file set differs')
+    delta = names(f'{previous}..{head}')
+    if not delta or delta != {'docs/local-operations.md'} and not all(delta_path(p) for p in delta):
+        raise Uncertain('delta includes shared/unknown path or is empty')
+    endpoint = f'/repos/{repository}'
+    runs = get_json(endpoint + f'/actions/workflows/local-platform.yml/runs?head_sha={previous}&per_page=100')
+    candidates = runs['workflow_runs']
+    if not 0 < runs['total_count'] == len(candidates) < 100:
+        raise Uncertain('previous workflow run set incomplete')
+    run = max(candidates, key=lambda r: r['id'])
+    if not (run['head_sha'] == previous and run['path'] == '.github/workflows/local-platform.yml' and
+            run['event'] == 'pull_request' and run['status'] == 'completed' and run['conclusion'] == 'success' and
+            len(run['pull_requests']) == 1):
+        raise Uncertain('previous exact-head workflow not successful/unique')
+    pr = run['pull_requests'][0]
+    # pull_requests[].head/base are LIVE PR links, not historical snapshots.
+    if str(pr['number']) != number:
+        raise Uncertain('previous run PR association differs')
+    jobs = get_json(endpoint + f"/actions/runs/{run['id']}/attempts/{run['run_attempt']}/jobs?per_page=100")
+    matches = [j for j in jobs['jobs'] if j['name'] == 'static + fresh local lifecycle']
+    if jobs['total_count'] != len(jobs['jobs']) or len(matches) != 1:
+        raise Uncertain('previous job set incomplete/ambiguous')
+    job = matches[0]
+    steps = job['steps']
+    # Step names are captured from the immutable workflow event. Do not infer the
+    # historical base from run.pull_requests[].base, which follows the live PR.
+    base_proof = [s for s in steps if s['name'].startswith('Change-impact summary / base ')]
+    if not (len(base_proof) == 1 and base_proof[0]['name'] == 'Change-impact summary / base ' + meta['base_sha'] and
+            base_proof[0]['status'] == 'completed' and base_proof[0]['conclusion'] == 'success'):
+        raise Uncertain('previous immutable base proof missing/ambiguous/different')
+    if not (job['head_sha'] == previous and job['status'] == 'completed' and job['conclusion'] == 'success' and
+            all(len([s for s in steps if s['name'] == name and s['status'] == 'completed' and
+                     s['conclusion'] == 'success' and s.get('started_at') and s.get('completed_at') and
+                     s['completed_at'] >= s['started_at']]) == 1 for name in RUNTIME_STEPS)):
+        raise Uncertain('previous full runtime execution not proven (skipped stages cannot seed reuse)')
+    # Reject PR movement while checking history/jobs too.
+    final = get_json(endpoint + f'/pulls/{number}')
+    if final['head']['sha'] != head or final['base']['sha'] != meta['base_sha'] or final['base']['ref'] != meta['base_ref']:
+        raise Uncertain('PR head/base moved during runtime proof')
+    classification = 'docs-only-synchronize' if delta == {'docs/local-operations.md'} else 'p9-only-synchronize'
+    return classification, f"{len(delta)} exclusive delta paths; previous full runtime {previous} run {run['id']} attempt {run['run_attempt']}; runtime SKIPPED/not verified for current HEAD"
+
+
+def decide_update(get_json, repository, number, head, checked_out, previous, action):
+    decision, reason = decide(get_json, repository, number, head, checked_out)
+    if decision != 'runtime-impacting' or action != 'synchronize':
+        return decision, reason
+    try:
+        meta = {}
+        paths = pr_files(get_json, repository, number, head, meta)
+        return incremental(get_json, repository, number, head, previous, paths, meta)
+    except Uncertain as error:
+        return 'runtime-impacting', f'{reason}; incremental unavailable: {error}'
+    except Exception as error:
+        return 'runtime-impacting', f'{reason}; incremental unavailable: {type(error).__name__}'
+
+
 def github_get_json(path):
     api = os.environ.get("GITHUB_API_URL", "https://api.github.com")
-    request = urllib.request.Request(api + path, headers={
-        "Authorization": "Bearer " + os.environ["GH_TOKEN"],
+    headers = {
         "Accept": "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",
-    })
+    }
+    # Public Actions metadata supports anonymous reads; do not expand GITHUB_TOKEN permissions.
+    # Private repositories/rate limits/API errors safely fall back to full runtime.
+    if '/actions/' not in path:
+        headers['Authorization'] = 'Bearer ' + os.environ['GH_TOKEN']
+    request = urllib.request.Request(api + path, headers=headers)
     with urllib.request.urlopen(request, timeout=30) as response:
         return json.load(response)
 
 
 def main(argv):
-    if len(argv) != 4:
+    if len(argv) not in {4, 6}:
         decision, reason = "uncertain", "classifier usage error"
+    elif len(argv) == 6:
+        decision, reason = decide_update(github_get_json, *argv)
     else:
         decision, reason = decide(github_get_json, *argv,
                                   log=lambda path: print(f"PR path: {path}", file=sys.stderr))

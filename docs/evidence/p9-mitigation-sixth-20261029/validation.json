@@ -1,0 +1,38 @@
+{
+  "execution_source_sha": "30271ea59c4824b9bf4455ec038528891692d434",
+  "source_unchanged_during_runtime": true,
+  "normal_validator": "valid/success warmup;9operations/9attempts",
+  "kubectl_pin_version_sha_before_side_effect_verified": true,
+  "kubectl_hash_unchanged_at_final_check": true,
+  "strict_no_restart_guard_predicate_rejected_initial_pods": true,
+  "actual_failing_guard_full_payload": "not emitted; before/post-stop snapshot distinction retained",
+  "negative_and_warning_history_preserved": true,
+  "archive_files": 117,
+  "archive_sha256": "0145380edc3741577f6b5560042bec5f93e4c3ad2715f185d0cbe1778340ecf1",
+  "member_path_size_sha256_verified": true,
+  "publication_privacy_scan": "known credential/private path patterns absent",
+  "protected_local_credentials_removed": true,
+  "restoration_comparisons_verified": [
+    "CUSTOM UID matched then removed first",
+    "shared CM UID/data restored using JSON Patch tests",
+    "owned namespace/controllers/DB Secret absent",
+    "KEDA UID/spec/SA annotations unchanged;Ready2",
+    "stable Forgejo UID/spec;Argo Synced/Healthy",
+    "stable Secret UID/data hashes unchanged",
+    "node/PVC/PV/service UID sets unchanged;PVC/PV specs unchanged;Disk10GiB IDs match",
+    "exact owned image/tag/local tag removed;spec/imageID references0",
+    "PAT17 DELETE204/0 bytes;PAT401/list0;login blocked/Basic401",
+    "AKS CLI delete timeout retained;exact existing role ARM DELETE then GET not-found;original role IDs match",
+    "Environment resource IDs unchanged"
+  ],
+  "historical_archive_sha256": {
+    "p9-mitigation-fifth-20261029": "618ba1357800d547fbebe72fec215908f50a49b030ac438b298373016a4686b7",
+    "p9-mitigation-fourth-20261029": "e9d4cf692c124bfe09c80a4c281b7b9b701ca9f1820846cacde251fab938582d",
+    "p9-mitigation-preflight-20261029": "8dca74dba05b1ae6177d8629274caca0bf34375a096a7e11b93fb38107da7bc2",
+    "p9-mitigation-resume-20261029": "8f706ed5731559f07a5e1c0201470862285f2b86b3a76fb039a4bc6a78f1a41f",
+    "p9-mitigation-third-20261029": "1e10986b55b33de85a784fae01d40469748a0ae9967850b700e7214e7eb04c22"
+  },
+  "implementation_tests_manually_repeated": false,
+  "p9_acceptance_met": false,
+  "final_head_ci": "verify GitHub exact final evidence HEAD; separate from approved execution source"
+}

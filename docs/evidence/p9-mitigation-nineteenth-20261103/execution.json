@@ -1,0 +1,152 @@
+{
+  "execution_source_sha": "7ee476d01eea6d5df68e7d237bf9ae07c1b1eb72",
+  "evidence_sha": "reported in PR result comment; evidence-only descendant",
+  "campaign": "p9n20261103",
+  "host": "Darwin/arm64",
+  "state": "CLOSED",
+  "authorization": "https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6583473509",
+  "source_binding": "https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#issuecomment-6584397812",
+  "source_review": "https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41#pullrequestreview-5740953524",
+  "source_unchanged_during_execution": true,
+  "image_digest": "sha256:648083e00fd476cdf672cf0133c4864f5c2f68b20453561204cdee3fa82ea350",
+  "counts": {
+    "normal": 1,
+    "initialize": 1,
+    "healthy": 1,
+    "calibration": 1,
+    "C0": 0,
+    "C1": 0,
+    "C2": 0,
+    "C3": 0,
+    "keda_apply": 1,
+    "keda_restore": 1
+  },
+  "historical_before": {
+    "campaign": 18,
+    "initialize": 15,
+    "healthy": 6,
+    "invalid_calibration": 3,
+    "measured_per_arm": 0,
+    "keda_apply": 4,
+    "keda_restore": 4
+  },
+  "cumulative_after": {
+    "campaign": 19,
+    "initialize": 16,
+    "healthy": 7,
+    "invalid_calibration": 4,
+    "measured_per_arm": 0,
+    "keda_apply": 5,
+    "keda_restore": 5
+  },
+  "initialize": {
+    "exit_code": 0,
+    "cpu_polls": 8,
+    "telemetry_polls": 4,
+    "query_requests": 19,
+    "query_cap": 25,
+    "healthy_operations": 9,
+    "healthy_attempts": 9,
+    "ready_for_keda_authentication": true,
+    "runtime_flag_at_initialize_completion": false
+  },
+  "actual_keda_scaler_auth_and_full_runtime_preflight": true,
+  "calibration": {
+    "arm": "C3",
+    "invocation": 1,
+    "exit_code": 1,
+    "validity": "invalid",
+    "failure_offset_seconds": 271.5725127919577,
+    "failure": "unapproved missing telemetry",
+    "campaign": {
+      "scheduled": 1800,
+      "issued": 1375,
+      "unissued": 425,
+      "failed": 795,
+      "attempts": 2134,
+      "driver_lag_max_seconds": 1.4358707088977098
+    },
+    "snapshot_count": 16,
+    "max_snapshot_seconds": 18.584093125071377,
+    "fifth_responses": 13,
+    "fifth_max_elapsed_seconds": 1.0290312911383808,
+    "sentinels": 247,
+    "all_sentinels_semantic_success": true,
+    "final_fault_healthy": true,
+    "final_snapshot_offset_seconds": 293.41878604190424
+  },
+  "frozen": false,
+  "measured_comparison": false,
+  "recovery_acceptance": "not established; run stopped before full360s demand/recovery",
+  "unused_calibration": 1,
+  "unused_authority_not_carried_forward": true,
+  "first_mutation_cost_projection_usd": "285.3566776355215859675991667",
+  "cumulative_pre_tax_review_cap_usd": 290,
+  "new_allowance": false,
+  "p9_actual_cost": "shared/delayed/unknown",
+  "cleanup": {
+    "source_sha": "7ee476d01eea6d5df68e7d237bf9ae07c1b1eb72",
+    "completed_at_utc": "2026-11-02T19:04:19.029295+00:00",
+    "custom_removed": true,
+    "shared_mesh_uid_data_restored": true,
+    "namespace_secret_controls_absent": true,
+    "keda_original_sa_template_restored_ready2": true,
+    "uami_fic_amw_role_removed": true,
+    "owned_acr_manifest_absent": true,
+    "temporary_aks_role_absent": true,
+    "stable_argo_pod_deployment_csi_pvc_pv_preserved": true,
+    "named_admin_db_secrets_uid_value_preserved": true,
+    "owner_assignments_preserved": 2,
+    "arm_inventory_preserved": 34,
+    "resource_groups_preserved": 4,
+    "final_native_verify": {
+      "invocations": 1,
+      "passed": true
+    },
+    "fixture_cleanup": [
+      {
+        "token_id": 36,
+        "delete_status": 204,
+        "reuse_status": 401,
+        "token_list_count": 0,
+        "login_status": 401,
+        "login_blocked": true,
+        "db_records": "retained"
+      },
+      {
+        "token_id": 37,
+        "delete_status": 204,
+        "reuse_status": 401,
+        "token_list_count": 0,
+        "login_status": 401,
+        "login_blocked": true,
+        "db_records": "retained"
+      }
+    ],
+    "forward_wait": {
+      "returncode": -15,
+      "exited_before_stop": false,
+      "intentional_stop_requested": true,
+      "kill_requested": false,
+      "observation_failed": false
+    },
+    "environment_deadline_utc": "2026-11-05T01:30:00Z",
+    "foundation_bootstrap_deadline_utc": "2026-11-05T15:33:00Z",
+    "whole_environment_teardown": false,
+    "campaign_parent_exit_code": 0,
+    "owned_private_copies_tools_removed": true,
+    "owned_local_image_tag_removed": true
+  },
+  "cost_observation_basis": {
+    "observed_at_utc": "2026-11-02T18:07:26.977062+00:00",
+    "usage_rows": 199,
+    "continuation": false,
+    "posted_two_rg_krw": "165187.294880079303161119",
+    "previous_posted_two_rg_krw": "152794.6734891407",
+    "previous_projection_usd": "275.02949314307275",
+    "planning_krw_per_usd": 1200,
+    "formula": "previous_projection + max(0,current_posted - previous_posted)/1200",
+    "prior_overlap_variable_cleanup_reserves_retained": true,
+    "new_allowance": false
+  }
+}

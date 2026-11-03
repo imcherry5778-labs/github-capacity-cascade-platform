@@ -1,0 +1,13 @@
+{
+  "source_sha": "daeaff99cfddd33dd2409b2dfa15f25af56a2635",
+  "performed": false,
+  "reason": "initialize failed before KEDA/calibration/freeze/measured arms",
+  "valid_measured_runs": {
+    "C0": 0,
+    "C1": 0,
+    "C2": 0,
+    "C3": 0
+  },
+  "hypothesis_supported": false,
+  "p9_acceptance_met": false
+}

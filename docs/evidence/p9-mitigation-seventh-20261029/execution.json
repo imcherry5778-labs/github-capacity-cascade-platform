@@ -1,0 +1,71 @@
+{
+  "campaign": "seventh",
+  "source_sha": "1ce291523ecddb3918e3879f322e45dfca122ee6",
+  "main": "3f788a9c1d103f6c07bd403af269133fac287002",
+  "image_digest": "sha256:ba914d82d15dd8c11f008e7a1009b375520cfa8bc3e7ce16cb7da795075650bc",
+  "normal": {
+    "invocations": 1,
+    "validity": "valid",
+    "completion": "success",
+    "phase": "warmup",
+    "operations": 9,
+    "attempts": 9
+  },
+  "initialize": {
+    "invocations": 1,
+    "exit_code": 1,
+    "elapsed_seconds": 57.64910957899701,
+    "at_utc": "2026-10-29T12:27:57.061643+00:00"
+  },
+  "failure": {
+    "record": "healthy_initialization_failure",
+    "source_sha": "1ce291523ecddb3918e3879f322e45dfca122ee6",
+    "at": 25181.30121692,
+    "stage": "readiness_resource_guard",
+    "elapsed_seconds": 52.9662197079997,
+    "stage_elapsed_seconds": 38.38678076600263,
+    "exception_class": "ValueError",
+    "error_code": "validation_failed",
+    "runtime_preflight_passed": false,
+    "ready_for_keda_authentication": false,
+    "measured_denominator": false
+  },
+  "strict_ready_restart_zero": true,
+  "backend_service_before_haproxy": true,
+  "cpu_preparation": {
+    "polls": 1,
+    "ready_polls": 0,
+    "complete": false,
+    "reason": "CPU warning outside startup lifetime; last actual occurrence Pod+91s/HPA+90s"
+  },
+  "healthy_journey_intents": 0,
+  "healthy_journey_invocations": 0,
+  "healthy_target_telemetry_verified": false,
+  "keda_mutations": 0,
+  "calibration_runs": 0,
+  "frozen_plan": false,
+  "measured_runs": {
+    "C0": 0,
+    "C1": 0,
+    "C2": 0,
+    "C3": 0
+  },
+  "mitigation_recovery_result": "not measured",
+  "continuing_demand_recovery": "not measured",
+  "p9_acceptance_met": false,
+  "automatic_retry": false,
+  "pod_history_reset": false,
+  "cumulative_preparation_cleanup_campaigns": 7,
+  "historical_keda_restarts": {
+    "apply": 1,
+    "restore": 1
+  },
+  "actual_cost_two_rg_krw": "38284.28956189241",
+  "p9_incremental_actual": "unknown; shared delayed billing",
+  "cost_plan_reset": false,
+  "environment_deadline": "2026-10-30T01:30:00Z",
+  "foundation_bootstrap_deadline": "2026-10-30T15:33:00Z",
+  "environment_teardown": false,
+  "retention_extended": false,
+  "cleanup_complete_for_owned_scope": true
+}

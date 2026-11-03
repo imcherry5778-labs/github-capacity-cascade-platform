@@ -1,0 +1,10 @@
+{
+  "C0": null,
+  "C1": null,
+  "C2": null,
+  "C3": null,
+  "hypothesis": "not evaluated",
+  "prior_campaigns": "closed/invalid unchanged; no attempt carryover",
+  "reason": "public initialize failed; no actual calibration/freeze/measured/recovery/comparison",
+  "status": "NOT AVAILABLE"
+}

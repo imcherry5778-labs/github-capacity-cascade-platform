@@ -1,0 +1,37 @@
+{
+  "source_sha": "ffea5cb865728af54554c91460e3b96364d955fb",
+  "frozen_plan": null,
+  "validity": "not measured",
+  "arms": [
+    {
+      "arm": "C0",
+      "runs": 0,
+      "mitigation": "not measured",
+      "recovery": "not measured",
+      "recovery_time_seconds": null
+    },
+    {
+      "arm": "C1",
+      "runs": 0,
+      "mitigation": "not measured",
+      "recovery": "not measured",
+      "recovery_time_seconds": null
+    },
+    {
+      "arm": "C2",
+      "runs": 0,
+      "mitigation": "not measured",
+      "recovery": "not measured",
+      "recovery_time_seconds": null
+    },
+    {
+      "arm": "C3",
+      "runs": 0,
+      "mitigation": "not measured",
+      "recovery": "not measured",
+      "recovery_time_seconds": null
+    }
+  ],
+  "reason": "readiness_resource_guard warning_event before healthy_journey_intent",
+  "p9_acceptance_met": false
+}

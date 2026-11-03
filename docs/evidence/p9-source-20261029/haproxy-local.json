@@ -1,0 +1,268 @@
+{
+  "scope": "cost-free native HAProxy source build and loopback queue fixture; not Azure/runtime/image validation",
+  "version": "3.4.6",
+  "upstream_source": "https://www.haproxy.org/download/3.4/src/haproxy-3.4.6.tar.gz",
+  "source_sha256": "791e1815f8af6e8b850a227a9a0a190f3d3478c9e8d38a0f51c98b7f4bfe368b",
+  "parser": [
+    {
+      "arm": "C0",
+      "config_sha256": "3d7ef139231458e7c8ebec03150d86bf99815e98f71b64d6ff4c47cc9ae404b6",
+      "exit_code": 0
+    },
+    {
+      "arm": "C1",
+      "config_sha256": "3d7ef139231458e7c8ebec03150d86bf99815e98f71b64d6ff4c47cc9ae404b6",
+      "exit_code": 0
+    },
+    {
+      "arm": "C2",
+      "config_sha256": "97f2e78fa28b5b0d7f0a0d73f14b682e8c2f3c1b0d38360343c2618c3464d293",
+      "exit_code": 0
+    },
+    {
+      "arm": "C3",
+      "config_sha256": "3d7ef139231458e7c8ebec03150d86bf99815e98f71b64d6ff4c47cc9ae404b6",
+      "exit_code": 0
+    }
+  ],
+  "local_loopback": {
+    "operation_count": 24,
+    "backend_hold_seconds": 0.8,
+    "statuses": {
+      "200": 2,
+      "429": 10,
+      "503": 12
+    },
+    "server_and_backend_stats": {
+      "app": {
+        "stot": 2,
+        "req_tot": 2,
+        "qcur": 0,
+        "qmax": 1,
+        "scur": 0,
+        "smax": 2,
+        "econ": 1,
+        "eresp": 0,
+        "wretr": 0,
+        "wredis": 0,
+        "hrsp_2xx": 2,
+        "hrsp_4xx": 0,
+        "hrsp_5xx": 0,
+        "cli_abrt": 0,
+        "srv_abrt": 0
+      },
+      "BACKEND": {
+        "stot": 14,
+        "req_tot": 14,
+        "qcur": 0,
+        "qmax": 11,
+        "scur": 0,
+        "smax": 14,
+        "econ": 12,
+        "eresp": 0,
+        "wretr": 0,
+        "wredis": 0,
+        "hrsp_2xx": 2,
+        "hrsp_4xx": 0,
+        "hrsp_5xx": 12,
+        "cli_abrt": 0,
+        "srv_abrt": 0
+      }
+    },
+    "logs": [
+      {
+        "status": 429,
+        "termination": "PR",
+        "queue_ms": -1,
+        "connect_ms": -1,
+        "response_ms": -1,
+        "total_ms": 0
+      },
+      {
+        "status": 429,
+        "termination": "PR",
+        "queue_ms": -1,
+        "connect_ms": -1,
+        "response_ms": -1,
+        "total_ms": 0
+      },
+      {
+        "status": 429,
+        "termination": "PR",
+        "queue_ms": -1,
+        "connect_ms": -1,
+        "response_ms": -1,
+        "total_ms": 0
+      },
+      {
+        "status": 429,
+        "termination": "PR",
+        "queue_ms": -1,
+        "connect_ms": -1,
+        "response_ms": -1,
+        "total_ms": 0
+      },
+      {
+        "status": 429,
+        "termination": "PR",
+        "queue_ms": -1,
+        "connect_ms": -1,
+        "response_ms": -1,
+        "total_ms": 0
+      },
+      {
+        "status": 429,
+        "termination": "PR",
+        "queue_ms": -1,
+        "connect_ms": -1,
+        "response_ms": -1,
+        "total_ms": 0
+      },
+      {
+        "status": 429,
+        "termination": "PR",
+        "queue_ms": -1,
+        "connect_ms": -1,
+        "response_ms": -1,
+        "total_ms": 0
+      },
+      {
+        "status": 429,
+        "termination": "PR",
+        "queue_ms": -1,
+        "connect_ms": -1,
+        "response_ms": -1,
+        "total_ms": 0
+      },
+      {
+        "status": 429,
+        "termination": "PR",
+        "queue_ms": -1,
+        "connect_ms": -1,
+        "response_ms": -1,
+        "total_ms": 0
+      },
+      {
+        "status": 429,
+        "termination": "PR",
+        "queue_ms": -1,
+        "connect_ms": -1,
+        "response_ms": -1,
+        "total_ms": 0
+      },
+      {
+        "status": 503,
+        "termination": "sQ",
+        "queue_ms": 250,
+        "connect_ms": -1,
+        "response_ms": -1,
+        "total_ms": 250
+      },
+      {
+        "status": 503,
+        "termination": "sQ",
+        "queue_ms": 251,
+        "connect_ms": -1,
+        "response_ms": -1,
+        "total_ms": 251
+      },
+      {
+        "status": 503,
+        "termination": "sQ",
+        "queue_ms": 251,
+        "connect_ms": -1,
+        "response_ms": -1,
+        "total_ms": 251
+      },
+      {
+        "status": 503,
+        "termination": "sQ",
+        "queue_ms": 251,
+        "connect_ms": -1,
+        "response_ms": -1,
+        "total_ms": 251
+      },
+      {
+        "status": 503,
+        "termination": "sQ",
+        "queue_ms": 252,
+        "connect_ms": -1,
+        "response_ms": -1,
+        "total_ms": 252
+      },
+      {
+        "status": 503,
+        "termination": "sQ",
+        "queue_ms": 251,
+        "connect_ms": -1,
+        "response_ms": -1,
+        "total_ms": 251
+      },
+      {
+        "status": 503,
+        "termination": "sQ",
+        "queue_ms": 252,
+        "connect_ms": -1,
+        "response_ms": -1,
+        "total_ms": 252
+      },
+      {
+        "status": 503,
+        "termination": "sQ",
+        "queue_ms": 255,
+        "connect_ms": -1,
+        "response_ms": -1,
+        "total_ms": 255
+      },
+      {
+        "status": 503,
+        "termination": "sQ",
+        "queue_ms": 257,
+        "connect_ms": -1,
+        "response_ms": -1,
+        "total_ms": 257
+      },
+      {
+        "status": 503,
+        "termination": "sQ",
+        "queue_ms": 258,
+        "connect_ms": -1,
+        "response_ms": -1,
+        "total_ms": 258
+      },
+      {
+        "status": 503,
+        "termination": "sQ",
+        "queue_ms": 258,
+        "connect_ms": -1,
+        "response_ms": -1,
+        "total_ms": 258
+      },
+      {
+        "status": 503,
+        "termination": "sQ",
+        "queue_ms": 258,
+        "connect_ms": -1,
+        "response_ms": -1,
+        "total_ms": 258
+      },
+      {
+        "status": 200,
+        "termination": "--",
+        "queue_ms": 0,
+        "connect_ms": 0,
+        "response_ms": 801,
+        "total_ms": 801
+      },
+      {
+        "status": 200,
+        "termination": "--",
+        "queue_ms": 0,
+        "connect_ms": 0,
+        "response_ms": 801,
+        "total_ms": 801
+      }
+    ]
+  },
+  "limitation": "native source binary lacks container build options; actual Azure image/Envoy integration pending"
+}

@@ -1,0 +1,37 @@
+{
+  "source_sha": "9c7b4be942e534dff2e36fe069e144bfa96d045a",
+  "validity": "not measured",
+  "frozen_plan": null,
+  "arms": [
+    {
+      "arm": "C0",
+      "runs": 0,
+      "mitigation": "not measured",
+      "recovery": "not measured",
+      "recovery_time_seconds": null
+    },
+    {
+      "arm": "C1",
+      "runs": 0,
+      "mitigation": "not measured",
+      "recovery": "not measured",
+      "recovery_time_seconds": null
+    },
+    {
+      "arm": "C2",
+      "runs": 0,
+      "mitigation": "not measured",
+      "recovery": "not measured",
+      "recovery_time_seconds": null
+    },
+    {
+      "arm": "C3",
+      "runs": 0,
+      "mitigation": "not measured",
+      "recovery": "not measured",
+      "recovery_time_seconds": null
+    }
+  ],
+  "reason": "healthy_initialize failed before journey intent; no fault or recovery window",
+  "p9_acceptance_met": false
+}

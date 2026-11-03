@@ -1,0 +1,69 @@
+{
+  "kind": "cost-free preparation verification; not runtime acceptance",
+  "recorded_at_utc": "2026-11-01T22:14:00.371032+00:00",
+  "starting_head": "d0d16cf7ba57e7cc6b589b442f03cfe0ed998735",
+  "source_sha_binding": "최종 source commit/exact-head CI는 PR 결과 comment에 기록; 실제 paid execution source 없음",
+  "source_files_sha256": {
+    "scripts/azure-mitigation.py": "6848e4c13056b6db1dd5cd104c52ba1640c5d72f785d53a4e3acabfcbc61e0be",
+    "tests/e2e/test-azure-mitigation.py": "fdd16529efc8bdca82315bad3ce79969b1b65cc3f83feeeea7ac1d9295fe3925"
+  },
+  "checks": {
+    "direct_forward_ownership": {
+      "command": "python3 tests/e2e/test-azure-mitigation.py ForwardOwnershipTests -v",
+      "tests": 4,
+      "result": "PASS",
+      "azure_or_live_forwarding": false
+    },
+    "p9_regression": {
+      "command": "python3 tests/e2e/test-azure-mitigation.py",
+      "tests": 83,
+      "result": "PASS",
+      "note": "final TERM/KILL mock test 추가 직전 source 회귀; 이후 최종 ForwardOwnershipTests4개 직접 검증"
+    },
+    "static": {
+      "command": "make static",
+      "result": "PASS",
+      "azure_credentials_used": false,
+      "provider_mutation": false
+    },
+    "self_review": {
+      "result": "완료",
+      "independent_review": false,
+      "scope": "forward handle/stdin/session/poll/wait/private-log lifetime, unchanged approval/ledger/freeze/retention gates, GET projected evidence/cost/reserve 산술"
+    }
+  },
+  "ci_before_change": {
+    "head": "d0d16cf7ba57e7cc6b589b442f03cfe0ed998735",
+    "run_id": 41352931253,
+    "workflow": "local-platform",
+    "conclusion": "success",
+    "scope": "기존 HEAD 관측; 변경 후 exact-head CI와 구분"
+  },
+  "ci_final": "이후 문서 전용 후속 HEAD의 자동 exact-head 결과는 PR 결과 comment에 연결; source/test 파일 hash는 동일",
+  "live_gates": "not executed",
+  "fifteenth_authorized": false,
+  "p9_acceptance_met": false,
+  "ci_source_change": {
+    "head": "f16d70911c52c52b52408a5c67b26140c6677bc0",
+    "run_id": 41356125476,
+    "job_id": 124996425070,
+    "url": "https://github.com/imcherry5778-labs/github-capacity-cascade-platform/actions/runs/41356125476",
+    "workflow": "local-platform",
+    "conclusion": "success",
+    "classification": "full-runtime",
+    "static": "success",
+    "local_runtime": "executed",
+    "runtime_stages": {
+      "make local": "success",
+      "make recovery": "success",
+      "make upgrade": "success",
+      "ownership guard setup": "success",
+      "ownership guards": "success",
+      "cleanup error path": "success"
+    },
+    "p9_regressions": 84,
+    "observed_at_utc": "2026-11-01T22:41:05.227113+00:00",
+    "independent_source_review": false,
+    "azure_runtime_verified": false
+  }
+}

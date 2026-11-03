@@ -1,0 +1,37 @@
+{
+  "source_sha": "50aac4a9fab0881dfba41340f4a6ef0f5c4e0142",
+  "validity": "not measured",
+  "frozen_plan": null,
+  "arms": [
+    {
+      "arm": "C0",
+      "runs": 0,
+      "mitigation": "not measured",
+      "recovery": "not measured",
+      "recovery_time_seconds": null
+    },
+    {
+      "arm": "C1",
+      "runs": 0,
+      "mitigation": "not measured",
+      "recovery": "not measured",
+      "recovery_time_seconds": null
+    },
+    {
+      "arm": "C2",
+      "runs": 0,
+      "mitigation": "not measured",
+      "recovery": "not measured",
+      "recovery_time_seconds": null
+    },
+    {
+      "arm": "C3",
+      "runs": 0,
+      "mitigation": "not measured",
+      "recovery": "not measured",
+      "recovery_time_seconds": null
+    }
+  ],
+  "reason": "normal result phase=baseline invalid; CPU initialize and healthy journey never started",
+  "p9_acceptance_met": false
+}

@@ -1,0 +1,12 @@
+{
+  "C0": null,
+  "C1": null,
+  "C2": null,
+  "C3": null,
+  "historical_campaigns": "closed/invalid preserved append-only",
+  "hypothesis": "not evaluated",
+  "reason": "first C3 calibration completed but saved invalid; no source-changing recovery authority; no actual freeze/measured/confounder comparison",
+  "remaining_calibration": 1,
+  "status": "NOT AVAILABLE",
+  "unused_attempt_expired_on_close": true
+}
