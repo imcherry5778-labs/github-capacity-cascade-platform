@@ -545,7 +545,7 @@ class TargetLifecycle:
             if uid not in self.resource_complete:
                 pending.add(uid)
         require(set(names) <= {p['uid'] for p in guard['pods']}, 'missing resource target inventory')
-        return {'status': 'initializing-new-pod' if pending else 'observed',
+        return {'status': 'initializing-new-pod' if pending else 'observed', 'observed_at': at,
                 'pending_uids': sorted(pending), 'initialized_uids': sorted(self.resource_complete)}
 
 
@@ -1009,7 +1009,7 @@ def collect_snapshot(runtime, config, before, emit, release_started):
     hp = runtime.pod(NS, 'app=haproxy')
     hp_logs = [json.loads(line) for line in runtime.k('-n', NS, 'logs', hp['metadata']['name'], '-c', 'haproxy').splitlines() if line.startswith('{')]
     signal = runtime.signal(inventory, at=at)
-    resource = runtime.lifecycle.resources(guard, [p8.p4.pod_guard(p) for p in inventory], signal, at)
+    resource = runtime.lifecycle.resources(guard, [p8.p4.pod_guard(p) for p in inventory], signal, time.monotonic())
     all_converged = healthy and signal['status'] == resource['status'] == 'observed' and {p['metadata']['uid'] for p in inventory} == {t['uid'] for t in actual['targets']}
     if resource['pending_uids']:
         emit({'record': 'snapshot_gap', 'at': at, 'reason': 'resource-initializing', 'pending_uids': resource['pending_uids']})
@@ -1612,7 +1612,13 @@ def common_guards(snapshots, baseline, arm, v):
         require(guard['node_metrics'] and guard['pod_metrics'], 'missing node/Pod metrics')
         inventory = s.get('target_inventory', [p for p in guard['pods'] if p['name'].startswith('ext-authz-sim-')])
         lifecycle.inventory(inventory, s['at'])
-        lifecycle.resources(guard, inventory, s['signal'], s['at'])
+        resource_at = s['at']  # Historical guard-only replay has no new marker.
+        if 'resource_readiness' in s:
+            require(type(s['resource_readiness']) is dict and 'observed_at' in s['resource_readiness'],
+                    'saved resource readiness drift')
+            resource_at = s['resource_readiness']['observed_at']
+            require(bounded(resource_at, s['at'], s['end']), 'resource observation outside snapshot')
+        lifecycle.resources(guard, inventory, s['signal'], resource_at)
         for p in guard['pods']:
             new_target = arm == 'C3' and p['uid'] not in fixed and p['uid'] not in first_targets
             pending_since.setdefault(p['uid'], s['at'])
@@ -1744,7 +1750,11 @@ def validate(directory):
         lifecycle.admin(s['configuration']['targets'], s['admin_stats'], s['stats'], s['at'])
         require(s['configuration']['metric_contract'] == metric_contract(), 'snapshot metric contract drift')
         value = lifecycle.signal(s['signal'], inventory, s['at'], s['epoch'])
-        resource = lifecycle.resources(s['guard'], inventory, s['signal'], s['at'])
+        require(type(s.get('resource_readiness')) is dict and 'observed_at' in s['resource_readiness'],
+                'saved resource readiness drift')
+        resource_at = s['resource_readiness']['observed_at']
+        require(bounded(resource_at, s['at'], s['end']), 'resource observation outside snapshot')
+        resource = lifecycle.resources(s['guard'], inventory, s['signal'], resource_at)
         require(s.get('resource_readiness') == resource, 'saved resource readiness drift')
         converged = (s.get('fault_healthy', False) and s['signal']['status'] == resource['status'] == 'observed' and
                      {p['uid'] for p in inventory} == {t['uid'] for t in s['configuration']['targets']})
@@ -1786,10 +1796,15 @@ def validate(directory):
     if arm == 'C3':
         signal_at = next((s['end'] for s, value in zip(snapshots, signals) if value is not None and value > v['threshold']), None)
         desired = next((t['at'] for t in timeline if signal_at is not None and t['at'] >= signal_at and t['hpa']['status'].get('desiredReplicas') == 2), None)
-        ready = next((t['at'] for t in timeline if desired is not None and t['at'] >= desired and sum(p['ready'] for p in t['pods']) == 2 and
-                      any(s['at'] == t['at'] and value is not None for s, value in zip(snapshots, signals))), None)
+        ready_snapshot = next((s for s, value in zip(snapshots, signals) if value is not None and desired is not None and
+                               any(t['at'] == s['at'] and t['at'] >= desired and sum(p['ready'] for p in t['pods']) == 2 for t in timeline)), None)
+        ready = ready_snapshot['end'] if ready_snapshot is not None else None
+        # Cumulative traffic from initialization is retained for accounting, but
+        # only increases AFTER the ready snapshot can prove scaling traffic.
         traffic = next((s['end'] for s, value in zip(snapshots, signals) if value is not None and ready is not None and
-                        s['at'] >= ready and len(s['stats']) == 2 and all(p8.p4.by_suffix(stats)['upstream_rq_total'] > 0 for stats in s['stats'].values())), None)
+                        s['at'] >= ready and len(s['stats']) == 2 and set(s['stats']) == set(ready_snapshot['stats']) and
+                        all(p8.p4.by_suffix(stats)['upstream_rq_total'] > p8.p4.by_suffix(ready_snapshot['stats'][uid])['upstream_rq_total']
+                            for uid, stats in s['stats'].items())), None)
         if traffic is not None:
             scale = {'status': 'observed; audit scale ownership before autoscaling claim', 'signal_to_desired_ready_traffic': [signal_at, desired, ready, traffic]}
     return {'source_sha': identity['source_sha'], 'fingerprint': digest(manifest), 'arm': arm,

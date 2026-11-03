@@ -769,6 +769,14 @@ class ResourceReadinessTests(unittest.TestCase):
         self.assertAlmostEqual(snapshots[7]['at'] - life.ready_since[uid], 54.236286792, places=5)
         self.assertEqual(snapshots[6]['signal']['status'], 'observed')
         self.assertEqual(states[6]['pending_uids'], [uid])
+        # Old raw has no resource-observation clock. Even the conservative
+        # snapshot end (rather than start at Ready+54s) remains within75s.
+        completed = m.TargetLifecycle('C3', initial, manifest['plan'])
+        for s in snapshots[:8]:
+            completed.inventory(s['target_inventory'], s['at'])
+            end_state = completed.resources(s['guard'], s['target_inventory'], s['signal'], s['end'])
+        self.assertEqual(end_state['status'], 'observed')
+        self.assertLess(end_state['observed_at'] - completed.ready_since[uid], 75)
         for case in ('missing', 'stale', 'reverse', 'changed-same-timestamp', 'future', 'invalid'):
             guard = copy.deepcopy(snapshots[7]['guard'])
             metric = next(p for p in guard['pod_metrics'] if p['metadata']['name'] == next(p['name'] for p in snapshots[7]['target_inventory'] if p['uid'] == uid))
@@ -833,6 +841,12 @@ class ResourceReadinessTests(unittest.TestCase):
                 self.assertEqual(next(r for r in rows if r['record'] == 'snapshot')['resource_readiness']['status'], 'observed')
             else:
                 with self.assertRaisesRegex(ValueError, 'resource startup timeout'): f.collect(2 + delta)
+        # A collection that starts inside the deadline cannot extend it by its
+        # collection budget. Live and saved callers supply observation time.
+        f = LiveFixture(); f.collect(0); f.pods.append(f.pod('new', 'ext-authz-sim-new')); f.collect(2)
+        g = f.guard(); pods = [m.p8.p4.pod_guard(p) for p in f.pods]
+        with self.assertRaisesRegex(ValueError, 'resource startup timeout'):
+            f.runtime.lifecycle.resources(g, pods, {'status': 'observed', 'pods': []}, 77.001)
 
     def test_confounder_review_must_explicitly_exclude_initialization_intervals(self):
         with tempfile.TemporaryDirectory() as d:
@@ -1061,7 +1075,7 @@ class CollectionGateTests(unittest.TestCase):
             result = original_guard()
             for metric in result['pod_metrics']:
                 if metric['metadata']['name'] == 'ext-authz-sim-new':
-                    metric.update(timestamp=m.datetime.fromtimestamp(1280 if resource_advanced[0] else 1270, m.timezone.utc).isoformat(), window='1s')
+                    metric.update(timestamp=result['timestamp_utc'] if resource_advanced[0] else m.datetime.fromtimestamp(1270, m.timezone.utc).isoformat(), window='1s')
             return result
         f.runtime.guard = guard
         f.traffic = 1  # Ready/traffic during warmup still cannot prove scaling.
@@ -1087,19 +1101,22 @@ class CollectionGateTests(unittest.TestCase):
         snap = next(e for e in observed if e['record'] == 'snapshot')
         self.assertTrue(snap['healthy']); self.assertEqual(snap['signal']['status'], 'observed')
         self.assertEqual(len(snap['signal']['query']), 1)
+        f.traffic = 2
+        post_ready_traffic = f.collect(285, released=True)
         # Feed actual collected snapshots through the whole saved-run validator.
         with tempfile.TemporaryDirectory() as directory:
             rows = CompleteEvidenceTests().fixture(directory)
             manifest = m.load(Path(directory) / 'configuration.json')
             manifest.update(arm='C3', baseline=f.baseline)
             Path(directory, 'configuration.json').write_text(json.dumps(manifest))
-            collected = {e['at']: e for e in initial + pending + ready + sample + resource_pending + observed if e['record'] == 'snapshot'}
-            timeline = [(-5, collected[-5]), (185, collected[185]), (270, collected[270]), (275, collected[275]), (277, collected[277]), (280, collected[280])]
+            collected = {e['at']: e for e in initial + pending + ready + sample + resource_pending + observed + post_ready_traffic if e['record'] == 'snapshot'}
+            timeline = [(-5, collected[-5]), (185, collected[185]), (270, collected[270]), (275, collected[275]), (277, collected[277]), (280, collected[280]), (285, collected[285])]
             for i, row in enumerate(rows):
                 if row['record'] != 'snapshot': continue
                 source_at, source = max((x for x in timeline if x[0] <= row['at']), key=lambda x: x[0])
                 replacement = copy.deepcopy(source)
                 replacement.update(at=row['at'], end=row['end'], epoch=row['epoch'])
+                replacement['resource_readiness']['observed_at'] = row['at']
                 for r in replacement['signal']['pods']: r['timestamp'] = row['epoch']
                 signal = replacement['signal']
                 if 'query_observation' in signal:
@@ -1112,27 +1129,44 @@ class CollectionGateTests(unittest.TestCase):
                 rows[i] = replacement
             rows.insert(next(i for i, e in enumerate(rows) if e['record'] == 'snapshot' and e['at'] == 280), copy.deepcopy(collected[277]))
             # Preserve the collector's convergence and release-gap events.
-            rows[-1:-1] = [e for e in initial + pending + ready + sample + resource_pending + observed
+            rows[-1:-1] = [e for e in initial + pending + ready + sample + resource_pending + observed + post_ready_traffic
                           if e['record'] in {'convergence', 'replica_timeline', 'snapshot_gap'}]
             path = Path(directory, 'events.jsonl')
             path.write_text(''.join(json.dumps(r) + '\n' for r in rows))
-            with patch.object(m, 'path_accounting', return_value={'admitted_checks': [], 'checks': 1800}):
+            with patch.object(m, 'path_accounting', side_effect=lambda *_: {'admitted_checks': [], 'checks': 1800}):
                 result = m.validate(directory)
                 self.assertEqual(result['recovery']['first_good_window'], 290)
-                self.assertEqual(result['scaling']['signal_to_desired_ready_traffic'][-1], 280)
+                self.assertEqual(result['scaling']['signal_to_desired_ready_traffic'][-1], 285)
                 self.assertEqual(result['scaling']['signal_to_desired_ready_traffic'][2], 280)
                 self.assertFalse(any(w['good'] for w in result['recovery']['windows'] if w['start'] < 280))
                 self.assertTrue(result['resource_initialization'])
-                for case in ('marker', 'missing-marker', 'healthy'):
+                warm_only = copy.deepcopy(rows)
+                for s in warm_only:
+                    if s['record'] == 'snapshot' and s['at'] >= 280:
+                        for uid, stats in s['stats'].items():
+                            key = next(k for k in stats if k.endswith('.upstream_rq_total'))
+                            stats[key] = 1
+                            s['admin_stats'][uid]['values'][key] = 1
+                path.write_text(''.join(json.dumps(r) + '\n' for r in warm_only))
+                self.assertEqual(m.validate(directory)['scaling']['status'], 'not observed')
+                for case in ('marker', 'missing-marker', 'missing-clock', 'healthy'):
                     changed = copy.deepcopy(rows)
                     warm = next(e for e in changed if e['record'] == 'snapshot' and e['at'] == 277)
                     if case == 'marker': warm['resource_readiness'].update(status='observed', pending_uids=[], initialized_uids=['new'])
                     elif case == 'missing-marker': warm.pop('resource_readiness')
+                    elif case == 'missing-clock': warm['resource_readiness'].pop('observed_at')
                     else: warm['healthy'] = True
                     path.write_text(''.join(json.dumps(r) + '\n' for r in changed))
                     with self.subTest(case=case), patch.object(m, 'path_accounting') as accounting, self.assertRaisesRegex(ValueError, 'saved .*readiness drift'):
                         m.validate(directory)
                     accounting.assert_not_called()
+                for clock in (276.99, 278.01, float('nan')):
+                    changed = copy.deepcopy(rows)
+                    warm = next(e for e in changed if e['record'] == 'snapshot' and e['at'] == 277)
+                    warm['resource_readiness']['observed_at'] = clock
+                    path.write_text(''.join(json.dumps(r) + '\n' for r in changed))
+                    with self.subTest(clock=clock), self.assertRaisesRegex(ValueError, 'resource observation outside snapshot'):
+                        m.validate(directory)
                 for case in ('existing-missing', 'unknown-uid', 'startup-timeout', 'series-timeout', 'stale-existing', 'existing-admin-loss', 'unknown-admin', 'fabricated-new-zero', 'saved-label', 'native-negative'):
                     changed = copy.deepcopy(rows)
                     warm = next(e for e in changed if e['record'] == 'snapshot' and e['at'] == 190)
@@ -1154,6 +1188,7 @@ class CollectionGateTests(unittest.TestCase):
                             if e['record'] == 'snapshot' and 185 <= e['at'] <= 280:
                                 at, end, epoch = e['at'], e['end'], e['epoch']
                                 e.update(copy.deepcopy(warm), at=at, end=end, epoch=epoch)
+                                e['resource_readiness']['observed_at'] = at
                                 e['signal']['pods'][0]['timestamp'] = epoch
                     elif case == 'series-timeout':
                         # Ready at185 with no series through270 exceeds75s.
@@ -1236,6 +1271,7 @@ class CollectionGateTests(unittest.TestCase):
                 rows = [r for r in rows if r['record'] != 'snapshot' or not 0 < r['at'] < 35]
                 selected = next(r for r in rows if r['record'] == 'snapshot' and r['at'] == 35)
                 selected.update(at=gap, end=gap)
+                selected['resource_readiness']['observed_at'] = gap
                 selected['signal']['query_observation'].update(at=gap, request_at=gap)
                 Path(directory, 'events.jsonl').write_text(''.join(json.dumps(r) + '\n' for r in rows))
                 with patch.object(m, 'path_accounting', return_value={'admitted_checks': [], 'checks': 1800}):
