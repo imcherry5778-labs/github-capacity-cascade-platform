@@ -1,7 +1,16 @@
 # P9-W1 Mitigation & Recovery
 
-목표는 동일 fault/demand의 C0–C3 비교, continuing-demand recovery, 실제 request accounting과 P9-owned 원복 evidence다.
-P9 acceptance는 아직 미충족이다. [제24차 실제 결과](evidence/p9-mitigation-twenty-fourth-20261104/README.md)는 CLOSED/invalid이며 남은 실행 권한은 close와 함께 소멸했다.
+## P9 target scope change — 2026-11-04
+
+24차까지의 비용과 반복 invalid 결과 뒤 사용자가 P9 목표를 **controlled KEDA scaling feasibility study와 정직한 negative engineering findings**로 prospective하게 축소했다. 근거는 [Issue #47 승인 기록](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/issues/47#issuecomment-6614034575)이다. 원래 동일 fault/demand C0–C3 비교, valid calibration/freeze, 4-arm measured, full confounder/accounting 및 0.2초 recovery 성공 목표는 **미달성으로 보존하고 DEFERRED**한다. 과거 run은 valid로 재분류하지 않는다.
+
+축소된 목표의 evidence 후보는 C22–24에서 실제 관측한 KEDA native auth/ownership, 신규 Ready2·joint metric·두 UID traffic, C24 부분 구간의 HAProxy ring delta2883 대 frontend/ingress/target/backend accounting이다. Owned cleanup은 최종 `complete=true, errors=[]`; 원래 KEDA SA/template, stable/named Secret, Owner2/34 resource IDs/fixed2 nodes 확인과 fixture/PAT/IAM/image 제거를 포함하며, 최초 handler error와 targeted recovery도 함께 보존한다. 이는 partial mechanism observation이며 full comparison·valid calibration·recovery 성공이 아니다. Independent exact-head PR review가 끝나기 전 P9 scope exit도 미확정이다.
+
+Negative findings도 보존한다: C24는 monitor failure로 CLOSED/invalid, inventory metadata age61.512초가 당시 strict60초 guard를 넘었고 HPA/KEDA Warning이 있었다. Scheduled2100 중250 미발행, 180초 recovery 미완료, 관측한 Issue command 중466/644가0.2초 초과였다. 이 잘린 run은 valid negative recovery가 아니고 confounder review도 완결되지 않았다. [제24차 archive/evidence](evidence/p9-mitigation-twenty-fourth-20261104/README.md)는 변경하지 않는다.
+
+다음 단계는 남은 P9 4-arm paid 실험이 아니다. Campaign25, 추가 Azure/API/Secret 접근, 새 paid workload, 자동 P10 진입은 승인되지 않았다. P10 설계는 P9 negative/partial evidence와 기존 roadmap에 따라 별도 결정한다.
+
+원래 목표와 archive history는 아래에 유지한다. P9 scope exit는 위 축소 claim의 독립 review를 기다린다. [제24차 실제 결과](evidence/p9-mitigation-twenty-fourth-20261104/README.md)는 CLOSED/invalid이며 남은 실행 권한은 close와 함께 소멸했다.
 누적 campaign24 / public initialize21 / healthy12 / started-invalid calibration9 / measured 각0 / KEDA apply·restore actions9/9을 보존한다.
 Paid source `d1ed52b8ba14d77345df5b3f19ae8a599421e516`는 native post-startup Warning과 AMW inventory age61.512초의60초 guard 초과로 중단했다. Ring conservation 부분 관측과 원복은 확인했지만 valid calibration은 없다.
 [제23차](evidence/p9-mitigation-twenty-third-20261103/README.md)의 source `076bc8a3dbd09e8192057e19df8b6cc5cb55274d`와 controller·HAProxy log 결손 negative도 그대로 보존한다.
