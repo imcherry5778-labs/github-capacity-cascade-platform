@@ -47,6 +47,24 @@ def events(v=None):
     return e
 
 
+def bind_synthetic_snapshot_clocks(rows):
+    """Construct provenance for intentionally rescheduled synthetic fixtures only.
+
+    Never used for archived data or after a clock-tampering mutation.
+    """
+    rows[:] = [e for e in rows if e['record'] not in {'signal_evaluation', 'replica_timeline'}]
+    extra = []
+    for s in rows:
+        if s['record'] != 'snapshot': continue
+        s['inventory_at'], s['inventory_epoch'] = s['at'], s['epoch']
+        obs = s['signal']['evaluation']
+        obs.update(at=s['at'], epoch=s['epoch'], timestamp_utc=m.datetime.fromtimestamp(s['epoch'], m.timezone.utc).isoformat())
+        extra += [{'record': 'signal_evaluation', **obs, 'signal_sha256': m.digest(s['signal'])},
+                  {'record': 'replica_timeline', 'at': s['at'], 'epoch': s['inventory_epoch'], 'inventory_at': s['inventory_at'], 'source_sha': obs['source_sha'],
+                   'pods': s['target_inventory'], 'hpa': {'status': s['guard']['hpa']}}]
+    rows[-1:-1] = extra
+
+
 class ForwardOwnershipTests(unittest.TestCase):
     def pod(self):
         return {'metadata': {'namespace': 'forgejo', 'name': 'forgejo-0',
@@ -152,7 +170,7 @@ class PlanTests(unittest.TestCase):
         c3 = rendered['C3']['fixtures.json']['items']
         self.assertNotIn('HorizontalPodAutoscaler', {o['kind'] for o in c3})
         self.assertEqual(next(o['spec']['maxReplicaCount'] for o in c3 if o['kind'] == 'ScaledObject'), 2)
-        self.assertEqual(len(m.schedule(v)), 1800)
+        self.assertEqual(len(m.schedule(v)), 2100)
         with self.assertRaises(ValueError): m.render(identity, v, 'C4')
 
     def test_exact_hostname_and_resource_boundary_reused(self):
@@ -335,19 +353,21 @@ class CompleteEvidenceTests(unittest.TestCase):
             live = LiveFixture('C0')
             baseline = live.baseline
             snapshots = []
-            for at in range(-5, 366, 5):
-                if at >= 185:
+            duration = v['mitigation_seconds'] + v['recovery_seconds']
+            for at in range(-5, duration + 6, 5):
+                if at >= v['mitigation_seconds'] + 5:
                     name = live.pods[0]['metadata']['name']
                     live.holds[name], live.capacities[name] = 0, 1024
-                snapshots += [e for e in live.collect(at, released=at >= 185) if e['record'] == 'snapshot']
+                snapshots += [e for e in live.collect(at, released=at >= v['mitigation_seconds'] + 5)
+                              if e['record'] in {'snapshot', 'signal_evaluation', 'replica_timeline'}]
         manifest = {'source_sha': identity['source_sha'], 'identity': identity, 'plan': v, 'metric_contract': m.metric_contract(),
                     'transport': m.p8.p7.operations.transport('https://forgejo.example.com', 'azure-aks', None), 'fixture_sha256': 'a' * 64, 'arm': 'C0', 'phase': 'measured',
                     'schedule_sha256': m.digest(m.schedule(v)), 'slo_sha256': m.hashlib.sha256(m.SLO.read_bytes()).hexdigest(),
                     'render_sha256': {a: m.digest(m.render(identity, v, a)) for a in m.ARMS}, 'baseline': baseline}
         rows = events(v)
         start = {'record': 'run_start', 'timestamp_utc': '2026-10-29T00:00:00Z', 'transport': m.p8.p7.operations.transport('https://forgejo.example.com', 'azure-aks', None)}
-        sentinel = [{'record': 'sentinel', 'at': at, 'result': {'semantic_result': True}} for at in range(361)]
-        rows = [start] + rows + snapshots + sentinel + [{'record': 'run_end', 'completed': True, 'timestamp_utc': '2026-10-29T00:06:05Z'}]
+        sentinel = [{'record': 'sentinel', 'at': at, 'result': {'semantic_result': True}} for at in range(duration + 1)]
+        rows = [start] + rows + snapshots + sentinel + [{'record': 'run_end', 'completed': True, 'timestamp_utc': (m.datetime(2026, 10, 29, tzinfo=m.timezone.utc) + m.timedelta(seconds=duration + 5)).isoformat()}]
         m.save(Path(directory) / 'configuration.json', manifest)
         (Path(directory) / 'events.jsonl').write_text(''.join(json.dumps(r) + '\n' for r in rows))
         return rows
@@ -358,7 +378,7 @@ class CompleteEvidenceTests(unittest.TestCase):
         # recovery, live resource/controller/metric guards and review boundaries.
         with tempfile.TemporaryDirectory() as directory:
             rows = self.fixture(directory)
-            with patch.object(m, 'path_accounting', side_effect=lambda *_: {'admitted_checks': [], 'checks': 1800}):
+            with patch.object(m, 'path_accounting', side_effect=lambda *_: {'admitted_checks': [], 'checks': len(m.schedule(plan()))}):
                 result = m.validate(directory)
                 self.assertEqual(result['validity'], 'pending-cloud-confounder-review')
                 self.assertEqual(result['recovery']['status'], 'recovered')
@@ -379,7 +399,7 @@ class CompleteEvidenceTests(unittest.TestCase):
                 elif case == 'controller-error': snapshot['guard']['events'] = [{'reason': 'FailedComputeMetricsReplicas'}]
                 else: snapshot['signal']['query'] = []
                 (Path(directory) / 'events.jsonl').write_text(''.join(json.dumps(r) + '\n' for r in rows))
-                with patch.object(m, 'path_accounting', side_effect=lambda *_: {'admitted_checks': [], 'checks': 1800}), self.assertRaises(ValueError):
+                with patch.object(m, 'path_accounting', side_effect=lambda *_: {'admitted_checks': [], 'checks': len(m.schedule(plan()))}), self.assertRaises(ValueError):
                     m.validate(directory)
 
 
@@ -524,7 +544,7 @@ class CollectorQueryTests(unittest.TestCase):
                     else: raw[0]['value'][1] = 'NaN'
                     s['query'], s['query_diagnostics'] = m.extract_collector_query(raw, plan())
                 Path(directory, 'events.jsonl').write_text(''.join(json.dumps(r) + '\n' for r in changed))
-                with self.subTest(case=case), patch.object(m, 'path_accounting', return_value={'admitted_checks': [], 'checks': 1800}), self.assertRaises((ValueError, KeyError)):
+                with self.subTest(case=case), patch.object(m, 'path_accounting', return_value={'admitted_checks': [], 'checks': len(m.schedule(plan()))}), self.assertRaises((ValueError, KeyError)):
                     m.validate(directory)
 
     def test_eighteenth_negative_retains_original_one_minute_provenance(self):
@@ -637,7 +657,7 @@ class LiveFixture:
         self.queries = []
         self.rate, self.traffic = 0, 0
         self.config = {'max_requests': 2, 'hold_ms': 1000, 'logical_operations': 24, 'concurrency': 12,
-                       'waves': 72, 'wave_interval_seconds': 5}
+                       'waves': (r.v['mitigation_seconds'] + r.v['recovery_seconds']) // 5, 'wave_interval_seconds': 5}
         r.pods, r.j, r.k, r.admin, r.prom = self.get_pods, self.j, self.k, self.admin, self.prom
         r.guard = self.guard
         r.haproxy = lambda: {}
@@ -744,10 +764,199 @@ class LiveFixture:
         return rows
 
 
+class SignalClockTests(unittest.TestCase):
+    def setUp(self):
+        env = patch.dict(os.environ, {'FORGEJO_URL': 'https://forgejo.example.com'}, clear=True)
+        env.start(); self.addCleanup(env.stop)
+
+    def test_live_and_full_saved_validator_use_exact_decision_instant_at_60s(self):
+        f, now, captured = LiveFixture('C0'), [10.0], []
+        original = f.prom
+        def prom(query, **kwargs):
+            rows = original(query, **kwargs)
+            if query == m.signal_queries(f.runtime.v)['timestamp']:
+                for r in rows: r['value'][1] = '950'  # age60 at signal,64 at snapshot end
+            return rows
+        f.runtime.prom = prom
+        def late_haproxy():
+            now[0] += 4
+            return {}
+        f.runtime.haproxy = late_haproxy
+        with patch.object(m.time, 'monotonic', side_effect=lambda: now[0]), \
+                patch.object(m.time, 'time', side_effect=lambda: 1000 + now[0]):
+            m.collect_snapshot(f.runtime, f.config, f.baseline, captured.append, threading.Event())
+        snap = next(r for r in captured if r['record'] == 'snapshot')
+        self.assertEqual((snap['signal']['evaluation']['epoch'], snap['epoch']), (1010, 1014))
+        epoch = m.signal_evaluation(snap['signal'], f.runtime.value['source_sha'], (10, 14), captured)
+        self.assertEqual(m.telemetry(snap['signal']['pods'], {'target': 'ext-authz-sim-abc'}, epoch, 60), 0)
+        with self.assertRaisesRegex(ValueError, 'stale/error'):
+            m.telemetry(snap['signal']['pods'], {'target': 'ext-authz-sim-abc'}, snap['epoch'], 60)
+        with tempfile.TemporaryDirectory() as directory:
+            rows = CompleteEvidenceTests().fixture(directory)
+            rows = [e for e in rows if not (e['record'] in {'snapshot', 'replica_timeline', 'signal_evaluation'} and e['at'] == 10)]
+            rows[-1:-1] = captured
+            # Snapshots remain in collection order even though clocks are
+            # independently emitted before each enclosing snapshot.
+            snapshots = iter(sorted((e for e in rows if e['record'] == 'snapshot'), key=lambda e: e['at']))
+            rows = [next(snapshots) if e['record'] == 'snapshot' else e for e in rows]
+            Path(directory, 'events.jsonl').write_text(''.join(json.dumps(r) + '\n' for r in rows))
+            with patch.object(m, 'path_accounting', return_value={'admitted_checks': [], 'checks': len(m.schedule(plan()))}):
+                self.assertEqual(m.validate(directory)['validity'], 'pending-cloud-confounder-review')
+        for stamp in (949.999, 1010.001, float('nan')):
+            with patch.object(m.time, 'time', return_value=1010), patch.object(m.time, 'monotonic', return_value=10):
+                f.epoch = 1010
+                def invalid(query, **kwargs):
+                    rows = original(query, **kwargs)
+                    if query == m.signal_queries(f.runtime.v)['timestamp']:
+                        for r in rows: r['value'][1] = str(stamp)
+                    return rows
+                f.runtime.prom = invalid
+                with self.subTest(stamp=stamp), self.assertRaisesRegex(ValueError, 'stale/error'):
+                    f.runtime.signal(f.pods, at=10)
+
+    def test_saved_clock_missing_tampered_ambiguous_and_out_of_range_fail_closed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            rows = CompleteEvidenceTests().fixture(directory)
+            for case in ('missing', 'source', 'before', 'after', 'nan', 'utc', 'epoch', 'both-wall-fields',
+                         'event-missing', 'event-duplicate', 'raw-timestamp', 'ready-clock', 'ready-clock-missing'):
+                changed = copy.deepcopy(rows)
+                s = next(e for e in changed if e['record'] == 'snapshot' and e['at'] == 10)
+                obs = s['signal']['evaluation']
+                if case == 'missing': s['signal'].pop('evaluation')
+                elif case == 'source': obs['source_sha'] = 'f' * 40
+                elif case == 'before': obs['at'] = 9.999
+                elif case == 'after': obs['at'] = 10.001
+                elif case == 'nan': obs['epoch'] = float('nan')
+                elif case == 'utc': obs['timestamp_utc'] = '2026-11-03T00:00:00'
+                elif case == 'epoch': obs['epoch'] += 1
+                elif case == 'both-wall-fields':
+                    obs['epoch'] += 1
+                    obs['timestamp_utc'] = m.datetime.fromtimestamp(obs['epoch'], m.timezone.utc).isoformat()
+                elif case == 'event-missing': changed = [e for e in changed if not (e['record'] == 'signal_evaluation' and e['at'] == 10)]
+                elif case == 'event-duplicate': changed.insert(-1, copy.deepcopy(next(e for e in changed if e['record'] == 'signal_evaluation' and e['at'] == 10)))
+                elif case == 'raw-timestamp': s['signal']['pods'][0]['timestamp'] -= 1  # still fresh; hash must disagree
+                elif case == 'ready-clock': s['inventory_epoch'] -= 1
+                else: s.pop('inventory_epoch')
+                Path(directory, 'events.jsonl').write_text(''.join(json.dumps(r) + '\n' for r in changed))
+                with self.subTest(case=case), self.assertRaisesRegex(ValueError, 'signal evaluat|clock provenance'):
+                    m.validate(directory)
+
+    def test_campaign20_run2_real_snapshot_age_boundary_is_preserved_not_revalidated(self):
+        archive = ROOT / 'docs/evidence/p9-mitigation-twentieth-20261103/raw-evidence.tar.gz'
+        original = m.hashlib.sha256(archive.read_bytes()).hexdigest()
+        with tarfile.open(archive) as raw:
+            manifest = json.load(raw.extractfile('calibration-C3-2/configuration.json'))
+            rows = [json.loads(line) for line in raw.extractfile('calibration-C3-2/events.jsonl')]
+        origin = next(e['origin'] for e in rows if e['record'] == 'schedule')
+        snap = next(e for e in rows if e['record'] == 'snapshot' and 111 < e['at'] - origin < 113)
+        signal = snap['signal']
+        response = signal['query_observation']
+        response_epoch = m.p8.p7.utc(response['timestamp_utc']).timestamp()
+        names = {r['pod_uid']: r['pod'] for r in signal['pods']}
+        self.assertEqual(len(names), 2)
+        self.assertLess(max(response_epoch - r['timestamp'] for r in signal['pods']), 60)
+        self.assertGreater(max(snap['epoch'] - r['timestamp'] for r in signal['pods']), 60)
+        m.telemetry(signal['pods'], names, response_epoch, 60)
+        with self.assertRaisesRegex(ValueError, 'stale/error'): m.telemetry(signal['pods'], names, snap['epoch'], 60)
+        # The response clock bounds the old live instant but cannot reconstruct
+        # its exact missing decision clock. New saved validation rejects it.
+        with self.assertRaisesRegex(ValueError, 'missing/invalid signal evaluation'):
+            m.signal_evaluation(signal, manifest['source_sha'], (snap['at'], snap['end']), rows)
+        self.assertTrue(any(e['record'] == 'monitor_failure' for e in rows))
+        with tempfile.TemporaryDirectory() as directory, tarfile.open(archive) as raw:
+            raw.extractall(directory, filter='data')
+            with self.assertRaisesRegex(ValueError, 'failed/incomplete'): m.validate(Path(directory) / 'calibration-C3-2')
+        self.assertEqual(m.hashlib.sha256(archive.read_bytes()).hexdigest(), original)
+
+
 class ResourceReadinessTests(unittest.TestCase):
     def setUp(self):
         env = patch.dict(os.environ, {'FORGEJO_URL': 'https://forgejo.example.com'}, clear=True)
         env.start(); self.addCleanup(env.stop)
+
+    def test_pre_ready_cpu_advances_do_not_latch_and_joint_readiness_is_required(self):
+        f = LiveFixture(); f.collect(0); f.pods.append(f.pod('new', 'ext-authz-sim-new'))
+        original, stamp = f.guard, [990]
+        def guard():
+            result = original()
+            metric = next(o for o in result['pod_metrics'] if o['metadata']['name'] == 'ext-authz-sim-new')
+            metric.update(timestamp=m.datetime.fromtimestamp(stamp[0], m.timezone.utc).isoformat(), window='60s')
+            return result
+        f.runtime.guard = guard
+        for at, value in ((10, 990), (15, 1000), (20, 1005)):
+            stamp[0] = value
+            snap = next(e for e in f.collect(at) if e['record'] == 'snapshot')
+            self.assertEqual(snap['signal']['status'], 'observed')
+            self.assertEqual(snap['resource_readiness']['pending_uids'], ['new'])
+            self.assertNotIn('new', f.runtime.lifecycle.resource_observed)
+        stamp[0] = 1025
+        snap = next(e for e in f.collect(25) if e['record'] == 'snapshot')
+        self.assertEqual(snap['resource_readiness']['status'], 'observed')
+        self.assertIn('new', f.runtime.lifecycle.resource_complete)
+        # Once observed, a new UID has the same irreversible strict missing
+        # and stale resource boundary as initial/stable/helper UIDs.
+        with self.assertRaisesRegex(ValueError, 'stale resource metric'): f.collect(150)
+
+    def test_240s_candidate_has_separate_post_ready_two_uid_traffic_before_release(self):
+        v = plan()
+        self.assertEqual((v['mitigation_seconds'], v['recovery_seconds']), (240, 180))
+        self.assertEqual(len(m.schedule(v)), 2100)
+        self.assertEqual(sum(e['kind'] == 'issue' for e in m.schedule(v)), 2016)
+        self.assertEqual(sum(e['kind'] == 'git' for e in m.schedule(v)), 84)
+        self.assertLessEqual(240 + 180 + 60, 600)
+        f = LiveFixture(); f.rate = 1
+        original = f.guard
+        def guard():
+            result = original()
+            for metric in result['pod_metrics']:
+                if metric['metadata']['name'] == 'ext-authz-sim-new':
+                    epoch = f.epoch if f.epoch >= 1195 else 1045
+                    metric.update(timestamp=m.datetime.fromtimestamp(epoch, m.timezone.utc).isoformat(), window='60s')
+            return result
+        f.runtime.guard = guard
+        collected = []
+        for at in range(-5, 426, 5):
+            if at == 10: f.pods.append(f.pod('new', 'ext-authz-sim-new', ready=False))
+            if at == 45: f.pods[1] = f.pod('new', 'ext-authz-sim-new')
+            f.missing = {'new'} if 10 <= at < 60 else set()
+            f.traffic = 102 if at >= 205 else 101 if at >= 200 else 100 if at >= 50 else 0
+            if at >= 245:
+                for p in f.pods:
+                    f.holds[p['metadata']['name']], f.capacities[p['metadata']['name']] = 0, 1024
+            collected += f.collect(at, released=at >= 245)
+        snapshots = [e for e in collected if e['record'] == 'snapshot']
+        ready = next(s for s in snapshots if s['resource_readiness']['initialized_uids'])
+        self.assertEqual(ready['end'], 195)
+        self.assertEqual(ready['end'] - f.runtime.lifecycle.ready_since['new'], 150)
+        self.assertTrue(all(not s['healthy'] for s in snapshots if 10 <= s['at'] < 195))
+        with tempfile.TemporaryDirectory() as directory:
+            rows = CompleteEvidenceTests().fixture(directory)
+            manifest = m.load(Path(directory, 'configuration.json'))
+            manifest.update(arm='C3', baseline=f.baseline)
+            Path(directory, 'configuration.json').write_text(json.dumps(manifest))
+            rows = [e for e in rows if e['record'] not in {'snapshot', 'replica_timeline', 'signal_evaluation', 'snapshot_gap', 'convergence'}]
+            rows[-1:-1] = collected
+            path = Path(directory, 'events.jsonl')
+            path.write_text(''.join(json.dumps(e) + '\n' for e in rows))
+            with patch.object(m, 'path_accounting', side_effect=lambda *_: {'admitted_checks': [], 'checks': 2100}):
+                result = m.validate(directory)
+                self.assertEqual(result['scaling']['signal_to_desired_ready_traffic'][2:], [195, 205])
+                self.assertLess(result['scaling']['signal_to_desired_ready_traffic'][-1], 240)
+                self.assertEqual(result['validity'], 'pending-cloud-confounder-review')
+                self.assertEqual(result['recovery']['first_good_window'], 260)
+                # Startup counters are retained in accounting but cannot be
+                # post-ready proof. Neither can traffic on just one UID.
+                for case in ('startup-only', 'one-uid-only'):
+                    changed = copy.deepcopy(rows)
+                    for s in changed:
+                        if s['record'] != 'snapshot' or s['at'] < 195: continue
+                        for uid, stats in s['stats'].items():
+                            if case == 'one-uid-only' and uid == 'target': continue
+                            key = next(k for k in stats if k.endswith('.upstream_rq_total'))
+                            stats[key] = 100
+                            s['admin_stats'][uid]['values'][key] = 100
+                    path.write_text(''.join(json.dumps(e) + '\n' for e in changed))
+                    with self.subTest(case=case): self.assertEqual(m.validate(directory)['scaling']['status'], 'not observed')
 
     def test_campaign19_resource_only_replay_converges_at_ready_plus_54_seconds(self):
         archive = ROOT / 'docs/evidence/p9-mitigation-nineteenth-20261103/raw-evidence.tar.gz'
@@ -762,7 +971,7 @@ class ResourceReadinessTests(unittest.TestCase):
         # Replay only resource initialization with the recorded AMW status.
         # The archived one-minute queries/run are never revalidated as 2m.
         for s in snapshots[:8]:
-            life.inventory(s['target_inventory'], s['at'])
+            life.inventory(s['target_inventory'], s['at'], s['epoch'] - (s['end'] - s['at']))
             states.append(life.resources(s['guard'], s['target_inventory'], s['signal'], s['at']))
         self.assertEqual([s['status'] for s in states], ['observed'] * 3 + ['initializing-new-pod'] * 4 + ['observed'])
         uid = states[-1]['initialized_uids'][0]
@@ -773,7 +982,7 @@ class ResourceReadinessTests(unittest.TestCase):
         # snapshot end (rather than start at Ready+54s) remains within75s.
         completed = m.TargetLifecycle('C3', initial, manifest['plan'])
         for s in snapshots[:8]:
-            completed.inventory(s['target_inventory'], s['at'])
+            completed.inventory(s['target_inventory'], s['at'], s['epoch'] - (s['end'] - s['at']))
             end_state = completed.resources(s['guard'], s['target_inventory'], s['signal'], s['end'])
         self.assertEqual(end_state['status'], 'observed')
         self.assertLess(end_state['observed_at'] - completed.ready_since[uid], 75)
@@ -834,9 +1043,9 @@ class ResourceReadinessTests(unittest.TestCase):
             f.runtime.guard = guard
             with self.subTest(case=case), self.assertRaisesRegex(ValueError, 'missing container metric|stale resource metric'):
                 f.collect(40)
-        for delta in (75, 75.001):
+        for delta in (150, 150.001):
             f = LiveFixture(); f.collect(0); f.pods.append(f.pod('new', 'ext-authz-sim-new')); f.collect(2)
-            if delta == 75:
+            if delta == 150:
                 rows = f.collect(2 + delta)
                 self.assertEqual(next(r for r in rows if r['record'] == 'snapshot')['resource_readiness']['status'], 'observed')
             else:
@@ -846,7 +1055,38 @@ class ResourceReadinessTests(unittest.TestCase):
         f = LiveFixture(); f.collect(0); f.pods.append(f.pod('new', 'ext-authz-sim-new')); f.collect(2)
         g = f.guard(); pods = [m.p8.p4.pod_guard(p) for p in f.pods]
         with self.assertRaisesRegex(ValueError, 'resource startup timeout'):
-            f.runtime.lifecycle.resources(g, pods, {'status': 'observed', 'pods': []}, 77.001)
+            f.runtime.lifecycle.resources(g, pods, {'status': 'observed', 'pods': []}, 152.001)
+
+    def test_amw_first_observation_still_has_75s_deadline_independent_of_resource_150s(self):
+        for elapsed in (75, 75.001):
+            f = LiveFixture(); f.collect(0)
+            f.pods.append(f.pod('new', 'ext-authz-sim-new')); f.missing = {'new'}; f.collect(2)
+            f.missing.clear()
+            if elapsed == 75:
+                snapshot = next(e for e in f.collect(2 + elapsed) if e['record'] == 'snapshot')
+                self.assertEqual(snapshot['signal']['status'], 'observed')
+            else:
+                with self.assertRaisesRegex(ValueError, 'series startup timeout'): f.collect(2 + elapsed)
+
+    def test_campaign20_resource_markers_stay_not_ready_and_old_runs_stay_invalid(self):
+        archive = ROOT / 'docs/evidence/p9-mitigation-twentieth-20261103/raw-evidence.tar.gz'
+        before = m.hashlib.sha256(archive.read_bytes()).hexdigest()
+        with tarfile.open(archive) as raw:
+            for run in ('calibration-C3-1', 'calibration-C3-2'):
+                manifest = json.load(raw.extractfile(run + '/configuration.json'))
+                rows = [json.loads(line) for line in raw.extractfile(run + '/events.jsonl')]
+                initial = {t['uid'] for t in manifest['baseline']['targets']}
+                lifecycle = m.TargetLifecycle('C3', initial, manifest['plan'])
+                for s in (e for e in rows if e['record'] == 'snapshot'):
+                    # Only a historical resource marker replay. Approximate
+                    # inventory UTC conservatively; no missing clock invented
+                    # into raw or accepted by the new full saved validator.
+                    lifecycle.inventory(s['target_inventory'], s['at'], s['epoch'] - (s['end'] - s['at']))
+                    result = lifecycle.resources(s['guard'], s['target_inventory'], s['signal'], s['resource_readiness']['observed_at'])
+                    self.assertEqual(result, s['resource_readiness'])
+                self.assertFalse(lifecycle.resource_complete)
+                self.assertTrue(any(e['record'] == 'monitor_failure' for e in rows))
+        self.assertEqual(m.hashlib.sha256(archive.read_bytes()).hexdigest(), before)
 
     def test_confounder_review_must_explicitly_exclude_initialization_intervals(self):
         with tempfile.TemporaryDirectory() as d:
@@ -1025,6 +1265,9 @@ class CollectionGateTests(unittest.TestCase):
         # Only isolate the guards before the actual stale samples; this is not
         # a valid-run replay or a promotion of campaign19's negative result.
         snapshots = [e for e in events if e['record'] == 'snapshot'][:5]
+        # Resource-only historical replay uses a bounded start-clock estimate;
+        # it cannot supply the new exact live provenance or validate this run.
+        for s in snapshots: s['inventory_at'], s['inventory_epoch'] = s['at'], s['epoch'] - (s['end'] - s['at'])
         self.assertEqual(snapshots[-1]['signal']['status'], 'warming-new-pod')
         m.common_guards(snapshots, manifest['baseline'], 'C3', manifest['plan'])
         existing = {p['name'] for p in snapshots[0]['guard']['pods']}
@@ -1133,9 +1376,10 @@ class CollectionGateTests(unittest.TestCase):
             # Preserve the collector's convergence and release-gap events.
             rows[-1:-1] = [e for e in initial + pending + ready + sample + resource_pending + observed + post_ready_traffic + proven_traffic
                           if e['record'] in {'convergence', 'replica_timeline', 'snapshot_gap'}]
+            bind_synthetic_snapshot_clocks(rows)
             path = Path(directory, 'events.jsonl')
             path.write_text(''.join(json.dumps(r) + '\n' for r in rows))
-            with patch.object(m, 'path_accounting', side_effect=lambda *_: {'admitted_checks': [], 'checks': 1800}):
+            with patch.object(m, 'path_accounting', side_effect=lambda *_: {'admitted_checks': [], 'checks': len(m.schedule(plan()))}):
                 result = m.validate(directory)
                 self.assertEqual(result['recovery']['first_good_window'], 290)
                 self.assertEqual(result['scaling']['signal_to_desired_ready_traffic'][-1], 290)
@@ -1201,7 +1445,7 @@ class CollectionGateTests(unittest.TestCase):
                         for e in changed:
                             if e['record'] == 'snapshot' and 185 <= e['at'] <= 280:
                                 at, end, epoch = e['at'], e['end'], e['epoch']
-                                e.update(copy.deepcopy(warm), at=at, end=end, epoch=epoch)
+                                e.update(copy.deepcopy(warm), at=at, end=end, epoch=epoch, inventory_at=at, inventory_epoch=epoch)
                                 e['resource_readiness']['observed_at'] = at
                                 e['signal']['pods'][0]['timestamp'] = epoch
                     elif case == 'series-timeout':
@@ -1287,8 +1531,9 @@ class CollectionGateTests(unittest.TestCase):
                 selected.update(at=gap, end=gap)
                 selected['resource_readiness']['observed_at'] = gap
                 selected['signal']['query_observation'].update(at=gap, request_at=gap)
+                bind_synthetic_snapshot_clocks(rows)
                 Path(directory, 'events.jsonl').write_text(''.join(json.dumps(r) + '\n' for r in rows))
-                with patch.object(m, 'path_accounting', return_value={'admitted_checks': [], 'checks': 1800}):
+                with patch.object(m, 'path_accounting', return_value={'admitted_checks': [], 'checks': len(m.schedule(plan()))}):
                     if gap == 35:
                         self.assertEqual(m.validate(directory)['validity'], 'pending-cloud-confounder-review')
                     else:
@@ -1568,19 +1813,20 @@ class CollectionGateTests(unittest.TestCase):
                 for i, e in enumerate(rows):
                     if e['record'] != 'snapshot': continue
                     at, name = e['at'], f.pods[0]['metadata']['name']
-                    if at >= 185:
+                    if at >= plan()['mitigation_seconds'] + 5:
                         (f.holds if order == 'hold-first' else f.capacities)[name] = 0 if order == 'hold-first' else 1024
-                    if at >= 195: f.holds[name], f.capacities[name] = 0, 1024
-                    collected = f.collect(at, released=at >= 180)
+                    if at >= plan()['mitigation_seconds'] + 15: f.holds[name], f.capacities[name] = 0, 1024
+                    collected = f.collect(at, released=at >= plan()['mitigation_seconds'])
                     rows[i] = next(r for r in collected if r['record'] == 'snapshot')
                     extra += [r for r in collected if r['record'] in {'snapshot_gap', 'convergence'}]
                 rows = [e for e in rows if e['record'] != 'convergence']
                 rows[-1:-1] = extra
+                bind_synthetic_snapshot_clocks(rows)
                 Path(directory, 'events.jsonl').write_text(''.join(json.dumps(r) + '\n' for r in rows))
-                with patch.object(m, 'path_accounting', return_value={'admitted_checks': [], 'checks': 1800}):
+                with patch.object(m, 'path_accounting', return_value={'admitted_checks': [], 'checks': len(m.schedule(plan()))}):
                     result = m.validate(directory)
-                self.assertEqual(result['recovery']['first_good_window'], 210)
-                self.assertFalse(any(w['good'] for w in result['recovery']['windows'] if w['start'] < 195))
+                self.assertEqual(result['recovery']['first_good_window'], plan()['mitigation_seconds'] + 30)
+                self.assertFalse(any(w['good'] for w in result['recovery']['windows'] if w['start'] < plan()['mitigation_seconds'] + 15))
 
     def test_release_drift_and_unknown_failure_reach_monitor_cancel_and_release(self):
         sensitive = 'private-token-and-path-must-not-be-published'
@@ -3829,11 +4075,11 @@ class DemandRecoveryTests(unittest.TestCase):
     def test_three_windows_with_new_issue_and_git_demand(self):
         result = m.recovery(plan(), events(), lambda *_: True)
         self.assertEqual(result['status'], 'recovered')
-        self.assertEqual(result['release_command'], 180)
-        self.assertEqual(result['converged'], 181)
-        self.assertEqual(result['first_good_window'], 190)
-        self.assertEqual(result['confirmation'], 220)
-        self.assertEqual(result['campaign']['scheduled'], 1800)
+        self.assertEqual(result['release_command'], 240)
+        self.assertEqual(result['converged'], 241)
+        self.assertEqual(result['first_good_window'], 250)
+        self.assertEqual(result['confirmation'], 280)
+        self.assertEqual(result['campaign']['scheduled'], 2100)
 
     def test_fast_denial_low_cpu_or_rejection_not_recovery(self):
         e = events()

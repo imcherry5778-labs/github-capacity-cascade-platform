@@ -47,6 +47,7 @@ TARGET_METRIC = {'cluster_label': 'cluster_name', 'cluster': 'inbound|8080||',
 # Source-bound candidate; canonical query/render hashes bind the freeze. This
 # changes smoothing, not the 60s raw freshness or any calibration threshold.
 RATE_WINDOW = '2m'
+RESOURCE_INITIALIZATION_SECONDS = 150
 
 
 def metric_contract():
@@ -423,14 +424,37 @@ def telemetry(rows, pods, now, freshness):
     return sum(r['rate'] for r in rows)
 
 
+def signal_evaluation(signal, source_sha, interval=None, events=None):
+    """Replay the actual client decision clock, not server or snapshot-end time."""
+    obs = signal.get('evaluation')
+    require(type(obs) is dict and set(obs) == {'source_sha', 'at', 'epoch', 'timestamp_utc'} and
+            obs['source_sha'] == source_sha and bounded(obs['at'], -1e12, 1e12) and
+            bounded(obs['epoch'], 0, 1e12), 'missing/invalid signal evaluation clock')
+    require(datetime.fromisoformat(obs['timestamp_utc']).utcoffset() == timedelta(0) and
+            abs(p8.p7.utc(obs['timestamp_utc']).timestamp() - obs['epoch']) <= 1e-6,
+            'signal evaluation UTC/epoch drift')
+    if interval is not None:
+        require(bounded(interval[0], -1e12, 1e12) and bounded(interval[1], interval[0], interval[0] + 30) and
+                interval[0] <= obs['at'] <= interval[1],
+                'signal evaluation outside snapshot')
+    if 'query_observation' in signal:
+        require(signal['query_observation']['at'] <= obs['at'], 'signal evaluated before query response')
+    if events is not None:
+        matches = [e for e in events if e['record'] == 'signal_evaluation' and e['at'] == obs['at']]
+        require(matches == [{'record': 'signal_evaluation', **obs, 'signal_sha256': digest(signal)}],
+                'signal evaluation provenance drift')
+    return obs['epoch']
+
+
 class TargetLifecycle:
     """Shared live/saved boundary: admission -> Ready -> initialized series."""
     def __init__(self, arm, initial_uids, v):
         self.arm, self.initial, self.v = arm, set(initial_uids), v
         self.first_seen, self.ready_since, self.observed, self.admin_seen = {}, {}, set(), set()
+        self.ready_epoch = {}
         self.resource_samples, self.resource_observed, self.resource_complete = {}, set(), set()
 
-    def inventory(self, pods, at):
+    def inventory(self, pods, at, epoch=None):
         names = {p['uid']: p['name'] for p in pods}
         require(len(names) == len(pods) and len(set(names.values())) == len(pods) and
                 1 <= len(pods) <= (2 if self.arm == 'C3' else 1), 'target inventory duplicates/bounds')
@@ -447,6 +471,9 @@ class TargetLifecycle:
             else:
                 require(not new or uid in self.ready_since or at - self.first_seen[uid] <= 90, 'target Ready startup timeout')
                 self.ready_since.setdefault(uid, at)
+                if epoch is not None:
+                    require(bounded(epoch, 0, 1e12), 'invalid Ready observation epoch')
+                    self.ready_epoch.setdefault(uid, epoch)
         return names
 
     def admin(self, targets, observations, stats, at):
@@ -471,6 +498,10 @@ class TargetLifecycle:
         require(all(r['metric_contract'] == metric_contract() for r in rows), 'saved series metric contract drift')
         observed = {r['pod_uid']: r['pod'] for r in rows}
         require(set(observed) <= self.admin_seen, 'series without initialized admin stats')
+        for uid in set(observed) - self.initial - self.observed:
+            require(uid in self.ready_since and
+                    0 <= at - self.ready_since[uid] <= self.v['ingestion_seconds'] + 3 * self.v['scrape_seconds'],
+                    'new-Pod series startup timeout')
         missing = set(names) - set(observed)
         if missing:
             require(signal['status'] == 'warming-new-pod' and self.arm == 'C3' and
@@ -506,7 +537,7 @@ class TargetLifecycle:
                 require(pod['name'] == names[uid], 'resource target name drift')
                 since = self.ready_since.get(uid)
                 if uid not in self.resource_complete:
-                    require(since is None or 0 <= at - since <= self.v['ingestion_seconds'] + 3 * self.v['scrape_seconds'],
+                    require(since is None or 0 <= at - since <= RESOURCE_INITIALIZATION_SECONDS,
                             'new-Pod resource startup timeout')
             obs = [o for o in guard['pod_metrics'] if o['metadata']['name'] == pod['name']]
             if not obs and new and uid not in self.resource_observed:
@@ -534,11 +565,15 @@ class TargetLifecycle:
                 continue
             previous = self.resource_samples.get(uid)
             require(previous is None or stamp >= previous, 'resource sample history drift')
-            advancing = previous is not None and stamp > previous
+            require(uid in self.ready_epoch, 'missing Ready observation epoch')
+            # A cached pre-Ready export (even an advancing one) cannot latch
+            # readiness. The current fresh/advancing export must be post-Ready.
+            advancing = (previous is not None and stamp > previous and
+                         stamp.timestamp() >= self.ready_epoch[uid])
             self.resource_samples[uid] = stamp
             if uid in self.resource_observed:
                 require(fresh, 'stale resource metric')
-            elif fresh and advancing and since is not None:
+            elif fresh and advancing:
                 self.resource_observed.add(uid)
             if uid in self.resource_observed and signal['status'] == 'observed' and uid in {r['pod_uid'] for r in signal['pods']}:
                 self.resource_complete.add(uid)
@@ -959,15 +994,20 @@ class Runtime(p8.Runtime):
             signal['query'], signal['query_diagnostics'] = extract_collector_query(result, self.v)
             signal['query_observation'] = observation
             validate_query_observation(signal, self.v, self.value['source_sha'])
+        if initializing and not missing and not signal['query']:
+            signal['status'] = 'uninitialized'
+        epoch = time.time()
+        signal['evaluation'] = {'source_sha': self.value['source_sha'], 'at': time.monotonic(), 'epoch': epoch,
+                                'timestamp_utc': datetime.fromtimestamp(epoch, timezone.utc).isoformat()}
+        epoch = signal_evaluation(signal, self.value['source_sha'], None if at is None else (at, at + 30))
+        getattr(self, 'emit', lambda _: None)({'record': 'signal_evaluation', **signal['evaluation'], 'signal_sha256': digest(signal)})
         if initializing:
             if rows:
-                telemetry(rows, {r['pod_uid']: r['pod'] for r in rows}, time.time(), self.v['freshness_seconds'])
-            if not missing and not signal['query']:
-                signal['status'] = 'uninitialized'
-            elif not missing:
+                telemetry(rows, {r['pod_uid']: r['pod'] for r in rows}, epoch, self.v['freshness_seconds'])
+            if not missing and signal['query']:
                 require(len(signal['query']) == 1 and bounded(float(signal['query'][0]['value'][1]), 0, 1000000), 'invalid guarded initialization query')
         else:
-            self.lifecycle.signal(signal, [p8.p4.pod_guard(p) for p in pods], time.monotonic() if at is None else at, time.time())
+            self.lifecycle.signal(signal, [p8.p4.pod_guard(p) for p in pods], signal['evaluation']['at'], epoch)
         return signal
 
     def release(self, emit):
@@ -983,11 +1023,13 @@ def collect_snapshot(runtime, config, before, emit, release_started):
     at = time.monotonic()
     runtime.collection_deadline.at = at + 30
     inventory = runtime.pods(NS, 'app=ext-authz-sim')
-    emit({'record': 'replica_timeline', 'at': at, 'pods': [p8.p4.pod_guard(p) for p in inventory],
+    inventory_at, inventory_epoch = time.monotonic(), time.time()
+    emit({'record': 'replica_timeline', 'at': at, 'epoch': inventory_epoch, 'inventory_at': inventory_at, 'source_sha': runtime.value['source_sha'],
+          'pods': [p8.p4.pod_guard(p) for p in inventory],
           'hpa': runtime.j('-n', NS, 'get', 'hpa', runtime.hpa_name, '-o', 'json')})
     if not hasattr(runtime, 'lifecycle'):
         runtime.lifecycle = TargetLifecycle(runtime.arm, runtime.initial_uids, runtime.v)
-    runtime.lifecycle.inventory([p8.p4.pod_guard(p) for p in inventory], at)
+    runtime.lifecycle.inventory([p8.p4.pod_guard(p) for p in inventory], inventory_at, inventory_epoch)
     releasing = release_started.is_set()
     def collect_guard():
         # guard reads no configuration/admin/lifecycle state. Give its sole
@@ -1019,7 +1061,7 @@ def collect_snapshot(runtime, config, before, emit, release_started):
     end = time.monotonic()
     if end > at + 30:
         raise SnapshotBudgetExceeded('snapshot collection budget exceeded')
-    snap = {'record': 'snapshot', 'at': at, 'end': end, 'epoch': time.time(), 'timestamp_utc': p8.utc(),
+    snap = {'record': 'snapshot', 'at': at, 'end': end, 'inventory_at': inventory_at, 'inventory_epoch': inventory_epoch, 'epoch': time.time(), 'timestamp_utc': p8.utc(),
             'configuration': actual, 'guard': guard, 'stats': stats, 'logs': logs, 'haproxy': haproxy,
             'haproxy_logs': hp_logs, 'signal': signal, 'resource_readiness': resource, 'fault_healthy': healthy, 'healthy': all_converged,
             'release_started': releasing, 'admin_stats': runtime.admin_observations, 'target_inventory': [p8.p4.pod_guard(p) for p in inventory]}
@@ -1611,7 +1653,7 @@ def common_guards(snapshots, baseline, arm, v):
         require(any(n['schedulable'] and n['cpu_free'] >= .15 and n['memory_free'] >= 192 * 1024**2 for n in guard['node_headroom']), 'node headroom')
         require(guard['node_metrics'] and guard['pod_metrics'], 'missing node/Pod metrics')
         inventory = s.get('target_inventory', [p for p in guard['pods'] if p['name'].startswith('ext-authz-sim-')])
-        lifecycle.inventory(inventory, s['at'])
+        lifecycle.inventory(inventory, s.get('inventory_at', s['at']), s.get('inventory_epoch'))
         resource_at = s['at']  # Historical guard-only replay has no new marker.
         if 'resource_readiness' in s:
             require(type(s['resource_readiness']) is dict and 'observed_at' in s['resource_readiness'],
@@ -1746,14 +1788,22 @@ def validate(directory):
                 {p['uid']: p['name'] for p in s['guard']['pods'] if p['name'].startswith('ext-authz-sim-')}, 'snapshot target inventory differs')
         require({t['uid']: t['name'] for t in s['configuration']['targets']} ==
                 {p['uid']: p['name'] for p in inventory if p['ready']}, 'Ready configuration inventory differs')
-        lifecycle.inventory(inventory, s['at'])
+        starts = [e for e in events if e['record'] == 'replica_timeline' and e['at'] == s['at']]
+        require(len(starts) == 1 and starts[0].get('epoch') == s.get('inventory_epoch') and
+                bounded(s.get('inventory_epoch'), 0, 1e12) and bounded(s.get('inventory_at'), s['at'], s['end']) and
+                starts[0].get('inventory_at') == s['inventory_at'] and starts[0].get('source_sha') == manifest['source_sha'] and
+                starts[0]['pods'] == inventory, 'snapshot start/Ready clock provenance drift')
+        lifecycle.inventory(inventory, s['inventory_at'], s['inventory_epoch'])
         lifecycle.admin(s['configuration']['targets'], s['admin_stats'], s['stats'], s['at'])
         require(s['configuration']['metric_contract'] == metric_contract(), 'snapshot metric contract drift')
-        value = lifecycle.signal(s['signal'], inventory, s['at'], s['epoch'])
+        epoch = signal_evaluation(s['signal'], manifest['source_sha'], (s['at'], s['end']))
+        require(s['inventory_at'] <= s['signal']['evaluation']['at'], 'signal evaluation before inventory')
+        value = lifecycle.signal(s['signal'], inventory, s['signal']['evaluation']['at'], epoch)
+        signal_evaluation(s['signal'], manifest['source_sha'], events=events)
         require(type(s.get('resource_readiness')) is dict and 'observed_at' in s['resource_readiness'],
                 'saved resource readiness drift')
         resource_at = s['resource_readiness']['observed_at']
-        require(bounded(resource_at, s['at'], s['end']), 'resource observation outside snapshot')
+        require(bounded(resource_at, s['signal']['evaluation']['at'], s['end']), 'resource observation outside snapshot')
         resource = lifecycle.resources(s['guard'], inventory, s['signal'], resource_at)
         require(s.get('resource_readiness') == resource, 'saved resource readiness drift')
         converged = (s.get('fault_healthy', False) and s['signal']['status'] == resource['status'] == 'observed' and
