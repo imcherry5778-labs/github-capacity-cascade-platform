@@ -24,7 +24,9 @@ source/test 변경은 **future candidate**다. Campaign22·23 archive/실행 sou
   초기화 완료 뒤 실패, persistent/다른 error, UID/owner/hash/clock 누락·변경은 invalid다. Warning guard도 그대로다.
   Earlier HPA와 later AMW를 같은 evaluation으로 합치지 않는다. Degraded 구간은 convergence/recovery proof에서 제외하고
   `review`에도 `excluded_controller_degradation`의 정확한 구간/UID 목록을 요구한다.
-- **DECIDED — authoritative HAProxy capture.** All arms에4MiB in-process `ring@p9`와 loopback-only worker CLI8405를 쓴다.
+- **DECIDED — authoritative HAProxy capture.** All arms에16MiB in-process `ring@p9`와 loopback-only worker CLI8405를 쓴다.
+  Per-Pod lifetime 최대6×5400 + 정상/healthy journey3×87 + probe3×2 =32667 row를512-byte slot으로 예약한다.
+  Direct sentinel·CLI/AMW·unlogged readiness는 check frontend를 통과하지 않는다. 매 부하 전 실제 prefix와 남은 campaign 전체를 예약하며 C0/C1 Pod UID/config를 reset하지 않는다.
   Pinned image의 BusyBox `nc`로 읽으며 Pod/CPU/memory request·limit, frontend/backend/C2 policy는 유지한다.
   Stdout은 diagnostic이다. CLI ring drop, capacity/truncation, Pod UID/PID/start-time reset, prefix rotation,
   duplicate request counter는 fail closed다. 부하 전에 bounded 최대 attempt를 저장할 여유를 확인한다.

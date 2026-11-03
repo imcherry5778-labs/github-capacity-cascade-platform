@@ -48,7 +48,7 @@ TARGET_METRIC = {'cluster_label': 'cluster_name', 'cluster': 'inbound|8080||',
 # changes smoothing, not the 60s raw freshness or any calibration threshold.
 RATE_WINDOW = '2m'
 RESOURCE_INITIALIZATION_SECONDS = 150
-HAPROXY_RING_BYTES = 4 * 1024 * 1024
+HAPROXY_RING_BYTES = 16 * 1024 * 1024
 HAPROXY_LOG_MAXLEN = 512
 # Read-only commands on a worker CLI bound to loopback, never the master CLI.
 HAPROXY_LOG_CLI = "set -e; printf 'show info;show events;show events p9\\n' | nc -w 2 127.0.0.1 8405; printf '\\nP9_RING_END\\n'"
@@ -222,6 +222,39 @@ def schedule(v):
             for wave in range(duration // 5) for kind, count in (('issue', 24), ('git', 1)) for index in range(count)]
 
 
+def haproxy_lifetime_budget(v):
+    """Capacity planning, never inferred accounting or additional run authority.
+
+    Use the source's maximum 300+240 plan for ALL six runs, without assuming
+    any HAProxy reset. Issue has <=2 single-HTTP attempts; ls-remote has one
+    command but reserve discovery + ls-refs HTTP (not one check/attempt).
+    A create journey reserves API11 + Git HTTP16 + settling polls60 =87;
+    reserve all three normal/healthy journeys and two HTTP per named probe.
+    Direct 127.0.0.1:13000 sentinels, CLI/AMW and unlogged readiness add no rows.
+    """
+    maximum = v | {'mitigation_seconds': 300, 'recovery_seconds': 240}
+    rows_per_run = 2 * len(schedule(maximum))
+    journeys, probes = 3 * (11 + 16 + 60), 3 * 2
+    runs = 2 + len(ARMS)
+    return {'runs': runs, 'rows_per_run': rows_per_run, 'journey_rows': journeys, 'probe_rows': probes,
+            'initial_public_rows': 2 * (11 + 16 + 60), 'tail_public_rows': (11 + 16 + 60) + probes,
+            'total_rows': runs * rows_per_run + journeys + probes, 'direct_sentinel_rows': 0}
+
+
+def haproxy_capacity_preflight(v, prefix_rows=0, started_runs=1):
+    budget = haproxy_lifetime_budget(v)
+    require((budget['total_rows'] + 1) * HAPROXY_LOG_MAXLEN < HAPROXY_RING_BYTES,
+            'insufficient HAProxy ring capacity for maximum campaign lifetime')
+    require(type(prefix_rows) is int and prefix_rows >= 0 and type(started_runs) is int and
+            1 <= started_runs <= budget['runs'], 'HAProxy capacity ledger/prefix bounds')
+    remaining = budget['runs'] - started_runs + 1  # Ledger already includes this started run.
+    reserved = remaining * budget['rows_per_run'] + budget['tail_public_rows']
+    require((prefix_rows + reserved + 1) * HAPROXY_LOG_MAXLEN < HAPROXY_RING_BYTES,
+            'insufficient HAProxy ring capacity for remaining campaign lifetime')
+    return budget | {'prefix_rows': prefix_rows, 'remaining_runs': remaining, 'reserved_future_rows': reserved,
+                     'capacity_bytes': HAPROXY_RING_BYTES}
+
+
 def retry_delay(v, arm, item):
     if arm != 'C1':
         return 0
@@ -383,6 +416,7 @@ def controller_guard(arm, hpas, scaled):
 
 def approval_gate(identity, v, approval, ledger, now=None):
     p8.identity(identity); plan(v)
+    haproxy_capacity_preflight(v)  # Pure source check before Runtime can read credentials/cloud APIs.
     now = now or datetime.now(timezone.utc)
     require(os.environ.get('P9_AZURE_APPROVED') == identity['source_sha'] and
             approval['source_sha'] == identity['source_sha'] and approval['identity'] == identity and
@@ -1725,8 +1759,9 @@ def _measure(identity, v, arm, phase, output, approval_path, frozen_path, ledger
         try:
             initial = collect_snapshot(runtime, config, baseline, emit, release_started)
             haproxy_capture_guard([initial])
-            require((len(initial['haproxy_logs']) + 2 * len(schedule(v)) + 1) * HAPROXY_LOG_MAXLEN < HAPROXY_RING_BYTES,
-                    'insufficient HAProxy ring capacity for bounded attempts')
+            capacity = haproxy_capacity_preflight(v, len(initial['haproxy_logs']), len(ledger) + 1)
+            emit({'record': 'haproxy_capacity_preflight', 'at': time.monotonic(),
+                  'pod_uid': initial['haproxy_log_observation']['pod_uid'], **capacity})
             with concurrent.futures.ThreadPoolExecutor(max_workers=3) as workers:
                 monitors = [workers.submit(sentinel), workers.submit(monitor)]
                 try:

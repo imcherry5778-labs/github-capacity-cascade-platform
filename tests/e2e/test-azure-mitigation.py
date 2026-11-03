@@ -4569,6 +4569,30 @@ class C3StartupControllerTests(unittest.TestCase):
 
 
 class HaproxyRingTests(unittest.TestCase):
+    def test_whole_campaign_capacity_includes_shared_lifetime_and_public_rows(self):
+        maximum = plan() | {'mitigation_seconds': 300, 'recovery_seconds': 240}
+        items = m.schedule(maximum)
+        self.assertEqual(sum(x['kind'] == 'issue' for x in items), 2592)
+        self.assertEqual(sum(x['kind'] == 'git' for x in items), 108)
+        b = m.haproxy_lifetime_budget(plan())
+        self.assertEqual((b['runs'], b['rows_per_run'], b['total_rows']), (6, 5400, 32667))
+        self.assertEqual(b['direct_sentinel_rows'], 0)
+        required = (b['total_rows'] + 1) * m.HAPROXY_LOG_MAXLEN
+        self.assertLess(required, m.HAPROXY_RING_BYTES)
+        self.assertGreaterEqual(required, m.HAPROXY_RING_BYTES // 2)  # Smallest power-of-two allocation.
+        for previous_runs in range(6):
+            prefix = b['initial_public_rows'] + previous_runs * b['rows_per_run']
+            capacity = m.haproxy_capacity_preflight(plan(), prefix, previous_runs + 1)
+            self.assertEqual(prefix + capacity['reserved_future_rows'], b['total_rows'])
+        with patch.object(m, 'HAPROXY_RING_BYTES', 4 * 1024 * 1024), \
+                patch.object(m.p8.subprocess, 'run') as cloud, self.assertRaisesRegex(ValueError, 'maximum campaign lifetime'):
+            m.approval_gate(t8.identity(), plan(), approval(), [])
+        cloud.assert_not_called()
+        reserve = m.haproxy_capacity_preflight(plan())['reserved_future_rows']
+        too_many = m.HAPROXY_RING_BYTES // m.HAPROXY_LOG_MAXLEN - 1 - reserve
+        with self.assertRaisesRegex(ValueError, 'remaining campaign lifetime'):
+            m.haproxy_capacity_preflight(plan(), too_many, 1)
+
     def row(self, counter=0):
         return {'status': 200, 'termination': '--', 'queue_ms': 0, 'connect_ms': 0, 'response_ms': 1,
                 'total_ms': 1, 'accept_time': '1793698200.007', 'request_counter': counter + 1,
@@ -4726,7 +4750,17 @@ class PinnedHaproxyRingTests(unittest.TestCase):
                                 c.request('GET', '/local-test-url', body=b'local-test-body', headers={'Authorization': 'local-test-value'})
                                 r = c.getresponse(); r.read(); return r.status
                             finally: c.close()
-                        captures, times = [], []
+                        captures, times, lifetime, memory = [], [], [], []
+                        def memory_sample(stage):
+                            lines = command('docker', 'exec', name, 'cat', '/sys/fs/cgroup/memory.current',
+                                '/sys/fs/cgroup/memory.peak', '/sys/fs/cgroup/memory.max', '/sys/fs/cgroup/memory.events').splitlines()
+                            current, peak, limit = map(int, lines[:3])
+                            events = {key: int(value) for key, value in (line.split() for line in lines[3:])}
+                            self.assertEqual(limit, 256 * 1024 * 1024)
+                            self.assertLess(peak, limit)
+                            self.assertEqual(events['oom'], 0); self.assertEqual(events['oom_kill'], 0)
+                            memory.append({'stage': stage, 'current_bytes': current, 'peak_bytes': peak,
+                                           'limit_bytes': limit, 'events': events})
                         def capture():
                             started = time.monotonic()
                             raw = command('docker', 'exec', name, 'sh', '-c', m.HAPROXY_LOG_CLI)
@@ -4740,11 +4774,44 @@ class PinnedHaproxyRingTests(unittest.TestCase):
                             if captures: m.haproxy_capture_guard([captures[-1], snap], drained=False)
                             captures.append(snap)
                         capture()
-                        with concurrent.futures.ThreadPoolExecutor(max_workers=32) as clients:
-                            futures = [clients.submit(get, i) for i in range(3300)]
-                            while not all(f.done() for f in futures):
-                                capture(); time.sleep(.15)
-                            statuses = [f.result() for f in futures]
+                        if arm == 'C0':
+                            # C0/C1 render is identical. Deliberately retain ONE
+                            # Pod/process/config for the entire six-run envelope,
+                            # including calibration(s); no per-arm reset assumption.
+                            other = m.render(t8.identity(), plan(), 'C1')['fixtures.json']['items']
+                            self.assertEqual(next(o['data']['haproxy.cfg'] for o in other if o['kind'] == 'ConfigMap' and o['metadata']['name'] == 'haproxy').replace(
+                                'ext-authz-sim.' + m.NS + '.svc.cluster.local:8080', 'host.docker.internal:' + str(server.server_port)), cfg)
+                            b = m.haproxy_lifetime_budget(plan())
+                            memory_sample('before')
+                            statuses = [get(i) for i in range(b['initial_public_rows'])]
+                            capture()
+                            for run in range(b['runs']):
+                                capacity = m.haproxy_capacity_preflight(plan(), len(captures[-1]['haproxy_logs']), run + 1)
+                                with concurrent.futures.ThreadPoolExecutor(max_workers=32) as clients:
+                                    futures = [clients.submit(get, i) for i in range(b['rows_per_run'])]
+                                    capture()  # Large cumulative dump while concurrent load is active too.
+                                    statuses += [f.result() for f in futures]
+                                capture()
+                                native = m.Runtime.__new__(m.Runtime)
+                                native.pod = lambda *_: {'metadata': {'name': name}}
+                                native.k = lambda *a: command('docker', 'exec', name, *a[a.index('--') + 1:])
+                                frontend = m.Runtime.haproxy(native)['frontend']
+                                captures[0]['haproxy'] = {'frontend': {'stot': 0, 'scur': 0}}
+                                captures[-1]['haproxy'] = {'frontend': frontend}
+                                m.haproxy_capture_guard([captures[0], captures[-1]])
+                                self.assertEqual(frontend['stot'], len(statuses))
+                                memory_sample('run-' + str(run + 1))
+                                lifetime.append({'run': run + 1, 'capacity_preflight': capacity, 'frontend': frontend,
+                                                 'capture_index': len(captures) - 1})
+                            statuses += [get(i) for i in range(b['tail_public_rows'])]
+                            self.assertEqual(len(statuses), b['total_rows'])
+                            memory_sample('after-tail')
+                        else:
+                            with concurrent.futures.ThreadPoolExecutor(max_workers=32) as clients:
+                                futures = [clients.submit(get, i) for i in range(3300)]
+                                while not all(f.done() for f in futures):
+                                    capture(); time.sleep(.15)
+                                statuses = [f.result() for f in futures]
                         capture()
                         if arm != 'C2': self.assertTrue(set(statuses) <= {200, 503})
                         if arm == 'C2':
@@ -4770,7 +4837,12 @@ class PinnedHaproxyRingTests(unittest.TestCase):
                         # Exec readiness creates no check rows.
                         command('docker', 'exec', name, 'wget', '-qO-', 'http://127.0.0.1:8404/stats')
                         capture(); self.assertEqual(captures[-1]['haproxy_logs'], rows)
-                        m.save(out / (arm + '.json'), {'captures': captures, 'statuses': statuses, 'capture_seconds': times})
+                        if arm == 'C0': memory_sample('final')
+                        restarts = json.loads(command('docker', 'inspect', '--format', '{{.RestartCount}}', name))
+                        oom = json.loads(command('docker', 'inspect', '--format', '{{json .State.OOMKilled}}', name))
+                        self.assertEqual(restarts, 0); self.assertIs(oom, False)
+                        m.save(out / (arm + '.json'), {'captures': captures, 'statuses': statuses, 'capture_seconds': times,
+                                                     'sequential_lifetime': lifetime, 'memory': memory})
                         summaries.append({'arm': arm, 'requests': len(statuses), 'rows': len(rows),
                             'counter_min': min(r['log_counter'] for r in rows), 'counter_max': max(r['log_counter'] for r in rows),
                             'lc_duplicates': len(rows) - len({r['log_counter'] for r in rows}),
@@ -4779,8 +4851,10 @@ class PinnedHaproxyRingTests(unittest.TestCase):
                             'ring_dropped': 0, 'dropped_logs_total': captures[-1]['haproxy_log_observation']['dropped_logs_total'],
                             'status_counts': {str(s): statuses.count(s) for s in set(statuses)},
                             'frontend': frontend,
+                            'sequential_runs_same_container': len(lifetime), 'memory': memory,
+                            'RestartCount': restarts,
                             'termination_counts': {s: sum(r['termination'] == s for r in rows) for s in {r['termination'] for r in rows}},
-                            'OOMKilled': json.loads(command('docker', 'inspect', '--format', '{{json .State.OOMKilled}}', name))})
+                            'OOMKilled': oom})
                     finally: command('docker', 'rm', '-f', name)
         finally:
             server.shutdown(); server.server_close(); worker.join(3)
