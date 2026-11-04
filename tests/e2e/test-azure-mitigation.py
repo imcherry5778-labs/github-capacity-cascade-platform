@@ -4862,6 +4862,141 @@ class Campaign24BoundaryTests(unittest.TestCase):
                 m.require_complete_demand(report)
 
 
+class Campaign29WarningRecurrenceTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.archive = ROOT / 'docs/evidence/p9-mitigation-twenty-ninth-20261104/raw-evidence.tar.gz'
+        cls.original = m.hashlib.sha256(cls.archive.read_bytes()).hexdigest()
+        assert cls.original == '82eddb8e5bd0c784f3cfb01e152168cff3c485460f4ff0a223fb624f0d11e940'
+        with tarfile.open(cls.archive) as raw:
+            cls.manifest = json.load(raw.extractfile('C3-calibration1/configuration.json'))
+            rows = [json.loads(line) for line in raw.extractfile('C3-calibration1/events.jsonl')]
+        cls.snapshots = [e for e in rows if e['record'] == 'snapshot']
+        cls.origin = cls.snapshots[0]['signal']['evaluation']['epoch']
+
+    @classmethod
+    def tearDownClass(cls):
+        assert m.hashlib.sha256(cls.archive.read_bytes()).hexdigest() == cls.original
+
+    def warnings(self, snapshots):
+        return m.controller_metric_warnings(snapshots, self.manifest['baseline'], 'C3', self.manifest['plan'])
+
+    def at(self, offset):
+        return m.datetime.fromtimestamp(round(self.origin + offset), m.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+
+    def event(self, s, reason):
+        return next(e for e in s['guard']['events'] if e.get('reason') == reason)
+
+    def test_actual_repeated_keda_warmup_warning_is_bounded_and_archive_stays_invalid(self):
+        execution = json.loads((self.archive.parent / 'execution.json').read_text())
+        self.assertTrue(execution['state'].startswith('CLOSED/invalid'))  # Original classification is immutable.
+        warnings = self.warnings(self.snapshots)
+        keda = next(x for x in warnings if x['event']['reason'] == 'KEDAScalerFailed')
+        self.assertEqual((keda['event']['count'], keda['first_snapshot'], keda['last_snapshot'], keda['recovery_snapshot']), (2, 7, 27, 11))
+        self.assertEqual({k: keda['warming_episode'][k] for k in ('start_snapshot', 'observed_snapshot')},
+                         {'start_snapshot': 4, 'observed_snapshot': 7})
+        self.assertEqual(keda['warming_episode']['start_epoch'], self.snapshots[4]['inventory_epoch'])
+        self.assertEqual(keda['warming_episode']['end_epoch'], self.snapshots[7]['signal']['evaluation']['epoch'])
+        hpa = [x for x in warnings if x['event']['reason'] != 'KEDAScalerFailed']
+        self.assertEqual({(x['event']['reason'], x['event']['count']) for x in hpa},
+                         {('FailedGetExternalMetric', 1), ('FailedComputeMetricsReplicas', 1)})
+        self.assertTrue(all('warming_episode' not in x and 'first_observed' not in x for x in hpa))
+        self.assertEqual(len(m.common_guards(self.snapshots, self.manifest['baseline'], 'C3', self.manifest['plan'])), 2)
+
+    def test_native_count_growth_only_while_warming(self):
+        changed = copy.deepcopy(self.snapshots)
+        grown = self.event(changed[7], 'KEDAScalerFailed')
+        early = copy.deepcopy(grown) | {'count': 1, 'timestamp_utc': grown['first_timestamp_utc']}
+        changed[6]['guard']['events'].append(early)
+        keda = next(x for x in self.warnings(changed) if x['event']['reason'] == 'KEDAScalerFailed')
+        self.assertEqual((keda['first_snapshot'], keda['event']['count']), (6, 2))
+        self.assertEqual(keda['first_observed'], {'count': 1, 'first_timestamp_utc': grown['first_timestamp_utc'],
+                                                  'timestamp_utc': grown['first_timestamp_utc']})
+        self.assertEqual(keda['recovery_snapshot'], 11)
+
+        cases = {'after-observed': (8, {'count': 3, 'timestamp_utc': self.at(140)}),
+                 'count-regression': (8, {'count': 1, 'timestamp_utc': grown['first_timestamp_utc']}),
+                 'time-regression': (8, {'count': 3, 'timestamp_utc': self.at(110)}),
+                 'count-without-time': (8, {'count': 3}),
+                 'first-time-change': (8, {'first_timestamp_utc': self.at(104)}),
+                 'late-recurrence': (20, {'count': 3, 'timestamp_utc': self.at(300)})}
+        for case, (index, fields) in cases.items():
+            changed = copy.deepcopy(self.snapshots)
+            for s in changed[index:]:
+                self.event(s, 'KEDAScalerFailed').update(fields)
+            with self.subTest(case=case), self.assertRaisesRegex(ValueError, 'warning provenance or recurrence'):
+                self.warnings(changed)
+
+    def test_repeat_outside_native_warmup_or_without_bounded_episode_invalid(self):
+        def first_before_inventory(e): e['first_timestamp_utc'] = self.at(50)  # Before first new-Pod inventory.
+        def single_poll(e): e['first_timestamp_utc'] = e['timestamp_utc']
+        def hpa_owner(e): e['owner'] = copy.deepcopy(self.event(self.snapshots[7], 'FailedGetExternalMetric')['owner'])
+        def scaledobject_uid(e): e['owner']['uid'] = 'other-owner'
+        def missing_first(e): e.pop('first_timestamp_utc')
+        def bad_count(e): e['count'] = '2'
+        for case, mutate in {'first-before-inventory': first_before_inventory, 'count-gt-one-same-time': single_poll,
+                             'hpa-owner': hpa_owner, 'scaledobject-uid': scaledobject_uid,
+                             'missing-first': missing_first, 'non-int-count': bad_count}.items():
+            changed = copy.deepcopy(self.snapshots)
+            for s in changed[7:]:
+                mutate(self.event(s, 'KEDAScalerFailed'))
+            with self.subTest(case=case), self.assertRaisesRegex(ValueError, 'warning provenance or recurrence'):
+                self.warnings(changed)
+        # No later fully observed all-Pod signal: the warmup never ends, so no repeat is bounded.
+        changed = copy.deepcopy(self.snapshots)
+        missing = changed[6]['signal']['missing_uids']
+        for s in changed[7:]:
+            s['signal'].update(status='warming-new-pod', missing_uids=copy.deepcopy(missing))
+        with self.assertRaisesRegex(ValueError, 'warning provenance or recurrence'):
+            self.warnings(changed)
+
+    def test_hpa_single_episode_and_existing_history_guards_remain(self):
+        for reason in ('FailedGetExternalMetric', 'FailedComputeMetricsReplicas'):
+            changed = copy.deepcopy(self.snapshots)
+            for s in changed[7:]:
+                self.event(s, reason).update(count=2, first_timestamp_utc=self.at(102))
+            with self.subTest(reason=reason), self.assertRaisesRegex(ValueError, 'warning provenance or recurrence'):
+                self.warnings(changed)
+        changed = copy.deepcopy(self.snapshots)
+        for s in changed[9:]:
+            self.event(s, 'FailedGetExternalMetric')['message'] = 'changed native history'
+        with self.assertRaisesRegex(ValueError, 'history changed across snapshots'):
+            self.warnings(changed)
+        changed = copy.deepcopy(self.snapshots)
+        # Even inside the same bounded warmup, a second native Event UID is a new episode.
+        second = copy.deepcopy(self.event(changed[7], 'KEDAScalerFailed')) | {'uid': 'second-event-uid'}
+        for s in changed[7:]:
+            s['guard']['events'].append(copy.deepcopy(second))
+        with self.assertRaisesRegex(ValueError, 'new HPA/KEDA Warning episode'):
+            self.warnings(changed)
+        changed = copy.deepcopy(self.snapshots)
+        changed[-1]['guard']['events'] = [e for e in changed[-1]['guard']['events'] if e.get('reason') != 'KEDAScalerFailed']
+        with self.assertRaisesRegex(ValueError, 'history disappeared'):
+            self.warnings(changed)
+        # Grouping uses distinct warnings' native first times, still 15s.
+        changed = copy.deepcopy(self.snapshots)
+        for s in changed[7:]:
+            self.event(s, 'FailedGetExternalMetric').update(first_timestamp_utc=self.at(117), timestamp_utc=self.at(117))
+        with self.assertRaisesRegex(ValueError, 'independent controller Warning episodes'):
+            self.warnings(changed)
+        unknown = copy.deepcopy(self.event(self.snapshots[7], 'KEDAScalerFailed')) | {'reason': 'KEDAMetricSourceFailed', 'uid': 'other'}
+        changed = copy.deepcopy(self.snapshots)
+        for s in changed[7:]:
+            s['guard']['events'].append(copy.deepcopy(unknown))
+        with self.assertRaisesRegex(ValueError, 'warning provenance or recurrence'):
+            self.warnings(changed)
+
+    def test_repeat_requires_later_native_joint_positive(self):
+        for case in ('controller', 'resource', 'signal'):
+            changed = copy.deepcopy(self.snapshots)
+            for s in changed[8:]:
+                if case == 'controller': s['controller_state']['status'] = 'degraded'
+                elif case == 'resource': s['resource_readiness']['status'] = 'initializing-new-pod'
+                else: s['signal']['status'] = 'uninitialized'
+            with self.subTest(case=case), self.assertRaisesRegex(ValueError, 'lacks later independent joint positive'):
+                self.warnings(changed)
+
+
 class HaproxyRingTests(unittest.TestCase):
     def test_whole_campaign_capacity_includes_shared_lifetime_and_public_rows(self):
         maximum = plan() | {'mitigation_seconds': 300, 'recovery_seconds': 240}

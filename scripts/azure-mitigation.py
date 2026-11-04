@@ -486,14 +486,52 @@ def controller_observation(s, baseline):
     return obs['at']
 
 
+def warming_episodes(snapshots, baseline):
+    """Native new-Pod warmup windows for repeated KEDA no-data errors.
+
+    Each starts at the first inventory listing a warming UID and ends at the
+    first later fully observed all-Pod signal. An unterminated episode allows
+    no repetition.
+    """
+    initial = {t['uid'] for t in baseline['targets']}
+    episodes, current = [], None
+    for index, s in enumerate(snapshots):
+        signal = s['signal']
+        if signal.get('status') == 'warming-new-pod':
+            missing = set(signal.get('missing_uids') or ())
+            require(missing and not missing & initial, 'unapproved missing telemetry')
+            if current is None:
+                listed = next((i for i in range(index + 1) if missing & {p['uid'] for p in snapshots[i].get(
+                    'target_inventory', [p for p in snapshots[i]['guard']['pods'] if p['name'].startswith('ext-authz-sim-')])}), None)
+                require(listed is not None, 'warming UID absent from target inventory')
+                current = {'start_snapshot': listed, 'start_epoch': snapshots[listed]['inventory_epoch'], 'uids': missing}
+            current['uids'] |= missing
+        elif current is not None and signal.get('status') == 'observed' and not signal.get('missing_uids'):
+            episodes.append(current | {'observed_snapshot': index, 'end_epoch': signal['evaluation']['epoch']})
+            current = None
+    return episodes
+
+
 def controller_metric_warnings(snapshots, baseline, arm, v):
     """Deduplicate native HPA/KEDA warning history and require later live proof."""
     if arm != 'C3' or not any('controller_state' in s for s in snapshots):
         return []
     identity = baseline['hpa_identity']
+    scaledobject = ('ScaledObject', HPA, NS)
     expected = {('HorizontalPodAutoscaler', HPA, NS): identity['uid'],
-                ('ScaledObject', HPA, NS): identity['owner_uid']}
+                scaledobject: identity['owner_uid']}
     allowed = {'FailedGetExternalMetric', 'FailedComputeMetricsReplicas', 'KEDAScalerFailed'}
+    episodes = warming_episodes(snapshots, baseline)
+    utc = lambda value: p8.p7.utc(value).timestamp()
+
+    def episode(event, index):
+        # ignoreNullValues=false makes the guarded empty query a KEDA error on
+        # every poll while a new Pod warms. Only the exact ScaledObject may
+        # repeat, wholly inside one native warmup before its observed signal.
+        first, last = utc(event['first_timestamp_utc']), utc(event['timestamp_utc'])
+        return next((e for e in episodes if index <= e['observed_snapshot'] and
+                     e['start_epoch'] <= first < last < e['end_epoch']), None)
+
     events, reason_owners = {}, set()
     for index, s in enumerate(snapshots):
         for event in s['guard']['events']:
@@ -501,31 +539,46 @@ def controller_metric_warnings(snapshots, baseline, arm, v):
             key = (owner.get('kind'), owner.get('name'), owner.get('namespace'))
             if event.get('reason') not in allowed and key not in expected:
                 continue
+            repeatable = key == scaledobject and event.get('reason') == 'KEDAScalerFailed'
+            # Unchanged retained history was bounded where this version first appeared.
+            retained = event.get('uid') in events and events[event['uid']]['event'] == event
             require(key in expected and event.get('type') == 'Warning' and event.get('reason') in allowed and
                     owner.get('uid') == expected.get(key) and isinstance(event.get('uid'), str) and event['uid'] and
-                    type(event.get('count')) is int and event['count'] == 1 and
-                    event.get('timestamp_utc') and event.get('first_timestamp_utc') == event['timestamp_utc'],
+                    type(event.get('count')) is int and event.get('timestamp_utc') and event.get('first_timestamp_utc') and
+                    (event['count'] == 1 and event['first_timestamp_utc'] == event['timestamp_utc'] or
+                     repeatable and event['count'] > 1 and (retained or episode(event, index) is not None)),
                     'invalid HPA/KEDA warning provenance or recurrence')
             episode_key = (event['reason'], key)
             require(episode_key not in reason_owners or event['uid'] in events,
                     'new HPA/KEDA Warning episode')
             reason_owners.add(episode_key)
-            stamp = p8.p7.utc(event['timestamp_utc']).timestamp()
+            stamp = utc(event['timestamp_utc'])
             epoch = s['signal']['evaluation']['epoch']
             require(epoch >= stamp, 'controller Warning follows saved signal evaluation')
-            old = events.setdefault(event['uid'], {'event': copy.deepcopy(event), 'first_snapshot': index,
-                                                    'last_snapshot': index, 'epoch': stamp})
-            require(old['event'] == event, 'controller Warning history changed across snapshots')
+            old = events.setdefault(event['uid'], {'event': copy.deepcopy(event), 'first_event': copy.deepcopy(event),
+                                                    'first_snapshot': index, 'last_snapshot': index,
+                                                    'version_snapshot': index})
+            if old['event'] != event:
+                require(repeatable, 'controller Warning history changed across snapshots')
+                # Native aggregation may grow while warming: same UID and first
+                # time, strictly larger count and last time, nothing else.
+                prior = old['event']
+                same = lambda e: {k: x for k, x in e.items() if k not in {'count', 'timestamp_utc'}}
+                require(same(prior) == same(event) and event['count'] > prior['count'] and
+                        stamp > utc(prior['timestamp_utc']), 'invalid HPA/KEDA warning provenance or recurrence')
+                old['event'], old['version_snapshot'] = copy.deepcopy(event), index
             old['last_snapshot'] = index
     if not events:
         return []
     entries = list(events.values())
     require(all(x['last_snapshot'] == len(snapshots) - 1 for x in entries),
             'controller Warning history disappeared')
-    stamps = [x['epoch'] for x in entries]
-    require(max(stamps) - min(stamps) <= v['controller_seconds'], 'independent controller Warning episodes')
+    # Group distinct warnings by native first time; repeated KEDA polls are
+    # bounded by the warmup episode above, not by this grouping window.
+    firsts = [utc(x['event']['first_timestamp_utc']) for x in entries]
+    require(max(firsts) - min(firsts) <= v['controller_seconds'], 'independent controller Warning episodes')
     first = min(x['first_snapshot'] for x in entries)
-    latest = max(stamps)
+    latest = max(utc(x['event']['timestamp_utc']) for x in entries)
     recovery_index = next((i for i in range(first + 1, len(snapshots))
         if snapshots[i]['signal']['evaluation']['epoch'] > latest and
         snapshots[i]['controller_state'].get('status') == 'positive' and
@@ -533,9 +586,17 @@ def controller_metric_warnings(snapshots, baseline, arm, v):
         snapshots[i]['signal'].get('status') == 'observed' and
         snapshots[i]['resource_readiness'].get('status') == 'observed'), None)
     require(recovery_index is not None, 'HPA/KEDA Warning lacks later independent joint positive observation')
-    return [{'event': x['event'], 'first_snapshot': x['first_snapshot'],
-             'last_snapshot': x['last_snapshot'], 'recovery_snapshot': recovery_index,
-             'degraded': True} for x in sorted(entries, key=lambda x: (x['epoch'], x['event']['uid']))]
+    result = []
+    for x in sorted(entries, key=lambda x: (utc(x['event']['first_timestamp_utc']), x['event']['uid'])):
+        item = {'event': x['event'], 'first_snapshot': x['first_snapshot'], 'last_snapshot': x['last_snapshot'],
+                'recovery_snapshot': recovery_index, 'degraded': True}
+        if x['first_event'] != x['event']:
+            item['first_observed'] = {k: x['first_event'][k] for k in ('count', 'first_timestamp_utc', 'timestamp_utc')}
+        if x['event']['count'] > 1:
+            bound = episode(x['event'], x['version_snapshot'])
+            item['warming_episode'] = {k: bound[k] for k in ('start_snapshot', 'start_epoch', 'observed_snapshot', 'end_epoch')}
+        result.append(item)
+    return result
 
 
 @contextmanager

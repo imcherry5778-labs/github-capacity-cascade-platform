@@ -30,6 +30,12 @@ source/test 변경은 당시 **future candidate**였고 이후 exact source d1ed
   같은 HPA의 usable External current metric과 실제 `True/ValidMetricFound`가 원래 budget 안에서 joint 관측돼야 한다.
   초기화 완료 뒤 현재 HPA False, 새로운/persistent Warning episode, 다른 error, UID/owner/hash/clock 누락·변경은 invalid다.
   같은 native Warning UID·timestamp·count가 poll history에서 반복되면 한 번만 보존하고, count/time 변경은 invalid다.
+  예외는 exact ScaledObject owner UID의 `KEDAScalerFailed` 하나다. guarded query의 의도된 빈 결과와 `ignoreNullValues=false` 때문에
+  KEDA poll마다 반복될 수 있다(제29차 count2). 반복 범위는 native warmup episode로 한정한다: 시작은 warming UID가 처음 나온 inventory 시각,
+  끝은 그 뒤 처음 fully observed all-Pod signal evaluation이며, first<last가 모두 그 안에 있어야 한다.
+  관측 중 count/last time의 증가는 둘 다 strictly 함께 증가할 때만, 그리고 그 observed snapshot까지만 허용하며 first time과 나머지 field는 불변이다.
+  HPA `FailedGetExternalMetric`/`FailedComputeMetricsReplicas`는 count1이고, second UID·history 유실·episode 밖 반복은 invalid다.
+  `controller_seconds`15는 서로 다른 Warning의 native first time grouping에만 쓴다.
   그 사건은 controller reliability negative/degraded evidence로 남긴다. 이후 별도 request-clock의 same-HPA positive,
   fresh AMW와 resource joint observation이 있어야 하며, 경고를 health PASS로 바꾸거나 원인 인과를 추정하지 않는다.
   Earlier HPA와 later AMW를 같은 evaluation으로 합치지 않는다. Degraded 구간은 convergence/recovery proof에서 제외하고
