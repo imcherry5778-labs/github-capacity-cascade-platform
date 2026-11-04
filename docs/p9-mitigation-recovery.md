@@ -87,22 +87,23 @@ hostname, Argo revision과 나머지 drift 검사는 유지한다. Arm마다 ini
 
 ## 시간·부하 상한
 
-공통 후보는 mitigation290s + recovery180s, drain/마지막 수집60s(합계530s≤600s)를 계획한다.
-290s는 제24차 실제 calibration raw의 보수적 native 상한 3×(scrape15+raw age43.472+HPA status 변화 간격33.6467)=276.3562s를 수용하는 후보다. 과거 invalid raw는 새 run의 유효성 증거가 아니다.
-Plan `controller_seconds`15(Warning episode grouping 정책)와 scrape/ingestion/freshness·fault/demand/guard/SLO는 바꾸지 않는다. 새 run의 cadence가 넘으면 freeze는 fail closed다.
+공통 후보는 mitigation300s + recovery180s, drain/마지막 수집60s(합계540s≤600s)를 계획한다. 300s는 계약상 최대 mitigation이다.
+근거는 실제 calibration raw의 보수적 native 상한 3×(scrape+raw age+HPA status 변화 간격)이다: 제24차 276.356s, 제27차 3×(15+53.558+28.979)=292.611s(당시 290s에서 freeze fail closed). 여유는 7.389s뿐이며 PASS를 보장하지 않는다.
+Newest-sample 최초 가시성 상한(제27차 최대33.708s)은 건너뛴 sample을 덮지 못하고, raw age가 함의하는 다음 sample의 지연 하한38.558s(또는 scrape 누락)보다 작으므로 ingestion 상한으로 쓰지 않는다.
+Plan `controller_seconds`15(Warning episode grouping 정책)와 scrape/ingestion/freshness·fault/demand/guard/recovery SLO는 바꾸지 않는다. 과거 invalid raw는 새 run의 유효성 증거가 아니며, 새 run의 cadence가 넘으면 freeze는 fail closed다. Mitigation 연장은 recovery 판정(제27차 not recovered negative)을 바꾸거나 개선한다고 주장하지 않는다.
 실제 scrape/ingestion/controller cadence를 calibration에서 확인하여 공통 mitigation을
 `max(120s, 3×(scrape+ingestion+controller))` 이상, 10초 배수로 **measured 전에** 고정한다.
 코드는 mitigation≤300s, recovery120–240s, 두 구간 합계≤540s, arm 계획≤600s를 제한한다.
 Kubernetes 명령은 최대15s, 한 snapshot의 Kubernetes 수집 budget30s, Prometheus query는
 각5s다. Deadline/관측 부족은 raw로 보존하며 복구/다음 run 판단은 AGENTS.md의 복구 경계을 따른다.
 
-| 상한 | 후보470s / run | 최대로 승인 요청하는540s / run |
+| 상한 | 후보480s / run | 최대로 승인 요청하는540s / run |
 | --- | ---: | ---: |
-| Wave | 94 | 108 |
-| Issue logical operations | 2,256 | 2,592 |
-| Issue attempts (max2) | 4,512 | 5,184 |
-| Supplemental Git operations/attempts | 94 | 108 |
-| 합계 logical operations / attempts | 2,350 / 4,606 | 2,700 / 5,292 |
+| Wave | 96 | 108 |
+| Issue logical operations | 2,304 | 2,592 |
+| Issue attempts (max2) | 4,608 | 5,184 |
+| Supplemental Git operations/attempts | 96 | 108 |
+| 합계 logical operations / attempts | 2,400 / 4,704 | 2,700 / 5,292 |
 
 Calibration **총2회 이하**(C3 및 C2를 우선 후보로 삼고 C1 seed/범위는 cost-free로 고정), measured는 C0→C1→C2→C3 **각1회**, 합계 최대6회다. Calibration 자체는
 한 arm만 실행하며 조합 arm을 만들지 않는다. Candidate 변경도 두 번의 calibration budget

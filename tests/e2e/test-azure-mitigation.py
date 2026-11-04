@@ -180,7 +180,7 @@ class PlanTests(unittest.TestCase):
         c3 = rendered['C3']['fixtures.json']['items']
         self.assertNotIn('HorizontalPodAutoscaler', {o['kind'] for o in c3})
         self.assertEqual(next(o['spec']['maxReplicaCount'] for o in c3 if o['kind'] == 'ScaledObject'), 2)
-        self.assertEqual(len(m.schedule(v)), 2350)
+        self.assertEqual(len(m.schedule(v)), 2400)
         with self.assertRaises(ValueError): m.render(identity, v, 'C4')
 
     def test_exact_hostname_and_resource_boundary_reused(self):
@@ -994,13 +994,13 @@ class ResourceReadinessTests(unittest.TestCase):
         # and stale resource boundary as initial/stable/helper UIDs.
         with self.assertRaisesRegex(ValueError, 'stale resource metric'): f.collect(150)
 
-    def test_290s_candidate_has_separate_post_ready_two_uid_traffic_before_release(self):
+    def test_300s_candidate_has_separate_post_ready_two_uid_traffic_before_release(self):
         v = plan()
-        self.assertEqual((v['mitigation_seconds'], v['recovery_seconds']), (290, 180))
-        self.assertEqual(len(m.schedule(v)), 2350)
-        self.assertEqual(sum(e['kind'] == 'issue' for e in m.schedule(v)), 2256)
-        self.assertEqual(sum(e['kind'] == 'git' for e in m.schedule(v)), 94)
-        self.assertLessEqual(290 + 180 + 60, 600)
+        self.assertEqual((v['mitigation_seconds'], v['recovery_seconds']), (300, 180))
+        self.assertEqual(len(m.schedule(v)), 2400)
+        self.assertEqual(sum(e['kind'] == 'issue' for e in m.schedule(v)), 2304)
+        self.assertEqual(sum(e['kind'] == 'git' for e in m.schedule(v)), 96)
+        self.assertLessEqual(300 + 180 + 60, 600)
         f = LiveFixture(); f.rate = 1
         original = f.guard
         def guard():
@@ -1502,7 +1502,8 @@ class CollectionGateTests(unittest.TestCase):
             path.write_text(''.join(json.dumps(r) + '\n' for r in rows))
             with patch.object(m, 'path_accounting', side_effect=lambda *_: {'admitted_checks': [], 'checks': len(m.schedule(plan()))}):
                 result = m.validate(directory)
-                self.assertEqual(result['recovery']['first_good_window'], 290)
+                # First good window: after the synthetic readiness proof (290) AND the first 10s window after convergence.
+                self.assertEqual(result['recovery']['first_good_window'], max(290, -(-result['recovery']['converged'] // 10) * 10))
                 self.assertEqual(result['scaling']['signal_to_desired_ready_traffic'][-1], 290)
                 self.assertEqual(result['scaling']['signal_to_desired_ready_traffic'][2], 280)
                 self.assertFalse(any(w['good'] for w in result['recovery']['windows'] if w['start'] < 280))
@@ -5097,11 +5098,11 @@ class DemandRecoveryTests(unittest.TestCase):
     def test_three_windows_with_new_issue_and_git_demand(self):
         result = m.recovery(plan(), events(), lambda *_: True)
         self.assertEqual(result['status'], 'recovered')
-        self.assertEqual(result['release_command'], 290)
-        self.assertEqual(result['converged'], 291)
-        self.assertEqual(result['first_good_window'], 300)
-        self.assertEqual(result['confirmation'], 330)
-        self.assertEqual(result['campaign']['scheduled'], 2350)
+        self.assertEqual(result['release_command'], 300)
+        self.assertEqual(result['converged'], 301)
+        self.assertEqual(result['first_good_window'], 310)
+        self.assertEqual(result['confirmation'], 340)
+        self.assertEqual(result['campaign']['scheduled'], 2400)
 
     def test_fast_denial_low_cpu_or_rejection_not_recovery(self):
         e = events()
