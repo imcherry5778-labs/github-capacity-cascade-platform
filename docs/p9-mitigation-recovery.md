@@ -11,7 +11,8 @@ Paid source `d1ed52b8ba14d77345df5b3f19ae8a599421e516`는 native post-startup Wa
 [제28차](evidence/p9-mitigation-twenty-eighth-20261104/README.md)(`6ae73428`)는 calibration 중 monitor `validation_failed`로 CLOSED/invalid다. Read-only probe에서 metrics-server timestamp 역행(18/50)이 관측됐다. 이는 resource history guard와의 충돌 후보다.
 [제29차](evidence/p9-mitigation-twenty-ninth-20261104/README.md)(`364cfb55`)는 run 완료(unissued0, lag1.585s) 뒤 saved validator가 새 Pod warmup 중 `KEDAScalerFailed` count2를 반복 Warning으로 거부해 CLOSED/invalid다.
 [제30차](evidence/p9-mitigation-thirtieth-20261105/README.md)(`2224f109`)는 run 완료(unissued0, lag1.258s) 뒤 saved validator가 같은 warmup 안 exact HPA Warning count2를 거부해 CLOSED/invalid다. 참고 cadence는 316.087s>300s였다.
-현재 누적은 campaign30 / initialize 시작27 / healthy17 / calibration 시작13(reviewed valid1) / measured 각0 / KEDA actions13/13이다.
+[제31차](evidence/p9-mitigation-thirty-first-20261105/README.md)(`57c64f1a`)는 reviewed valid calibration과 첫 freeze 뒤 measured C0/C1/C2 reviewed valid, C3는 warmup 안 HPA 증가가 한 수집 늦게 보여 saved validator INVALID라 비교하지 않았다.
+현재 누적은 campaign31 / initialize 시작28 / healthy18 / calibration 시작14(reviewed valid2) / freeze1 / measured 시작 각1(reviewed valid C0·C1·C2, C3 invalid) / KEDA actions14/14이다.
 Source CI·synthetic·부분 positive를 valid calibration, measured 성과 또는 recovered로 승격하지 않는다.
 
 현재 실행 범위·보존은 [Paid Azure boundary](implementation-plan.md#paid-azure-boundary--p6p11)와 별도 실제 사용자 결정을 따른다.
@@ -35,7 +36,8 @@ source/test 변경은 당시 **future candidate**였고 이후 exact source d1ed
   exact HPA UID의 `FailedGetExternalMetric`/`FailedComputeMetricsReplicas`다. guarded query의 의도된 빈 결과와 `ignoreNullValues=false` 때문에
   반복될 수 있다(제29차 KEDA count2, 제30차 KEDA·HPA 각 count2). 반복 범위는 native warmup episode로 한정한다: 시작은 warming UID가 처음 나온 inventory 시각,
   끝은 그 뒤 처음 fully observed all-Pod signal evaluation이며, first<last가 모두 그 안에 있어야 한다.
-  관측 중 count/last time의 증가는 둘 다 strictly 함께 증가할 때만, 그리고 그 observed snapshot까지만 허용하며 first time과 나머지 field는 불변이다.
+  관측 중 count/last time의 증가는 둘 다 strictly 함께 증가하고 native last가 그 observed signal 전일 때만 허용하며 first time과 나머지 field는 불변이다.
+  늦게 보인 version은 그 사이 guard 수집이 모두 native last+1s(초 단위) 전이어야 한다(제31차: guard +87.2s, event +88.8s, signal +99.7s); 그 뒤 수집이 빠뜨리면 invalid다.
   reason/owner 짝이 다르면 count1 불변 history만 허용하며, second UID·history 유실·episode 밖 반복은 invalid다.
   `controller_seconds`15는 서로 다른 Warning의 native first time grouping에만 쓴다.
   그 사건은 controller reliability negative/degraded evidence로 남긴다. 이후 별도 request-clock의 same-HPA positive,

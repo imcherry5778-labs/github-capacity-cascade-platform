@@ -529,9 +529,14 @@ def controller_metric_warnings(snapshots, baseline, arm, v):
         # ignoreNullValues=false makes the guarded empty query a KEDA error on
         # every poll while a new Pod warms. Only the exact owner's no-data
         # reasons may repeat, wholly inside one native warmup before its observed signal.
+        # Native time decides: a growth written before the observed signal may first
+        # appear one collection later (Campaign31: guard +87.2s, event +88.8s,
+        # signal +99.7s), but no guard collected after it may still omit it.
+        # Event times are whole seconds, hence +1s.
         first, last = utc(event['first_timestamp_utc']), utc(event['timestamp_utc'])
-        return next((e for e in episodes if index <= e['observed_snapshot'] and
-                     e['start_epoch'] <= first < last < e['end_epoch']), None)
+        return next((e for e in episodes if e['start_epoch'] <= first < last < e['end_epoch'] and
+                     all(utc(snapshots[j]['guard']['timestamp_utc']) < last + 1
+                         for j in range(e['observed_snapshot'], index))), None)
 
     events, reason_owners = {}, set()
     for index, s in enumerate(snapshots):

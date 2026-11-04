@@ -5055,6 +5055,49 @@ class Campaign30HpaWarningRecurrenceTests(unittest.TestCase):
                     self.warnings(changed)
 
 
+class Campaign31DelayedVisibleGrowthTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.archive = ROOT / 'docs/evidence/p9-mitigation-thirty-first-20261105/raw-evidence.tar.gz'
+        cls.original = m.hashlib.sha256(cls.archive.read_bytes()).hexdigest()
+        assert cls.original == 'c1243acb6e3deeb7d0c5e59a018b22fa1685ce5b7ca6a6242a68e46750ee3853'
+        with tarfile.open(cls.archive) as raw:
+            cls.manifest = json.load(raw.extractfile('C3-measured/configuration.json'))
+            rows = [json.loads(line) for line in raw.extractfile('C3-measured/events.jsonl')]
+        cls.snapshots = [e for e in rows if e['record'] == 'snapshot']
+
+    @classmethod
+    def tearDownClass(cls):
+        assert m.hashlib.sha256(cls.archive.read_bytes()).hexdigest() == cls.original
+
+    def warnings(self, snapshots):
+        return m.controller_metric_warnings(snapshots, self.manifest['baseline'], 'C3', self.manifest['plan'])
+
+    def test_growth_written_before_observed_signal_but_visible_one_collection_later(self):
+        warnings = {x['event']['reason']: x for x in self.warnings(self.snapshots)}
+        for reason in ('FailedGetExternalMetric', 'FailedComputeMetricsReplicas'):
+            x = warnings[reason]
+            # count1 in the first observed snapshot5 (guard collected before the native update), count2 at snapshot6.
+            self.assertEqual((x['first_snapshot'], x['first_observed']['count'], x['event']['count'], x['recovery_snapshot']), (5, 1, 2, 8))
+            self.assertEqual(x['warming_episode']['observed_snapshot'], 5)
+            self.assertLess(m.p8.p7.utc(self.snapshots[5]['guard']['timestamp_utc']), m.p8.p7.utc(x['event']['timestamp_utc']))
+        self.assertEqual(warnings['KEDAScalerFailed']['event']['count'], 2)
+        self.assertEqual(len(m.common_guards(self.snapshots, self.manifest['baseline'], 'C3', self.manifest['plan'])), 2)
+
+    def test_growth_missing_from_a_later_collection_or_after_signal_invalid(self):
+        for case in ('omitted-by-later-guard', 'after-observed-signal'):
+            changed = copy.deepcopy(self.snapshots)
+            for reason in ('FailedGetExternalMetric', 'FailedComputeMetricsReplicas'):
+                early = copy.deepcopy(next(e for e in changed[5]['guard']['events'] if e.get('reason') == reason))
+                if case == 'omitted-by-later-guard':  # snapshot6 guard (after +88.8s) still shows count1
+                    changed[6]['guard']['events'] = [early if e.get('reason') == reason else e for e in changed[6]['guard']['events']]
+                else:
+                    for s in changed[6:]:
+                        next(e for e in s['guard']['events'] if e.get('reason') == reason)['timestamp_utc'] = changed[6]['signal']['evaluation']['timestamp_utc'][:19] + 'Z'
+            with self.subTest(case=case), self.assertRaisesRegex(ValueError, 'warning provenance or recurrence'):
+                self.warnings(changed)
+
+
 class HaproxyRingTests(unittest.TestCase):
     def test_whole_campaign_capacity_includes_shared_lifetime_and_public_rows(self):
         maximum = plan() | {'mitigation_seconds': 300, 'recovery_seconds': 240}
