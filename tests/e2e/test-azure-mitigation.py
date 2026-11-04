@@ -382,6 +382,46 @@ class CompleteEvidenceTests(unittest.TestCase):
         (Path(directory) / 'events.jsonl').write_text(''.join(json.dumps(r) + '\n' for r in rows))
         return rows
 
+    def native_interval_run(self, directory, keep, duration):
+        """Synthetic run re-timed to native-like collection: kept snapshots every ~20s, each lasting `duration`."""
+        rows = self.fixture(directory)
+        out = []
+        for r in rows:
+            if r['record'] == 'snapshot':
+                if not keep(r['at']): continue
+                r = copy.deepcopy(r); r['end'] = r['at'] + (duration if r['at'] > 0 else 0)
+            out.append(r)
+        bind_synthetic_snapshot_clocks(out)
+        Path(directory, 'events.jsonl').write_text(''.join(json.dumps(e) + '\n' for e in out))
+        return out
+
+    def test_recovery_observation_uses_documented_35s_saved_gap(self):
+        v = plan(); last = v['mitigation_seconds'] + v['recovery_seconds'] + 5
+        native = lambda at: at == -5 or at % 20 == 15 or at == last  # 20s adjacent end gaps (> old 15s, <= 35s)
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.object(m, 'path_accounting', side_effect=lambda *_: {'admitted_checks': [], 'checks': len(m.schedule(v))}):
+            rows = self.native_interval_run(directory, native, 15)
+            snaps = [e for e in rows if e['record'] == 'snapshot']
+            gaps = [b['end'] - a['end'] for a, b in zip(snaps, snaps[1:]) if a['at'] > 0]
+            self.assertTrue(gaps and max(gaps) <= 35 and sum(g > 15 for g in gaps) > len(gaps) // 2)
+            result = m.validate(directory)
+            self.assertEqual(result['recovery']['status'], 'recovered')  # 3 consecutive 10s windows, all other gates good
+        # >35s is invalid; too-short collections lose window endpoint anchors; recorded gaps never become observations.
+        cases = {'gap-over-35s': (lambda at: native(at) and not (335 <= at <= 375), 15, False, 'final/missing observation gap'),
+                 'missing-endpoint-anchor': (native, 5, False, None),
+                 'snapshot-gap-event': (native, 15, True, None)}
+        for name, (keep, duration, gap, error) in cases.items():
+            with self.subTest(name), tempfile.TemporaryDirectory() as directory, \
+                    patch.object(m, 'path_accounting', side_effect=lambda *_: {'admitted_checks': [], 'checks': len(m.schedule(v))}):
+                rows = self.native_interval_run(directory, keep, duration)
+                if gap:  # one recorded gap in every recovery window
+                    rows[-1:-1] = [{'record': 'snapshot_gap', 'at': float(a)} for a in range(v['mitigation_seconds'], last, 10)]
+                    Path(directory, 'events.jsonl').write_text(''.join(json.dumps(e) + '\n' for e in rows))
+                if error:
+                    with self.assertRaisesRegex(ValueError, error): m.validate(directory)
+                else:
+                    self.assertEqual(m.validate(directory)['recovery']['status'], 'not recovered within observation window')
+
     def test_validator_requires_cloud_review_and_rejects_real_drift(self):
         # Path conservation is tested above with full raw snapshots. Here only
         # that independent path collector is stubbed to exercise complete demand,

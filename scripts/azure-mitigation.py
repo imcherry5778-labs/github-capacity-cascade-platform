@@ -2171,7 +2171,7 @@ def validate(directory):
         return (points and points[0]['end'] <= start + 5 and points[-1]['end'] >= end - 5 and
                 all(snapshots.index(s) >= warning_recovery for s in points) and
                 all(s['healthy'] and s['signal'].get('status') == s['resource_readiness']['status'] == 'observed' for s in points) and
-                all(b['end'] - a['end'] <= 15 for a, b in zip(points, points[1:])) and
+                all(b['end'] - a['end'] <= 35 for a, b in zip(points, points[1:])) and
                 not any(start <= e['at'] < end for e in events if e['record'] == 'snapshot_gap') and
                 all(p['ready'] for s in points for p in s['guard']['pods']))
     rec = recovery(v, events, observed)
