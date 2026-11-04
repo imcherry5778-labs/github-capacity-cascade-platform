@@ -517,17 +517,18 @@ def controller_metric_warnings(snapshots, baseline, arm, v):
     if arm != 'C3' or not any('controller_state' in s for s in snapshots):
         return []
     identity = baseline['hpa_identity']
-    scaledobject = ('ScaledObject', HPA, NS)
-    expected = {('HorizontalPodAutoscaler', HPA, NS): identity['uid'],
-                scaledobject: identity['owner_uid']}
+    scaledobject, hpa = ('ScaledObject', HPA, NS), ('HorizontalPodAutoscaler', HPA, NS)
+    expected = {hpa: identity['uid'], scaledobject: identity['owner_uid']}
     allowed = {'FailedGetExternalMetric', 'FailedComputeMetricsReplicas', 'KEDAScalerFailed'}
+    # The same no-data error reaches the exact HPA on each sync (Campaign30 count2, 16s apart).
+    repeats = {(scaledobject, 'KEDAScalerFailed'), (hpa, 'FailedGetExternalMetric'), (hpa, 'FailedComputeMetricsReplicas')}
     episodes = warming_episodes(snapshots, baseline)
     utc = lambda value: p8.p7.utc(value).timestamp()
 
     def episode(event, index):
         # ignoreNullValues=false makes the guarded empty query a KEDA error on
-        # every poll while a new Pod warms. Only the exact ScaledObject may
-        # repeat, wholly inside one native warmup before its observed signal.
+        # every poll while a new Pod warms. Only the exact owner's no-data
+        # reasons may repeat, wholly inside one native warmup before its observed signal.
         first, last = utc(event['first_timestamp_utc']), utc(event['timestamp_utc'])
         return next((e for e in episodes if index <= e['observed_snapshot'] and
                      e['start_epoch'] <= first < last < e['end_epoch']), None)
@@ -539,7 +540,7 @@ def controller_metric_warnings(snapshots, baseline, arm, v):
             key = (owner.get('kind'), owner.get('name'), owner.get('namespace'))
             if event.get('reason') not in allowed and key not in expected:
                 continue
-            repeatable = key == scaledobject and event.get('reason') == 'KEDAScalerFailed'
+            repeatable = (key, event.get('reason')) in repeats
             # Unchanged retained history was bounded where this version first appeared.
             retained = event.get('uid') in events and events[event['uid']]['event'] == event
             require(key in expected and event.get('type') == 'Warning' and event.get('reason') in allowed and
@@ -573,7 +574,7 @@ def controller_metric_warnings(snapshots, baseline, arm, v):
     entries = list(events.values())
     require(all(x['last_snapshot'] == len(snapshots) - 1 for x in entries),
             'controller Warning history disappeared')
-    # Group distinct warnings by native first time; repeated KEDA polls are
+    # Group distinct warnings by native first time; repeated polls/syncs are
     # bounded by the warmup episode above, not by this grouping window.
     firsts = [utc(x['event']['first_timestamp_utc']) for x in entries]
     require(max(firsts) - min(firsts) <= v['controller_seconds'], 'independent controller Warning episodes')

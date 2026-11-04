@@ -10,7 +10,8 @@ Paid source `d1ed52b8ba14d77345df5b3f19ae8a599421e516`는 native post-startup Wa
 [제27차](evidence/p9-mitigation-twenty-seventh-20261104/README.md)(`7d0221ad`)는 처음으로 reviewed valid C3 calibration을 얻었다. 그러나 관측된 보수적 cadence 3×(15+53.558+28.979)=292.611s가 mitigation290s를 넘어 freeze가 fail closed했고, measured는 0이다.
 [제28차](evidence/p9-mitigation-twenty-eighth-20261104/README.md)(`6ae73428`)는 calibration 중 monitor `validation_failed`로 CLOSED/invalid다. Read-only probe에서 metrics-server timestamp 역행(18/50)이 관측됐다. 이는 resource history guard와의 충돌 후보다.
 [제29차](evidence/p9-mitigation-twenty-ninth-20261104/README.md)(`364cfb55`)는 run 완료(unissued0, lag1.585s) 뒤 saved validator가 새 Pod warmup 중 `KEDAScalerFailed` count2를 반복 Warning으로 거부해 CLOSED/invalid다.
-현재 누적은 campaign29 / initialize 시작26 / healthy16 / calibration 시작12(reviewed valid1) / measured 각0 / KEDA actions12/12이다.
+[제30차](evidence/p9-mitigation-thirtieth-20261105/README.md)(`2224f109`)는 run 완료(unissued0, lag1.258s) 뒤 saved validator가 같은 warmup 안 exact HPA Warning count2를 거부해 CLOSED/invalid다. 참고 cadence는 316.087s>300s였다.
+현재 누적은 campaign30 / initialize 시작27 / healthy17 / calibration 시작13(reviewed valid1) / measured 각0 / KEDA actions13/13이다.
 Source CI·synthetic·부분 positive를 valid calibration, measured 성과 또는 recovered로 승격하지 않는다.
 
 현재 실행 범위·보존은 [Paid Azure boundary](implementation-plan.md#paid-azure-boundary--p6p11)와 별도 실제 사용자 결정을 따른다.
@@ -30,11 +31,12 @@ source/test 변경은 당시 **future candidate**였고 이후 exact source d1ed
   같은 HPA의 usable External current metric과 실제 `True/ValidMetricFound`가 원래 budget 안에서 joint 관측돼야 한다.
   초기화 완료 뒤 현재 HPA False, 새로운/persistent Warning episode, 다른 error, UID/owner/hash/clock 누락·변경은 invalid다.
   같은 native Warning UID·timestamp·count가 poll history에서 반복되면 한 번만 보존하고, count/time 변경은 invalid다.
-  예외는 exact ScaledObject owner UID의 `KEDAScalerFailed` 하나다. guarded query의 의도된 빈 결과와 `ignoreNullValues=false` 때문에
-  KEDA poll마다 반복될 수 있다(제29차 count2). 반복 범위는 native warmup episode로 한정한다: 시작은 warming UID가 처음 나온 inventory 시각,
+  예외는 같은 no-data 원인의 exact owner 반복이다: ScaledObject owner UID의 `KEDAScalerFailed`, 그리고 같은 오류가 HPA sync마다 전파된
+  exact HPA UID의 `FailedGetExternalMetric`/`FailedComputeMetricsReplicas`다. guarded query의 의도된 빈 결과와 `ignoreNullValues=false` 때문에
+  반복될 수 있다(제29차 KEDA count2, 제30차 KEDA·HPA 각 count2). 반복 범위는 native warmup episode로 한정한다: 시작은 warming UID가 처음 나온 inventory 시각,
   끝은 그 뒤 처음 fully observed all-Pod signal evaluation이며, first<last가 모두 그 안에 있어야 한다.
   관측 중 count/last time의 증가는 둘 다 strictly 함께 증가할 때만, 그리고 그 observed snapshot까지만 허용하며 first time과 나머지 field는 불변이다.
-  HPA `FailedGetExternalMetric`/`FailedComputeMetricsReplicas`는 count1이고, second UID·history 유실·episode 밖 반복은 invalid다.
+  reason/owner 짝이 다르면 count1 불변 history만 허용하며, second UID·history 유실·episode 밖 반복은 invalid다.
   `controller_seconds`15는 서로 다른 Warning의 native first time grouping에만 쓴다.
   그 사건은 controller reliability negative/degraded evidence로 남긴다. 이후 별도 request-clock의 same-HPA positive,
   fresh AMW와 resource joint observation이 있어야 하며, 경고를 health PASS로 바꾸거나 원인 인과를 추정하지 않는다.
