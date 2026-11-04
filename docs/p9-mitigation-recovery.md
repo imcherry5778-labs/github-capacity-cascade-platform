@@ -5,6 +5,9 @@ P9 acceptance는 아직 미충족이다. [제24차 실제 결과](evidence/p9-mi
 누적 campaign24 / public initialize21 / healthy12 / started-invalid calibration9 / measured 각0 / KEDA apply·restore actions9/9을 보존한다.
 Paid source `d1ed52b8ba14d77345df5b3f19ae8a599421e516`는 native post-startup Warning과 AMW inventory age61.512초의60초 guard 초과로 중단했다. Ring conservation 부분 관측과 원복은 확인했지만 valid calibration은 없다.
 [제23차](evidence/p9-mitigation-twenty-third-20261103/README.md)의 source `076bc8a3dbd09e8192057e19df8b6cc5cb55274d`와 controller·HAProxy log 결손 negative도 그대로 보존한다.
+[제25차](evidence/p9-mitigation-twenty-fifth-20261104/README.md)(`a8c86516`)는 collector GET HTTP414로,
+[제26차](evidence/p9-mitigation-twenty-sixth-20261104/README.md)(`d7d963c9`)는 HAProxy startup DNS race에 따른 initialize readiness guard 실패로 CLOSED/invalid다.
+현재 누적은 campaign26 / initialize 시작23 / healthy13 / started-invalid calibration9 / measured 각0 / KEDA actions9/9이다.
 Source CI·synthetic·부분 positive를 valid calibration, measured 성과 또는 recovered로 승격하지 않는다.
 
 현재 실행 범위·보존은 [Paid Azure boundary](implementation-plan.md#paid-azure-boundary--p6p11)와 별도 실제 사용자 결정을 따른다.
