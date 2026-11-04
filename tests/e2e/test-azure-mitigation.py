@@ -180,7 +180,7 @@ class PlanTests(unittest.TestCase):
         c3 = rendered['C3']['fixtures.json']['items']
         self.assertNotIn('HorizontalPodAutoscaler', {o['kind'] for o in c3})
         self.assertEqual(next(o['spec']['maxReplicaCount'] for o in c3 if o['kind'] == 'ScaledObject'), 2)
-        self.assertEqual(len(m.schedule(v)), 2100)
+        self.assertEqual(len(m.schedule(v)), 2350)
         with self.assertRaises(ValueError): m.render(identity, v, 'C4')
 
     def test_exact_hostname_and_resource_boundary_reused(self):
@@ -994,13 +994,13 @@ class ResourceReadinessTests(unittest.TestCase):
         # and stale resource boundary as initial/stable/helper UIDs.
         with self.assertRaisesRegex(ValueError, 'stale resource metric'): f.collect(150)
 
-    def test_240s_candidate_has_separate_post_ready_two_uid_traffic_before_release(self):
+    def test_290s_candidate_has_separate_post_ready_two_uid_traffic_before_release(self):
         v = plan()
-        self.assertEqual((v['mitigation_seconds'], v['recovery_seconds']), (240, 180))
-        self.assertEqual(len(m.schedule(v)), 2100)
-        self.assertEqual(sum(e['kind'] == 'issue' for e in m.schedule(v)), 2016)
-        self.assertEqual(sum(e['kind'] == 'git' for e in m.schedule(v)), 84)
-        self.assertLessEqual(240 + 180 + 60, 600)
+        self.assertEqual((v['mitigation_seconds'], v['recovery_seconds']), (290, 180))
+        self.assertEqual(len(m.schedule(v)), 2350)
+        self.assertEqual(sum(e['kind'] == 'issue' for e in m.schedule(v)), 2256)
+        self.assertEqual(sum(e['kind'] == 'git' for e in m.schedule(v)), 94)
+        self.assertLessEqual(290 + 180 + 60, 600)
         f = LiveFixture(); f.rate = 1
         original = f.guard
         def guard():
@@ -1012,15 +1012,16 @@ class ResourceReadinessTests(unittest.TestCase):
             return result
         f.runtime.guard = guard
         collected = []
-        for at in range(-5, 426, 5):
+        release = v['mitigation_seconds'] + 5
+        for at in range(-5, v['mitigation_seconds'] + v['recovery_seconds'] + 6, 5):
             if at == 10: f.pods.append(f.pod('new', 'ext-authz-sim-new', ready=False))
             if at == 45: f.pods[1] = f.pod('new', 'ext-authz-sim-new')
             f.missing = {'new'} if 10 <= at < 60 else set()
             f.traffic = 102 if at >= 205 else 101 if at >= 200 else 100 if at >= 50 else 0
-            if at >= 245:
+            if at >= release:
                 for p in f.pods:
                     f.holds[p['metadata']['name']], f.capacities[p['metadata']['name']] = 0, 1024
-            collected += f.collect(at, released=at >= 245)
+            collected += f.collect(at, released=at >= release)
         snapshots = [e for e in collected if e['record'] == 'snapshot']
         ready = next(s for s in snapshots if s['resource_readiness']['initialized_uids'])
         self.assertEqual(ready['end'], 195)
@@ -1035,12 +1036,12 @@ class ResourceReadinessTests(unittest.TestCase):
             rows[-1:-1] = collected
             path = Path(directory, 'events.jsonl')
             path.write_text(''.join(json.dumps(e) + '\n' for e in rows))
-            with patch.object(m, 'path_accounting', side_effect=lambda *_: {'admitted_checks': [], 'checks': 2100}):
+            with patch.object(m, 'path_accounting', side_effect=lambda *_: {'admitted_checks': [], 'checks': len(m.schedule(v))}):
                 result = m.validate(directory)
                 self.assertEqual(result['scaling']['signal_to_desired_ready_traffic'][2:], [195, 205])
-                self.assertLess(result['scaling']['signal_to_desired_ready_traffic'][-1], 240)
+                self.assertLess(result['scaling']['signal_to_desired_ready_traffic'][-1], v['mitigation_seconds'])
                 self.assertEqual(result['validity'], 'pending-cloud-confounder-review')
-                self.assertEqual(result['recovery']['first_good_window'], 260)
+                self.assertEqual(result['recovery']['first_good_window'], v['mitigation_seconds'] + 20)
                 # Startup counters are retained in accounting but cannot be
                 # post-ready proof. Neither can traffic on just one UID.
                 for case in ('startup-only', 'one-uid-only'):
@@ -5096,11 +5097,11 @@ class DemandRecoveryTests(unittest.TestCase):
     def test_three_windows_with_new_issue_and_git_demand(self):
         result = m.recovery(plan(), events(), lambda *_: True)
         self.assertEqual(result['status'], 'recovered')
-        self.assertEqual(result['release_command'], 240)
-        self.assertEqual(result['converged'], 241)
-        self.assertEqual(result['first_good_window'], 250)
-        self.assertEqual(result['confirmation'], 280)
-        self.assertEqual(result['campaign']['scheduled'], 2100)
+        self.assertEqual(result['release_command'], 290)
+        self.assertEqual(result['converged'], 291)
+        self.assertEqual(result['first_good_window'], 300)
+        self.assertEqual(result['confirmation'], 330)
+        self.assertEqual(result['campaign']['scheduled'], 2350)
 
     def test_fast_denial_low_cpu_or_rejection_not_recovery(self):
         e = events()
