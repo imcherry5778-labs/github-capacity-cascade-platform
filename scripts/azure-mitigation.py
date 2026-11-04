@@ -1192,7 +1192,8 @@ class Runtime(p8.Runtime):
             ended = time.monotonic()
             return {**metadata, 'at': ended, 'timestamp_utc': p8.utc(), 'elapsed_seconds': ended - started}
         try:
-            data = p8.p7.http_json(self.v['prometheus'] + '/api/v1/query?' + urllib.parse.urlencode({'query': query}), self.prom_token, timeout=timeout)
+            # Collector query exceeds AMW GET URL limit (Campaign25 HTTP414).
+            data = p8.p7.http_json(self.v['prometheus'] + '/api/v1/query', self.prom_token, timeout=timeout, form={'query': query})
         except urllib.error.HTTPError as error:
             # Negative body only, redacting a server-echoed bearer token.
             body = error.read(1024 * 1024).decode('utf-8', errors='replace').replace(self.prom_token, '[REDACTED]')

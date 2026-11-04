@@ -480,7 +480,8 @@ class CollectorQueryTests(unittest.TestCase):
         self.assertEqual(request.call_count, 1)
         self.assertEqual(request.call_args.kwargs['timeout'], 3)
         url = m.urllib.parse.urlsplit(request.call_args.args[0])
-        self.assertEqual(m.urllib.parse.parse_qs(url.query), {'query': [m.collector_query(r.v)]})
+        self.assertEqual((url.path, url.query), ('/api/v1/query', ''))
+        self.assertEqual(request.call_args.kwargs['form'], {'query': m.collector_query(r.v)})
         self.assertEqual((events[0]['at'], events[1]['at'], obs['elapsed_seconds']), (100, 102, 2))
         self.assertNotIn('synthetic-bearer', json.dumps(events))
         guarded, diagnostic = m.extract_collector_query(rows, r.v)
@@ -526,6 +527,67 @@ class CollectorQueryTests(unittest.TestCase):
             m.Runtime.prom(r, m.collector_query(r.v))
         self.assertEqual(captured[-1]['error_code'], 'prometheus_request_failed')
         self.assertNotIn('synthetic-only', json.dumps(captured))
+
+    def test_campaign25_http414_long_collector_query_real_http_post_form(self):
+        """Unpatched urllib path against a local URL-limited server; never Azure evidence."""
+        import http.server
+        limit = 4096  # Below the Campaign24-accepted 4395-byte collector GET URL.
+        seen, payload = [], {'status': 'success', 'data': {'resultType': 'vector', 'result': self.envelope(guarded=None)}}
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *_args): pass
+            def reply(self, code, body=b'', headers=()):
+                self.send_response(code)
+                for key, value in headers: self.send_header(key, value)
+                self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body)
+            def record(self, body):
+                seen.append({'method': self.command, 'target': self.path, 'body': body,
+                             'content_type': self.headers.get('Content-Type'), 'authorization': self.headers.get('Authorization')})
+            def do_GET(self):
+                self.record(None)
+                if len(self.path) > limit: self.reply(414)
+                else: self.reply(200, json.dumps(payload).encode(), [('Content-Type', 'application/json')])
+            def do_POST(self):
+                self.record(self.rfile.read(int(self.headers['Content-Length'])))
+                if self.path.startswith('/redirect/'): self.reply(307, headers=[('Location', '/api/v1/query')])
+                else: self.reply(200, json.dumps(payload).encode(), [('Content-Type', 'application/json')])
+        server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close); self.addCleanup(server.shutdown)
+        base = 'http://127.0.0.1:%d' % server.server_address[1]
+        r, events, obs = LiveFixture().runtime, [], {}
+        r.v = r.v | {'prometheus': base}
+        r.emit, r.prom_token, r.collection_deadline.at = events.append, 'synthetic-bearer', time.monotonic() + 30
+        query = m.collector_query(r.v)
+        with tarfile.open(ROOT / 'docs/evidence/p9-mitigation-twenty-fifth-20261104/raw-evidence.tar.gz') as archive:
+            ledger = [json.loads(line) for line in archive.extractfile('initialization-ledger.jsonl').read().splitlines()]
+        self.assertEqual([(e['query_sha256'], e['http_status']) for e in ledger if e['record'] == 'prometheus_query_error'],
+                         [(m.digest(query), 414)])  # The archived failure is this exact canonical query.
+        # Pre-fix GET serialization reproduces Campaign25 414 on the real request path.
+        with self.assertRaises(m.urllib.error.HTTPError) as rejected:
+            m.p8.p7.http_json(base + '/api/v1/query?' + m.urllib.parse.urlencode({'query': query}), 'synthetic-bearer', timeout=5)
+        self.assertEqual(rejected.exception.code, 414); rejected.exception.close()
+        rows = m.Runtime.prom(r, query, observation=obs)
+        post = seen[-1]
+        self.assertEqual((post['method'], post['target']), ('POST', '/api/v1/query'))
+        self.assertEqual((post['content_type'], post['authorization']), ('application/x-www-form-urlencoded', 'Bearer synthetic-bearer'))
+        self.assertGreater(len(post['body']), limit)
+        self.assertEqual(m.urllib.parse.parse_qs(post['body'].decode('ascii'), keep_blank_values=True, strict_parsing=True), {'query': [query]})
+        self.assertEqual((rows, obs['http_status'], obs['query_sha256']), (payload['data']['result'], 200, m.digest(query)))
+        self.assertEqual(m.extract_collector_query(rows, r.v)[0], [])  # Same strict envelope; no fabricated zero.
+        for key in ('rate', 'active', 'timestamp', 'samples'):  # Same transport for every Runtime.prom caller.
+            m.Runtime.prom(r, m.signal_queries(r.v)[key])
+            self.assertEqual((seen[-1]['method'], seen[-1]['target'], seen[-1]['body']),
+                             ('POST', '/api/v1/query', m.urllib.parse.urlencode({'query': m.signal_queries(r.v)[key]}).encode()))
+        # Existing GET callers (P7/P8 query_range) keep no body or form content type.
+        m.p8.p7.http_json(base + '/api/v1/query_range?query=up', 'synthetic-bearer', timeout=5)
+        self.assertEqual((seen[-1]['method'], seen[-1]['body'], seen[-1]['content_type']), ('GET', None, None))
+        # A redirect never replays the bearer/body to another target.
+        count, r.v = len(seen), r.v | {'prometheus': base + '/redirect'}
+        with self.assertRaises(m.urllib.error.HTTPError) as redirected:
+            m.Runtime.prom(r, query)
+        self.assertEqual((redirected.exception.code, len(seen), events[-1]['http_status']), (307, count + 1, 307))
+        redirected.exception.close()
+        self.assertNotIn('synthetic-bearer', json.dumps(events))
 
     def test_saved_validation_rejects_missing_tampered_envelope_clocks_and_zero(self):
         with tempfile.TemporaryDirectory() as directory:
