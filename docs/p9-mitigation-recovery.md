@@ -16,7 +16,7 @@ Paid source `d1ed52b8ba14d77345df5b3f19ae8a599421e516`는 native post-startup Wa
 Source CI·synthetic·부분 positive를 valid calibration, measured 성과 또는 recovered로 승격하지 않는다.
 
 현재 실행 범위·보존은 [Paid Azure boundary](implementation-plan.md#paid-azure-boundary--p6p11)와 별도 실제 사용자 결정을 따른다.
-Environment 기한은 2026-11-05 10:30 KST, Foundation/Bootstrap은 11월6일00:33 KST다. 자동 연장·전체 teardown·merge/P10은 없다.
+Environment 기한은 2026-11-08 10:30 KST, Foundation/Bootstrap은 11월9일00:33 KST다([+72h 승인](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/issues/47#issuecomment-6645059367); 직전 11월5일10:30/11월6일00:33 기록은 이력으로 보존). 자동 연장·전체 teardown·merge/P10은 없다.
 
 ## Campaign23 이후 cost-free candidate
 
@@ -399,6 +399,10 @@ exact-ID revoke/재사용401·token list0·fixture login 차단을 확인하며 
 
 Whole reserve는1800+실제 initialize timeout I+kill5+6×600+1800초이며 candidate I840이면8045초다.
 각 run/drain/rollback2340초(300+180+60+1800)와 initialize 포함3185초(+840+kill5)의 strict retention cutoff를 유지한다. 부족하면 새 위험 행동을 시작하지 않는다.
+**정정(제32차 NO-GO 근거):** 8045초는 campaign 전체에 대해 **첫 mutation 전에 한 번** 확보하는 reservation이다. 이 reservation은 남은 전체 작업과 1800초 owned rollback을 포함한다.
+첫 진입 시에는 제31차 실측(첫 mutation→owned cleanup 종료 4318초, C0 전환 recovery 포함)+1800초도 함께 확인한다.
+이후 action마다 새로 8045초를 요구하지 않는다. 대신 각 action 전에 해당 단계의 남은 시간을 확인한다: initialize 3185초, KEDA apply·전환·두 번째 calibration은 전환600+run2340초, measure 2340초, 그 밖의 mutation과 final normal/cleanup은 1800초.
+Exact source/clean HEAD 확인은 모든 action에서 유지한다. 시간이 부족하면 해당 위험 행동을 멈추고 owned cleanup으로 종료한다.
 Owned cleanup은 CUSTOM exact UID 제거→shared CM UID/data guarded 복원→experiment controls/Secret/namespace→정상 native/TLS 검증,
 fixture 폐기·소유 image exact tag/digest/로컬 tag·forward/권한 제거 순서다. KEDA 원본 SA/rollout을 복원한 뒤 소유 role/FIC/UAMI를 제거한다.
 Argo revision/spec/Pod·기존 PVC/PV/Disk/Secret/CSI·원래 Owner와 fixed inventory 보존을 실제 evidence로 확인한다.
