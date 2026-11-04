@@ -172,6 +172,7 @@ HPA metric·desired·Ready·각 target의 traffic timeline과 함께 기록한�
 Collector와 saved-run validator는 같은 lifecycle 경계를 적용한다. 신규 C3 UID의 Pending→Ready는
 첫 관측부터 최대90초, Ready 이후 series 초기화는 `ingestion+3×scrape` 이내만 허용한다.
 신규 Pending Pod의 빈 CRI `imageID`는 미관측 값으로 보존하며 첫 nonempty ID부터 변경·재누락을 거부한다. 기존 UID와 Ready image/config 검증은 유지한다.
+신규 C3 Pod CPU sample timestamp는 high-water로만 기록한다. Native metrics-server는 이전보다 오래된 cached export를 반환할 수 있으므로(제28차), backstep은 진행·readiness로 세지 않고 high-water를 되돌리지 않으며 freshness 검사는 그대로 적용한다. Monitor 실패 시에는 `validation_stage`(lifecycle.signal / lifecycle.resources)만 고정 필드로 기록한다.
 Ready 직후 admin stat가 아직 materialize되지 않은 상태도 같은 Ready budget 안에서만 허용한다.
 구조/config invariant는 stat 유무와 독립적으로 검사한다. `Pending → Ready/no-admin-stat → 첫 계획된 traffic →
 admin/native stat → rate 최소2 samples`를 `admin_stats`의 실제 값/누락과 `warming-new-pod` not-ready/no-data로 보존한다.

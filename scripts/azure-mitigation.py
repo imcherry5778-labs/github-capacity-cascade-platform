@@ -780,13 +780,16 @@ class TargetLifecycle:
                 pending.add(uid)
                 continue
             previous = self.resource_samples.get(uid)
-            require(previous is None or stamp >= previous, 'resource sample history drift')
             require(uid in self.ready_epoch, 'missing Ready observation epoch')
             # A cached pre-Ready export (even an advancing one) cannot latch
             # readiness. The current fresh/advancing export must be post-Ready.
             advancing = (previous is not None and stamp > previous and
                          stamp.timestamp() >= self.ready_epoch[uid])
-            self.resource_samples[uid] = stamp
+            # Native metrics-server replicas may return an older cached export
+            # (Campaign28). Keep a high-water mark: a backstep is non-advancing,
+            # never resets history and never counts as readiness progress.
+            if previous is None or stamp > previous:
+                self.resource_samples[uid] = stamp
             if uid in self.resource_observed:
                 require(fresh, 'stale resource metric')
             elif fresh and advancing:
@@ -1277,7 +1280,12 @@ class Runtime(p8.Runtime):
             if not missing and signal['query']:
                 require(len(signal['query']) == 1 and bounded(float(signal['query'][0]['value'][1]), 0, 1000000), 'invalid guarded initialization query')
         else:
-            self.lifecycle.signal(signal, [p8.p4.pod_guard(p) for p in pods], signal['evaluation']['at'], epoch)
+            try:
+                self.lifecycle.signal(signal, [p8.p4.pod_guard(p) for p in pods], signal['evaluation']['at'], epoch)
+            except ValueError:
+                # Fixed-field stage attribution only; the exception text is never recorded.
+                getattr(self, 'emit', lambda _: None)({'record': 'validation_stage', 'at': time.monotonic(), 'stage': 'lifecycle.signal', 'error_code': 'validation_failed'})
+                raise
         return signal
 
     def release(self, emit):
@@ -1330,7 +1338,11 @@ def collect_snapshot(runtime, config, before, emit, release_started):
     require(hp_observation['pod_uid'] == actual['haproxy']['uid'], 'HAProxy capture Pod UID drift')
     hp_logs_end = time.monotonic()
     signal = runtime.signal(inventory, at=at)
-    resource = runtime.lifecycle.resources(guard, [p8.p4.pod_guard(p) for p in inventory], signal, time.monotonic())
+    try:
+        resource = runtime.lifecycle.resources(guard, [p8.p4.pod_guard(p) for p in inventory], signal, time.monotonic())
+    except ValueError:
+        emit({'record': 'validation_stage', 'at': time.monotonic(), 'stage': 'lifecycle.resources', 'error_code': 'validation_failed'})
+        raise
     positive = controller_positive(guard['hpa'], runtime.arm, actual['hpa_spec'])
     all_converged = positive and healthy and signal['status'] == resource['status'] == 'observed' and {p['metadata']['uid'] for p in inventory} == {t['uid'] for t in actual['targets']}
     if resource['pending_uids']:

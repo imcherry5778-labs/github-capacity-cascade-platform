@@ -905,6 +905,19 @@ class SignalClockTests(unittest.TestCase):
         env = patch.dict(os.environ, {'FORGEJO_URL': 'https://forgejo.example.com'}, clear=True)
         env.start(); self.addCleanup(env.stop)
 
+    def test_monitor_validation_stage_marker_is_fixed_field_only(self):
+        """Campaign28: attribute signal vs resources validation without recording exception text."""
+        for stage, target in (('lifecycle.signal', 'signal'), ('lifecycle.resources', 'resources')):
+            f = LiveFixture(); f.collect(0); rows = []
+            with self.subTest(stage), patch.object(m.TargetLifecycle, target, side_effect=ValueError('secret-detail /private/path')), \
+                    patch.object(m.time, 'monotonic', return_value=5), patch.object(m.time, 'time', return_value=1005), \
+                    self.assertRaisesRegex(ValueError, 'secret-detail'):
+                m.collect_snapshot(f.runtime, f.config, f.baseline, rows.append, threading.Event())
+            markers = [r for r in rows if r['record'] == 'validation_stage']
+            self.assertEqual(markers, [{'record': 'validation_stage', 'at': 5, 'stage': stage, 'error_code': 'validation_failed'}])
+            self.assertNotIn('secret-detail', json.dumps(rows)); self.assertNotIn('/private', json.dumps(rows))
+            self.assertFalse(any(r['record'] == 'snapshot' for r in rows))  # still no partial snapshot
+
     def test_live_and_full_saved_validator_use_exact_decision_instant_at_60s(self):
         f, now, captured = LiveFixture('C0'), [10.0], []
         original = f.prom
@@ -1124,17 +1137,41 @@ class ResourceReadinessTests(unittest.TestCase):
             end_state = completed.resources(s['guard'], s['target_inventory'], s['signal'], s['end'])
         self.assertEqual(end_state['status'], 'observed')
         self.assertLess(end_state['observed_at'] - completed.ready_since[uid], 75)
-        for case in ('missing', 'stale', 'reverse', 'changed-same-timestamp', 'future', 'invalid'):
+        for case in ('missing', 'stale', 'reverse-stale', 'changed-same-timestamp', 'future', 'invalid'):
             guard = copy.deepcopy(snapshots[7]['guard'])
             metric = next(p for p in guard['pod_metrics'] if p['metadata']['name'] == next(p['name'] for p in snapshots[7]['target_inventory'] if p['uid'] == uid))
             if case == 'missing': guard['pod_metrics'].remove(metric)
             elif case == 'stale': guard['timestamp_utc'] = (m.p8.p7.utc(guard['timestamp_utc']) + m.timedelta(seconds=200)).isoformat()
-            elif case == 'reverse': metric['timestamp'] = snapshots[4]['guard']['pod_metrics'][-1]['timestamp']
+            elif case == 'reverse-stale':  # a backstep older than 2x its window stays stale after completion
+                metric['timestamp'] = (m.p8.p7.utc(guard['timestamp_utc']) - m.timedelta(seconds=2 * m.p8.metric_window(metric['window']) + 1)).isoformat()
             elif case == 'changed-same-timestamp': metric['window'] = '1s'
             elif case == 'future': metric['timestamp'] = '2099-01-01T00:00:00Z'
             else: metric['containers'][0]['usage']['cpu'] = 'NaN'
             with self.subTest(case=case), self.assertRaises(ValueError):
                 copy.deepcopy(life).resources(guard, snapshots[7]['target_inventory'], snapshots[7]['signal'], snapshots[7]['at'] + 1)
+        # Campaign28: native metrics-server replicas return older cached exports (10s backstep observed).
+        def new_metric(guard):
+            name = next(p['name'] for p in snapshots[7]['target_inventory'] if p['uid'] == uid)
+            return next(p for p in guard['pod_metrics'] if p['metadata']['name'] == name)
+        def shifted(index, seconds):
+            guard = copy.deepcopy(snapshots[index]['guard'])
+            metric = new_metric(guard); metric['timestamp'] = (high + m.timedelta(seconds=seconds)).isoformat()
+            return guard
+        after = copy.deepcopy(life); high = after.resource_samples[uid]
+        state = after.resources(shifted(7, -10), snapshots[7]['target_inventory'], snapshots[7]['signal'], snapshots[7]['at'] + 1)
+        self.assertEqual((state['status'], after.resource_samples[uid]), ('observed', high))  # fresh backstep: non-advancing, high water kept
+        # Before the latch: a backstep or same timestamp never latches and never resets high water; a real advance is required.
+        before = m.TargetLifecycle('C3', initial, manifest['plan'])
+        for s in snapshots[:7]:
+            before.inventory(s['target_inventory'], s['at'], s['epoch'] - (s['end'] - s['at']))
+            before.resources(s['guard'], s['target_inventory'], s['signal'], s['at'])
+        high = before.resource_samples[uid]
+        for seconds in (-10, 0):
+            state = before.resources(shifted(7, seconds), snapshots[7]['target_inventory'], snapshots[7]['signal'], snapshots[7]['at'])
+            self.assertEqual((state['status'], state['pending_uids'], before.resource_samples[uid]), ('initializing-new-pod', [uid], high))
+            self.assertNotIn(uid, before.resource_observed)
+        state = before.resources(snapshots[7]['guard'], snapshots[7]['target_inventory'], snapshots[7]['signal'], snapshots[7]['at'])
+        self.assertEqual(state['status'], 'observed')
         self.assertEqual(archive.read_bytes(), original)
         with tempfile.TemporaryDirectory() as d, tarfile.open(archive) as raw:
             raw.extractall(d, filter='data')
