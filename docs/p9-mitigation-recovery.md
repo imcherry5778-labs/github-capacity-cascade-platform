@@ -8,7 +8,8 @@ Paid source `d1ed52b8ba14d77345df5b3f19ae8a599421e516`는 native post-startup Wa
 [제25차](evidence/p9-mitigation-twenty-fifth-20261104/README.md)(`a8c86516`)는 collector GET HTTP414로,
 [제26차](evidence/p9-mitigation-twenty-sixth-20261104/README.md)(`d7d963c9`)는 HAProxy startup DNS race에 따른 initialize readiness guard 실패로 CLOSED/invalid다.
 [제27차](evidence/p9-mitigation-twenty-seventh-20261104/README.md)(`7d0221ad`)는 처음으로 reviewed valid C3 calibration을 얻었다. 그러나 관측된 보수적 cadence 3×(15+53.558+28.979)=292.611s가 mitigation290s를 넘어 freeze가 fail closed했고, measured는 0이다.
-현재 누적은 campaign27 / initialize 시작24 / healthy14 / calibration 시작10(reviewed valid1) / measured 각0 / KEDA actions10/10이다.
+[제28차](evidence/p9-mitigation-twenty-eighth-20261104/README.md)(`6ae73428`)는 calibration 중 monitor `validation_failed`로 CLOSED/invalid다. Read-only probe에서 metrics-server timestamp 역행(18/50)이 관측됐다. 이는 resource history guard와의 충돌 후보다.
+현재 누적은 campaign28 / initialize 시작25 / healthy15 / calibration 시작11(reviewed valid1) / measured 각0 / KEDA actions11/11이다.
 Source CI·synthetic·부분 positive를 valid calibration, measured 성과 또는 recovered로 승격하지 않는다.
 
 현재 실행 범위·보존은 [Paid Azure boundary](implementation-plan.md#paid-azure-boundary--p6p11)와 별도 실제 사용자 결정을 따른다.
