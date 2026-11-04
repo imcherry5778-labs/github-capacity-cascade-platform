@@ -85,7 +85,7 @@ ARM에서 managed KEDA enabled를 확인한 것만으로 version/CRD/인증을 �
 최종 source는 승인 대상 exact HEAD, published digest, verified HTTPS hostname/native PAT,
 process-local DNS override, source/render hashes, P7 SLO hash, fault/demand/schedule와 arm delta를 묶는다.
 `freeze`는 같은 최종 plan의 reviewed calibration report 1–2개를 요구한다. Report에는
-source/plan/fixture hash와 verified HTTPS transport(DNS override 포함), `reviewed`, `missing_required_signals=[]`, 실제 cadence, all-Pod series,
+source/plan/fixture hash와 verified HTTPS transport(DNS override 포함), `reviewed`, `missing_required_signals=[]`, 직접 controller 관측(아래), all-Pod series,
 `per-pod-active-overflow-counter-rate-per-second` 의미, 아래 고정 `metric_contract`, controller ownership 검토를 기록한다.
 Boolean report는 actual calibration raw/동일 window 검토를 대신하지 않는다.
 
@@ -98,11 +98,18 @@ hostname, Argo revision과 나머지 drift 검사는 유지한다. Arm마다 ini
 ## 시간·부하 상한
 
 공통 후보는 mitigation300s + recovery180s, drain/마지막 수집60s(합계540s≤600s)를 계획한다. 300s는 계약상 최대 mitigation이다.
-근거는 실제 calibration raw의 보수적 native 상한 3×(scrape+raw age+HPA status 변화 간격)이다: 제24차 276.356s, 제27차 3×(15+53.558+28.979)=292.611s(당시 290s에서 freeze fail closed). 여유는 7.389s뿐이며 PASS를 보장하지 않는다.
+근거는 실제 calibration raw의 보수적 native 상한 3×(scrape+raw age+HPA status 변화 간격)이다: 제24차 276.356s, 제27차 3×(15+53.558+28.979)=292.611s(당시 290s에서 freeze fail closed). 여유는 7.389s뿐이며 PASS를 보장하지 않는다. 이 수치들은 아래 정정에 따라 진단값이다.
 Newest-sample 최초 가시성 상한(제27차 최대33.708s)은 건너뛴 sample을 덮지 못하고, raw age가 함의하는 다음 sample의 지연 하한38.558s(또는 scrape 누락)보다 작으므로 ingestion 상한으로 쓰지 않는다.
-Plan `controller_seconds`15(Warning episode grouping 정책)와 scrape/ingestion/freshness·fault/demand/guard/recovery SLO는 바꾸지 않는다. 과거 invalid raw는 새 run의 유효성 증거가 아니며, 새 run의 cadence가 넘으면 freeze는 fail closed다. Mitigation 연장은 recovery 판정(제27차 not recovered negative)을 바꾸거나 개선한다고 주장하지 않는다.
-실제 scrape/ingestion/controller cadence를 calibration에서 확인하여 공통 mitigation을
-`max(120s, 3×(scrape+ingestion+controller))` 이상, 10초 배수로 **measured 전에** 고정한다.
+Plan `controller_seconds`15(Warning episode grouping 정책)와 scrape/ingestion/freshness·fault/demand/guard/recovery SLO는 바꾸지 않는다. 과거 invalid raw는 새 run의 유효성 증거가 아니다. Mitigation 연장은 recovery 판정(제27차 not recovered negative)을 바꾸거나 개선한다고 주장하지 않는다.
+**정정(제30차 근거):** HPA status 변화 간격은 controller sync 상한이 아니다. Upstream HPA `updateStatusIfNeeded`는 같은 status를 쓰지 않으므로,
+변화 없는 간격을 reconciliation 부재로 해석할 수 없다. 제30차 최대38.395s(3×합316.087s)는 전부 새 Pod 의도된 warmup(monotonic +56.4…+129.9s) 안에 있었다.
+따라서 3×(scrape+raw age+status 변화 간격)≤mitigation은 freeze/acceptance gate가 아니라 calibration report의 `status_change_gap_diagnostic`으로만 남긴다.
+Freeze의 `cadence_observed`는 `direct_controller_observation`이다. 새 Pod warmup 뒤 signal·resource가 모두 observed가 된 다음부터 release(origin+300s) 전까지,
+35s 이하 간격의 **연속 3개 이상** snapshot이 각각 다음을 만족해야 한다:
+같은 HPA UID/owner/spec·status hash와 monotonic clock 결합(`controller_observation`), `controller_positive`(ScalingActive/AbleToScale True, External metric),
+exact target 전체 signal observed·per-Pod sample≥2·age≤60s, resource observed, 그 snapshot window 안 같은 UID native HPA GET, 창 안 새 HPA/KEDA Warning 없음.
+여기에 scrape 상한≤15s와 raw age≤60s도 함께 요구한다. 이는 반복 실관측이지 보장 latency나 15초 tick 합성이 아니다. Native HPA/schedule/snapshot 시각은 monotonic끼리만, sample age는 UTC epoch끼리만 비교한다.
+Source `validate`/`reviewed`/`common_guards`, 35s gap과 full confounder review는 그대로 필수다.
 코드는 mitigation≤300s, recovery120–240s, 두 구간 합계≤540s, arm 계획≤600s를 제한한다.
 Kubernetes 명령은 최대15s, 한 snapshot의 Kubernetes 수집 budget30s, Prometheus query는
 각5s다. Deadline/관측 부족은 raw로 보존하며 복구/다음 run 판단은 AGENTS.md의 복구 경계을 따른다.
