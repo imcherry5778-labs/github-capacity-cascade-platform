@@ -1,0 +1,158 @@
+{
+ "paid_source_sha": "364cfb55f18c45c30610c9fe6e888c4832b0ffa9",
+ "authority_url": "https://github.com/imcherry5778-labs/github-capacity-cascade-platform/issues/47#issuecomment-6631593658",
+ "independent_source_gate": "https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/49#pullrequestreview-5766479509",
+ "state": "CLOSED/invalid (calibration1 saved-validator warning recurrence; NO-GO)",
+ "paid_source_unchanged": true,
+ "operator_template_sha256": {
+  "driver-template.py": "bc9def5b5a8efa3489b4337875fa009de59acfb7879f39c0b09fc1f5dcc7b292"
+ },
+ "operator_instance_sha256": {
+  "driver.py": "f975b84a84b4ca9eb5654d5bd49d812292f53aa57bc385405d6a6d2c06395854",
+  "preflight.py": "7b737fd19348188c781da36d3d674561f1e817e4e2c6d688ea5b0aca7c31f0b5",
+  "launch.py": "aa5d9e4fa15eaf9605a9da359444b2d20949b40fe60767c589aaf4cbfb963a65",
+  "send.sh": "2909b72a7e7c1a5be6461cd8c33414d43191145a46cff7ca8533cd21ad30f9a0"
+ },
+ "owned_image_manifest_digest": "sha256:c8b257da41fad926f1db4336ace1a7912f7ff4b6fe44248965f2e618fa1aa611",
+ "plan_sha256": "701f636068eb86fb193ccd9e85377b8757ba43bc451f1518f414ec97a760af5b",
+ "counts": {
+  "normal_initial": 1,
+  "normal_final": 1,
+  "initialize": 1,
+  "healthy": 1,
+  "calibration": 1,
+  "measured": {
+   "C0": 0,
+   "C1": 0,
+   "C2": 0,
+   "C3": 0
+  },
+  "KEDA_apply": 1,
+  "KEDA_restore": 1,
+  "cloud_mutations": 17
+ },
+ "results": {
+  "preflight": "all read-only gates PASS; KEDA-form GET 4726 bytes HTTP200 (transport only)",
+  "initial_normal": "SUCCESS",
+  "C0_fixture": "Service-first; DNS gate 1 lookup; HAProxy restart 0",
+  "initialize": "SUCCESS (ingress30=authorization30=target30)",
+  "KEDA": "native workload identity; exact ScaledObject-owned HPA positive",
+  "C3_preflight": "PASS (3 healthy + 3 fault joint, current HPA UID, HAProxy memory/OOM/restart)",
+  "calibration1": {
+   "process_exit": 0,
+   "run": "completed (run_end, no monitor_failure, 28 snapshots, release at schedule origin+300.0s)",
+   "demand": {
+    "scheduled": 2400,
+    "issued": 2400,
+    "unissued": 0,
+    "driver_lag_max_seconds": 1.585
+   },
+   "saved_validator": "INVALID: invalid HPA/KEDA warning provenance or recurrence",
+   "warnings": [
+    {
+     "object": "ScaledObject p9-proxy",
+     "reason": "KEDAScalerFailed",
+     "count": 2,
+     "first_utc": "2026-11-04T13:28:20Z",
+     "last_utc": "2026-11-04T13:28:35Z"
+    },
+    {
+     "object": "HPA p9-proxy",
+     "reason": "FailedGetExternalMetric",
+     "count": 1,
+     "utc": "2026-11-04T13:28:25Z"
+    },
+    {
+     "object": "HPA p9-proxy",
+     "reason": "FailedComputeMetricsReplicas",
+     "count": 1,
+     "utc": "2026-11-04T13:28:25Z"
+    }
+   ],
+   "context": "during new C3 Pod warmup (~schedule origin+112s); guarded query intentionally returns no data until all Pod series initialize (ignoreNullValues=false), KEDA polls every 15s",
+   "informational_cadence_not_freeze": {
+    "scrape_upper_seconds": 15.0,
+    "ingestion_upper_seconds": 52.02,
+    "controller_upper_seconds": 28.135,
+    "formula_seconds": 285.464,
+    "mitigation_seconds": 300,
+    "note": "run invalid; not a freeze input"
+   }
+  },
+  "second_calibration": "not started: correction would change the source warning-recurrence contract, outside approval; a repeat would be a blind retry",
+  "freeze": "not attempted",
+  "measured": "not started"
+ },
+ "cleanup": {
+  "steps_complete": [
+   "CUSTOM_remove",
+   "mesh_restore",
+   "namespace_remove",
+   "final_normal",
+   "KEDA_restore",
+   "normal_fixture",
+   "healthy_fixture",
+   "final_fixture",
+   "stable_integrity",
+   "image_remove",
+   "AMW_role_remove",
+   "UAMI_FIC_remove",
+   "AKS_role_remove",
+   "ARM_final",
+   "forward_close"
+  ],
+  "cleanup_final_complete": true,
+  "errors": [],
+  "final_normal": "gate passed: valid/success, 9 operations",
+  "PAT": {
+   "normal": 204,
+   "healthy": 204,
+   "final": 204
+  },
+  "independent_post_cleanup_read_only_utc": "2026-11-04T13:38:05Z",
+  "independent_post_cleanup": {
+   "resource_ids_unchanged": true,
+   "resource_count": 34,
+   "C29_UAMI_absent": true,
+   "C29_image_tag_absent": true,
+   "temporary_AKS_admin_absent": true,
+   "Owner_assignments": 2,
+   "nodes": 2
+  },
+  "local": "driver/forward exited, campaign.lock released",
+  "claim_limit": "Campaign29 owned cleanup only; not a global zero-residual claim"
+ },
+ "cumulative_after_Campaign29": {
+  "campaign": 29,
+  "initialize_started": 26,
+  "healthy": 16,
+  "started_calibration": 12,
+  "reviewed_valid_calibration": 1,
+  "measured": {
+   "C0": 0,
+   "C1": 0,
+   "C2": 0,
+   "C3": 0
+  },
+  "KEDA_apply_restore_actions": "12/12"
+ },
+ "cost": {
+  "billing_GET": 0,
+  "resource_hold_minutes_approx": 22,
+  "actual_campaign_cost": "UNKNOWN"
+ },
+ "private_unpublished_sha256": {
+  "driver.py": "f975b84a84b4ca9eb5654d5bd49d812292f53aa57bc385405d6a6d2c06395854",
+  "preflight.py": "7b737fd19348188c781da36d3d674561f1e817e4e2c6d688ea5b0aca7c31f0b5",
+  "launch.py": "aa5d9e4fa15eaf9605a9da359444b2d20949b40fe60767c589aaf4cbfb963a65",
+  "send.sh": "2909b72a7e7c1a5be6461cd8c33414d43191145a46cff7ca8533cd21ad30f9a0",
+  "commands.jsonl": "3075a236c98f263f8675bd38285044397d3eb3963a16827b9ba9fdded4a1d97c",
+  "private/driver.out": "dfbaadaafea7937ebbfc6914eb2cbbd649dea0786406e2afe4a1b0b0546bf7b3",
+  "private/C3-calibration1.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "private/C3-calibration1-validation.txt": "d39418d0f751605049bc90230d1cd8acdcf3ac71f0e2ff7bb0194f493dc9fe6a"
+ },
+ "deadlines_kst": {
+  "environment": "2026-11-05T10:30",
+  "foundation_bootstrap": "2026-11-06T00:33"
+ }
+}
