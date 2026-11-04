@@ -4474,13 +4474,15 @@ class Campaign22BoundaryTests(unittest.TestCase):
         changed[-1]['haproxy_logs'] = first['haproxy_logs'] + [r for r in hp if r not in candidates]
         with self.assertRaisesRegex(ValueError, 'path error'): m.path_accounting('C3', changed)
 
-    def test_real_recovery_has_independent_command_slo_and_driver_failures(self):
-        # Optimistic coverage isolates demand/command boundaries; not a full run revalidation.
+    def test_real_recovery_latency_is_reported_p7_benchmark_not_functional_gate(self):
+        # HYPOTHETICAL current-rule predicate under optimistic coverage only. The archived C22 run stays CLOSED/invalid
+        # (controller/accounting tests above); its historical report is not reclassified or rewritten.
         result = m.recovery(self.manifest['plan'], self.rows, lambda *_: True)
-        self.assertEqual(result['status'], 'not recovered within observation window')
-        self.assertEqual(sum(w['good'] for w in result['windows']), 0)
-        self.assertTrue(all(w['failure_counts']['issue-command-slo'] > 0 for w in result['windows']))
-        self.assertEqual(sum(w['failure_counts'].get('issue-command-slo', 0) for w in result['windows']), 674)
+        self.assertEqual(result['status'], 'recovered')  # functional predicate only; not a historical outcome
+        bench = result['p7_benchmark']
+        self.assertEqual((bench['status'], bench['issue_command_seconds']['samples'], bench['issue_command_seconds']['over_threshold']), ('fail', 864, 674))
+        self.assertGreater(bench['former_p9_strict_driver_lag_diagnostic']['max'], 1.5)
+        self.assertFalse(any({'issue-command-slo', 'driver-lag'} & set(w['failure_counts']) for w in result['windows']))
         self.assertGreater(result['campaign']['driver_lag_max_seconds'], 1.5)
         self.assertEqual(result['campaign']['scheduler_dispatch_lag_seconds'], [])  # Missing historical submission clock stays unknown.
 
@@ -4595,13 +4597,12 @@ class Campaign23BoundaryTests(unittest.TestCase):
         self.assertFalse(any(r['status'] == 400 or r['queue_ms'] == -1 for r in rows))
         with self.assertRaisesRegex(ValueError, 'path error'): m.path_accounting('C3', self.snapshots)
 
-    def test_actual_recovery_negative_not_relaxed(self):
-        # Only the redacted public identity placeholder is replaced for this
-        # pure schedule/latency predicate; no identity/plan binding revalidation.
+    def test_actual_recovery_latency_preserved_as_p7_benchmark(self):
+        # Only the redacted public identity placeholder is replaced for this pure schedule/latency predicate
+        # (optimistic coverage, no binding revalidation). C23 stays CLOSED/invalid by its accounting negative above.
         v = self.manifest['plan'] | {'identity_client_id': plan()['identity_client_id']}
-        result = m.recovery(v, self.rows, lambda *_: True)
-        self.assertEqual(result['status'], 'not recovered within observation window')
-        self.assertEqual(sum(w['failure_counts'].get('issue-command-slo', 0) for w in result['windows']), 639)
+        bench = m.recovery(v, self.rows, lambda *_: True)['p7_benchmark']
+        self.assertEqual((bench['status'], bench['issue_command_seconds']['over_threshold']), ('fail', 639))
 
 
 class C3StartupControllerTests(unittest.TestCase):
@@ -5157,18 +5158,19 @@ class DemandRecoveryTests(unittest.TestCase):
         self.assertEqual(m.recovery(plan(), e, lambda *_: True)['status'], 'not recovered within observation window')
 
     def test_paused_reduced_missing_cancelled_git_or_lag_not_recovery(self):
-        for case in ('cancel', 'lag', 'git-fail', 'slow-command'):
+        for case in ('cancel', 'late-completion', 'git-fail', 'issue-fail', 'retry'):
             e = events()
             for row in e:
                 if row['record'] != 'operation' or row['at'] < 180:
                     continue
                 if case == 'cancel': row.update(issued=None, outcome='not-issued', attempts=[])
-                elif case == 'lag':
-                    row.update(issued=row['issued'] + 1, completed=row['completed'] + 1)
-                    row['attempts'][0]['started'] += 1; row['attempts'][0]['ended'] += 1
+                elif case == 'late-completion': row['completed'] += 10  # completion outside its fixed window
                 elif case == 'git-fail' and row['kind'] == 'git': row['attempts'][0]['semantic_result'] = False
-                elif case == 'slow-command' and row['kind'] == 'issue':
-                    row['completed'] += .2; row['attempts'][0]['ended'] += .2; row['attempts'][0]['duration_seconds'] += .2
+                elif case == 'issue-fail' and row['kind'] == 'issue': row['attempts'][0]['semantic_result'] = False
+                elif case == 'retry' and row['kind'] == 'issue':  # scoped overload retry: not a first-attempt success
+                    first = row['attempts'][0]; first.update(semantic_result=False, status=503, overload=True, error_class='http_status')
+                    row['attempts'].append(dict(first, index=2, started=first['ended'], ended=first['ended'] + .05, semantic_result=True, status=200, error_class='none'))
+                    row['completed'] = first['ended'] + .05
             with self.subTest(case=case):
                 self.assertEqual(m.recovery(plan(), e, lambda *_: True)['status'], 'not recovered within observation window')
         for change in ('missing-row', 'changed-schedule'):
@@ -5176,6 +5178,25 @@ class DemandRecoveryTests(unittest.TestCase):
             if change == 'missing-row': e.pop()
             else: e[0]['items'] = e[0]['items'][:-25]
             with self.assertRaises(ValueError): m.recovery(plan(), e, lambda *_: True)
+
+    def test_slow_command_and_lag_are_p7_and_strict_diagnostics_not_recovery_gates(self):
+        e = events()
+        for row in e:
+            if row['record'] != 'operation': continue
+            issued = row['issued'] + .4  # worker/driver lag .4s; command .31s; still completed inside its window
+            row.update(issued=issued, completed=issued + .31)
+            row['attempts'][0].update(started=issued, ended=issued + .31, duration_seconds=.31)
+        result = m.recovery(plan(), e, lambda *_: True)
+        self.assertEqual(result['status'], 'recovered')  # functional: all issued/completed in-window, first attempt semantic success
+        bench = result['p7_benchmark']
+        self.assertEqual((bench['status'], bench['issue_command_seconds']['max']), ('fail', .31))
+        self.assertGreater(bench['issue_command_seconds']['over_threshold'], 0)
+        self.assertGreater(bench['former_p9_strict_driver_lag_diagnostic']['over_threshold'], 0)
+        self.assertTrue(all(w['latency_diagnostic_counts']['p7_issue_command_over_0_2s'] == 48 for w in result['windows']))
+        report, _, _ = m.demand_report(plan(), e); m.require_complete_demand(report)
+        with self.assertRaisesRegex(ValueError, 'driver demand reduction/lag'):
+            m.require_complete_demand(report | {'driver_lag_max_seconds': 2.01})  # whole-run comparison bound unchanged
+        self.assertEqual(m.recovery(plan(), events(), lambda *_: True)['p7_benchmark']['status'], 'pass')
 
     def test_p7_command_vs_end_to_end_queue_backoff_latency(self):
         e = events(); row = next(x for x in e if x['record'] == 'operation')

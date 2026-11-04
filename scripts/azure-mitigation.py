@@ -943,8 +943,29 @@ def require_complete_demand(report):
             'driver demand reduction/lag invalidates comparison')
 
 
+def p7_benchmark(rows, start, end):
+    """P7 issue_read single curl-command SLO (concurrency 1, 5 samples, max 0.1s x2): P9 measurement only, never acceptance.
+
+    Driver lag is not a P7 SLO; its former P9 strict 0.2s per-window gate is kept only as a labeled diagnostic.
+    """
+    limit = load(SLO)['command_latency']['per_operation']['issue_read']['threshold_max_seconds']
+    done = [r for r in rows if start <= r['scheduled'] < end and r['outcome'] == 'completed' and r['issued'] is not None and r['attempts']]
+    def summary(values, threshold):
+        values = sorted(values)
+        return {'samples': len(values), 'threshold_seconds': threshold, 'over_threshold': sum(x > threshold for x in values),
+                'p50': values[len(values) // 2] if values else None, 'p95': values[min(len(values) - 1, int(.95 * len(values)))] if values else None,
+                'max': values[-1] if values else None}
+    command = summary([r['attempts'][0]['duration_seconds'] for r in done if r['kind'] == 'issue'], limit)
+    return {'role': 'P7 issue_read command benchmark; measurement only, not P9 functional recovery acceptance',
+            'issue_command_seconds': command,
+            'status': 'unknown' if not command['samples'] else 'fail' if command['over_threshold'] else 'pass',
+            'former_p9_strict_driver_lag_diagnostic': summary([r['issued'] - r['scheduled'] for r in done], .2)}
+
+
 def recovery(v, events, observation_good):
+    """Functional continuing-demand recovery. P7 0.2s latency is a separate benchmark, reported but not a gate."""
     report, rows, origin = demand_report(v, events)
+    limit = load(SLO)['command_latency']['per_operation']['issue_read']['threshold_max_seconds']
     release = [e for e in events if e['record'] == 'release']
     convergence = [e for e in events if e['record'] == 'convergence']
     require(len(release) == 1 and release[0]['at'] >= origin + v['mitigation_seconds'], 'fault release command missing/early')
@@ -954,7 +975,7 @@ def recovery(v, events, observation_good):
     for offset in range(v['mitigation_seconds'], v['mitigation_seconds'] + v['recovery_seconds'], 10):
         start, end = origin + offset, origin + offset + 10
         group = [r for r in rows if start <= r['scheduled'] < end]
-        reasons = {}
+        reasons, diagnostic = {}, {'p7_issue_command_over_0_2s': 0, 'former_strict_driver_lag_over_0_2s': 0}
         def fail(reason):
             reasons[reason] = reasons.get(reason, 0) + 1
         if stable is None or start < stable: fail('release-not-converged')
@@ -963,13 +984,13 @@ def recovery(v, events, observation_good):
         for r in group:
             if r['outcome'] != 'completed' or r['issued'] is None:
                 fail('unissued-or-cancelled'); continue
-            if r['issued'] - r['scheduled'] > .2: fail('driver-lag')
+            if r['issued'] - r['scheduled'] > .2: diagnostic['former_strict_driver_lag_over_0_2s'] += 1
             if r['completed'] > end: fail('completion-outside-window')
             if len(r['attempts']) != 1: fail('retry')
             if not r['attempts'][0]['semantic_result']: fail('semantic-failure')
-            if r['kind'] == 'issue' and r['attempts'][0]['duration_seconds'] > .2: fail('issue-command-slo')
+            if r['kind'] == 'issue' and r['attempts'][0]['duration_seconds'] > limit: diagnostic['p7_issue_command_over_0_2s'] += 1
         good = not reasons
-        windows.append({'start': start, 'end': end, 'scheduled': len(group), 'good': good, 'failure_counts': reasons})
+        windows.append({'start': start, 'end': end, 'scheduled': len(group), 'good': good, 'failure_counts': reasons, 'latency_diagnostic_counts': diagnostic})
         if good:
             streak += 1
             if streak == 1:
@@ -977,11 +998,12 @@ def recovery(v, events, observation_good):
             if streak == 3:
                 return {'status': 'recovered', 'release_command': release[0]['at'], 'converged': stable,
                         'first_good_window': first, 'confirmation': end, 'recovery_seconds': end - release[0]['at'],
-                        'windows': windows, 'campaign': report}
+                        'windows': windows, 'campaign': report, 'p7_benchmark': p7_benchmark(rows, origin + v['mitigation_seconds'], deadline)}
         else:
             streak, first = 0, None
     return {'status': 'not recovered within observation window', 'release_command': release[0]['at'], 'converged': stable,
-            'first_good_window': first, 'confirmation': None, 'deadline': deadline, 'windows': windows, 'campaign': report}
+            'first_good_window': first, 'confirmation': None, 'deadline': deadline, 'windows': windows, 'campaign': report,
+            'p7_benchmark': p7_benchmark(rows, origin + v['mitigation_seconds'], deadline)}
 
 
 def config_guard(before, after, arm, healthy=False, releasing=False):

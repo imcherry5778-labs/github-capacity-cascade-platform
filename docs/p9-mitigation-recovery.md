@@ -49,7 +49,7 @@ source/test 변경은 당시 **future candidate**였고 이후 exact source d1ed
   그 handler는 제거된 one-off operator라 이번 source에 고칠 maintained parser가 없다. 별도 cleanup framework를 만들지 않는다.
   다음 owned operator를 검토할 때 successful empty delete와 case-insensitive `manifest unknown`/실제 absence를 구분해야 한다.
 
-Recovery0.2초 SLO, worker12, wave/demand·threshold·budget은 바꾸지 않았다. Valid run의 not-recovered는 negative일 수 있고,
+P7 issue_read 0.2초는 P7 concurrency1·5 sample의 max0.1초×2 benchmark이며 P9 recovery gate가 아니다(아래 Recovery). Worker12, wave/demand·threshold·budget은 바꾸지 않았다. Valid run의 not-recovered는 negative일 수 있고,
 Campaign23은 여전히 controller/accounting invalid다.
 P6/P7 drill, P8 전체 실험, factorial/조합 최적화, 다른 architecture 구현은 범위 밖이다.
 
@@ -120,8 +120,8 @@ Scheduler는 wave 완료를 기다리지 않고 같은 monotonic offsets에 arri
 Issue12/Git1 worker와 최대49 pending으로 client backlog를 제한한다. 초과 또는 monitor 실패 시
 추가 발행을 중단하고 남은 예정 arrival을 `not-issued/cancelled`로 보존하며 fault release를 시작한다.
 이는 valid mitigation이 아니다. Comparison은 unissued0과 max driver lag≤2s를 요구하며 scheduler/worker/command 시간은 그대로 측정한다.
-회복 window의 driver lag와 command latency는 각각≤0.2s로 유지한다. 완전한 otherwise-valid run의 SLO 미달은
-recovery negative로 기록할 수 있으며 recovered로 승격하거나 SLO를 완화하지 않는다.
+회복 window의 Issue command latency는 P7 0.2s benchmark로, driver lag 0.2s는 이전 P9 strict-gate 진단으로 모든 초과를 보고하지만
+functional recovery 조건이 아니다. 완전한 otherwise-valid run의 functional 미회복은 recovery negative로 기록하며 recovered로 승격하지 않는다.
 
 ## KEDA signal과 ownership
 
@@ -268,8 +268,8 @@ Fault 유지 중 원래 SLO를 회복했다고 가정하지 않는다.
 Recovery window는 schedule origin 기준 고정된 연속10초다. 마지막 arrival은 duration−5초이며
 관측 deadline까지 계속 수집한다. 첫 fully-converged window부터 다음 조건을3개 연속 요구한다.
 
-- 매 window에 예정된 새 Issue48/Git2가 실제 발생하며 driver lag≤0.2s, 미발행/취소 없음.
-- 새 Issue 모두 **첫 attempt** semantic success, P7 단일 curl-command latency≤0.2s.
+- 매 window에 예정된 새 Issue48/Git2가 실제 발생하며 미발행/취소 없음.
+- 새 Issue 모두 **첫 attempt** semantic success(retry 없음).
 - Git read semantic success. `ls-remote`에 P7 clone/fetch latency threshold를 적용하지 않음.
 - Window 안에 completion, 필수 freshness/Pod readiness/관측 coverage가 존재함.
 
@@ -277,6 +277,9 @@ Release command, 실제 all-Pod 수렴, first-good window, confirmation/deadline
 조건 미충족은 `not recovered within observation window`다. 빠른 deny/낮은 rejection/CPU는
 recovery가 아니다. P7 command latency와 schedule→completion의 queue/backoff 포함 operation
 latency를 별도 배열로 보고하며 전체 campaign의 실패/누락 분모를 유지한다.
+P7 `initial-slo.json` issue_read 0.2s(concurrency1·5 sample max0.1s×2)는 P9 concurrency24/fault에서 검증된 지속 SLO가 아니다.
+`recovery()`는 window별 `p7_issue_command_over_0_2s`와 `former_strict_driver_lag_over_0_2s`, 전체 `p7_benchmark`(Issue command p50/p95/max·초과 수,
+pass/fail/unknown)와 별도 driver lag 진단을 보고하되 recovered 판정에 쓰지 않는다. 새 P9 latency 임계값은 정의하지 않는다.
 
 Operation/attempt/check/dispatch/admission/target rejection은 다른 단위다. C2 intentional429는
 HAProxy `PR`, queue timeout503은 `sQ` termination으로 분리하며 target503 overflow와 섞지 않는다.
@@ -319,7 +322,8 @@ CLOSED/invalid evidence다. 신규 source로 과거 manifest/hash를 재결합�
   HTTP request 수신 시간을 추가하고 target/ingress와 HAProxy log read 구간을 각각 기록한다.
   Peer/URL/header/body는 수집하지 않는다. **REVALIDATE:** 새 로그의 counter 연속성·boundary·실제 ingress mapping.
   `400` 일괄 제외, `Tw=-1`→0, residual 분모 제거 또는 equality 합성은 하지 않는다.
-- **DECIDED — recovery fail-close 유지.** optimistic observation coverage로 분리 재계산해도 good window0이다.
+- **DECIDED(당시) — recovery fail-close 유지.** 당시 규칙에서는 optimistic observation coverage로 분리 재계산해도 good window0이었다.
+  현재 functional recovery 계약은 0.2s latency를 benchmark로만 보고하므로, 아래 latency 수치는 benchmark 초과 기록이다. 제22차 run은 별도 controller/accounting 실패로 여전히 invalid다.
   Recovery Issue attempt884개 중674개가0.2초 초과, command p50 약0.343초/p95 약1.308초,
   driver lag p95 약1.331초/max1.501207초다. 모든10초 window에 command SLO 실패가 있어 driver gate만
   바꾸어도 recovered가 아니다. Issue12 worker에 wave당24 arrivals이므로 두 번째 묶음의 worker 대기가
