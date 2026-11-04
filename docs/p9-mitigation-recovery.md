@@ -98,13 +98,13 @@ hostname, Argo revision과 나머지 drift 검사는 유지한다. Arm마다 ini
 ## 시간·부하 상한
 
 공통 후보는 mitigation300s + recovery180s, drain/마지막 수집60s(합계540s≤600s)를 계획한다. 300s는 계약상 최대 mitigation이다.
-근거는 실제 calibration raw의 보수적 native 상한 3×(scrape+raw age+HPA status 변화 간격)이다: 제24차 276.356s, 제27차 3×(15+53.558+28.979)=292.611s(당시 290s에서 freeze fail closed). 여유는 7.389s뿐이며 PASS를 보장하지 않는다. 이 수치들은 아래 정정에 따라 진단값이다.
+300s 선택 당시 쓴 3×(scrape+raw age+HPA status 변화 간격)은 controller 상한이 아니라 진단값이다: 제24차 276.356s, 제27차 3×(15+53.558+28.979)=292.611s(당시 290s에서 freeze fail closed). PASS를 보장하지 않는다.
 Newest-sample 최초 가시성 상한(제27차 최대33.708s)은 건너뛴 sample을 덮지 못하고, raw age가 함의하는 다음 sample의 지연 하한38.558s(또는 scrape 누락)보다 작으므로 ingestion 상한으로 쓰지 않는다.
 Plan `controller_seconds`15(Warning episode grouping 정책)와 scrape/ingestion/freshness·fault/demand/guard/recovery SLO는 바꾸지 않는다. 과거 invalid raw는 새 run의 유효성 증거가 아니다. Mitigation 연장은 recovery 판정(제27차 not recovered negative)을 바꾸거나 개선한다고 주장하지 않는다.
 **정정(제30차 근거):** HPA status 변화 간격은 controller sync 상한이 아니다. Upstream HPA `updateStatusIfNeeded`는 같은 status를 쓰지 않으므로,
 변화 없는 간격을 reconciliation 부재로 해석할 수 없다. 제30차 최대38.395s(3×합316.087s)는 전부 새 Pod 의도된 warmup(monotonic +56.4…+129.9s) 안에 있었다.
 따라서 3×(scrape+raw age+status 변화 간격)≤mitigation은 freeze/acceptance gate가 아니라 calibration report의 `status_change_gap_diagnostic`으로만 남긴다.
-Freeze의 `cadence_observed`는 `direct_controller_observation`이다. 새 Pod warmup 뒤 signal·resource가 모두 observed가 된 다음부터 release(origin+300s) 전까지,
+Freeze의 `cadence_observed`는 `direct_controller_observation`이다. Baseline 대비 새 target UID가 실제로 있어야 하고(warming snapshot은 필수가 아니며, 관측되면 그 초기화 snapshot 뒤부터 센다), release(origin+300s) 전까지
 35s 이하 간격의 **연속 3개 이상** snapshot이 각각 다음을 만족해야 한다:
 같은 HPA UID/owner/spec·status hash와 monotonic clock 결합(`controller_observation`), `controller_positive`(ScalingActive/AbleToScale True, External metric),
 exact target 전체 signal observed·per-Pod sample≥2·age≤60s, resource observed, 그 snapshot window 안 같은 UID native HPA GET, 창 안 새 HPA/KEDA Warning 없음.
