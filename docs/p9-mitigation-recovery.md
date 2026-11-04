@@ -142,7 +142,7 @@ Actual ORIGINAL_DST inbound cluster `inbound|8080||`, listener destination port8
 `use_all_default_tags=false`, `cluster_name` tag regex `^cluster(\.(.+);)`를 확인한다.
 Native exposition의 overflow counter/active gauge type과 label, 같은 Pod의 ingested sample을 대조한다.
 Mapping/tag/label ambiguity나 drift는 신규 Pod warmup 중에도 실패한다.
-`sum(rate(...[1m]))`의 unit은 rejected checks/s이며 raw cumulative counter를 threshold에
+현재 source `RATE_WINDOW`2m의 `sum(rate(...[2m]))`(reviewed 계약; C24/C27 raw도2m)의 unit은 rejected checks/s이며 raw cumulative counter를 threshold에
 연결하지 않는다. 후보 threshold0.5, calibration 허용0.25–1.0이다. 이는 rejection을 낮추려는
 반응 후보이며 capacity2가 SLO를 복원한다는 가정이 아니다. Gauge의 짧은 peak는 scrape가
 놓칠 수 있어 counter rate를 택했으며 high-frequency admin 관측/log와 따로 대조한다.
@@ -374,7 +374,7 @@ exact-ID revoke/재사용401·token list0·fixture login 차단을 확인하며 
 같은 승인 안의 허용된 bounded recovery만 남은 승인 범위/횟수/기한·원복 reserve 안에서 수행한다. Closed campaign의 잔여 권한은 이월하지 않는다.
 
 Whole reserve는1800+실제 initialize timeout I+kill5+6×600+1800초이며 candidate I840이면8045초다.
-각 run/drain/rollback2220초와 initialize 포함3065초의 strict retention cutoff를 유지한다. 부족하면 새 위험 행동을 시작하지 않는다.
+각 run/drain/rollback2340초(300+180+60+1800)와 initialize 포함3185초(+840+kill5)의 strict retention cutoff를 유지한다. 부족하면 새 위험 행동을 시작하지 않는다.
 Owned cleanup은 CUSTOM exact UID 제거→shared CM UID/data guarded 복원→experiment controls/Secret/namespace→정상 native/TLS 검증,
 fixture 폐기·소유 image exact tag/digest/로컬 tag·forward/권한 제거 순서다. KEDA 원본 SA/rollout을 복원한 뒤 소유 role/FIC/UAMI를 제거한다.
 Argo revision/spec/Pod·기존 PVC/PV/Disk/Secret/CSI·원래 Owner와 fixed inventory 보존을 실제 evidence로 확인한다.
