@@ -1,7 +1,7 @@
 # P8 controlled cascade — 초기 incident record
 
-상태: **Azure 측정·원복 완료, 독립 exact-head review 대기**. 분류: `LAB_IMPLEMENTATION`.
-Historical GitHub incident topology의 복제 주장이 아니다. P9 mitigation/recovery와 P10 isolation은 수행하지 않았다.
+P8 종료 당시 상태: **Azure 측정·원복 완료**. 독립 review를 거친 [P8 PR #40](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/40)은 merge됐다. 분류: `LAB_IMPLEMENTATION`.
+Historical GitHub incident topology의 복제 주장이 아니다. **P8 종료 당시에는** P9 mitigation/recovery와 P10 isolation을 수행하지 않았다. 이후 완료된 P9 결과는 아래 corrective action에 연결했다.
 
 ## 영향과 판정
 

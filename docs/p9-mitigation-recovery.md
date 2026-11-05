@@ -2,7 +2,7 @@
 
 목표는 동일 fault/demand의 C0–C3 비교, continuing-demand recovery, 실제 request accounting과 P9-owned 원복 evidence다.
 **현재 상태:** [제32차](evidence/p9-mitigation-thirty-second-20261105/README.md)에서 reviewed valid calibration과 freeze를 거쳤다. 그 뒤 measured C0–C3 4 arm이 모두 reviewed valid였고, source `compare()`도 valid였다. Owned cleanup도 완료했다.
-Corrective action 연결은 [P8 incident record](incidents/p8-controlled-cascade.md#p9-mitigation-결과와-corrective-action-상태)에 있다. 최종 독립 merge gate는 대기 중이다.
+Corrective action 연결은 [P8 incident record](incidents/p8-controlled-cascade.md#p9-mitigation-결과와-corrective-action-상태)에 있다. 독립 review와 exact-head CI를 거친 [PR #49](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/49)는 2026-11-05 squash merge됐다.
 아래 제22–31차 기록과 counters는 당시 상태 그대로 보존한다. [제24차](evidence/p9-mitigation-twenty-fourth-20261104/README.md)는 CLOSED/invalid였고, 당시 누적은 campaign24 / public initialize21 / healthy12 / started-invalid calibration9 / measured 각0 / KEDA apply·restore actions9/9이었다.
 Paid source `d1ed52b8ba14d77345df5b3f19ae8a599421e516`는 native post-startup Warning과 AMW inventory age61.512초의60초 guard 초과로 중단했다. Ring conservation 부분 관측과 원복은 확인했지만 valid calibration은 없다.
 [제23차](evidence/p9-mitigation-twenty-third-20261103/README.md)의 source `076bc8a3dbd09e8192057e19df8b6cc5cb55274d`와 controller·HAProxy log 결손 negative도 그대로 보존한다.
@@ -19,13 +19,13 @@ Paid source `d1ed52b8ba14d77345df5b3f19ae8a599421e516`는 native post-startup Wa
 Source CI·synthetic·부분 positive를 valid calibration, measured 성과 또는 recovered로 승격하지 않는다.
 
 현재 실행 범위·보존은 [Paid Azure boundary](implementation-plan.md#paid-azure-boundary--p6p11)와 별도 실제 사용자 결정을 따른다.
-Environment 기한은 2026-11-08 10:30 KST, Foundation/Bootstrap은 11월9일00:33 KST다([+72h 승인](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/issues/47#issuecomment-6645059367); 직전 11월5일10:30/11월6일00:33 기록은 이력으로 보존). 자동 연장·전체 teardown·merge/P10은 없다.
+Environment 기한은 2026-11-08 10:30 KST, Foundation/Bootstrap은 11월9일00:33 KST다([+72h 승인](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/issues/47#issuecomment-6645059367); 직전 11월5일10:30/11월6일00:33 기록은 이력으로 보존). 해당 보존 승인은 자동 연장·전체 teardown 또는 P10 Azure 실행을 허용하지 않는다.
 
 ## Campaign23 이후 cost-free candidate
 
 [독립 review](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/49#pullrequestreview-5755324677) 뒤의
 source/test 변경은 당시 **future candidate**였고 이후 exact source d1ed로 제24차를 실행했다. Campaign22·23·24 archive/실행 source/negative는 불변이다.
-제24차 cleanup 뒤의 Pending 빈 imageID 교정만 새 cost-free candidate다. 과거 manifest 재서명·valid 승격은 없으며 Campaign25 권한도 없다.
+제24차 cleanup 당시 Pending 빈 imageID 교정만 새 cost-free candidate였고, Campaign25 실행 권한은 아직 없었다. 과거 manifest 재서명·valid 승격은 없다.
 
 - **DECIDED — C3 bounded degraded startup 기록.** 새 형식은 guard HPA GET의 source/spec/status hash,
   HPA UID·ScaledObject owner UID와 request/response monotonic clock을 configuration에 결합한다.
@@ -42,7 +42,7 @@ source/test 변경은 당시 **future candidate**였고 이후 exact source d1ed
   관측 중 count/last time의 증가는 둘 다 strictly 함께 증가하고 native last가 그 observed signal 전일 때만 허용하며 first time과 나머지 field는 불변이다.
   늦게 보인 version은 그 사이 guard 수집이 모두 native last+1s(초 단위) 전이어야 한다(제31차: guard +87.2s, event +88.8s, signal +99.7s); 그 뒤 수집이 빠뜨리면 invalid다.
   reason/owner 짝이 다르면 count1 불변 history만 허용하며, second UID·history 유실·episode 밖 반복은 invalid다.
-  `controller_seconds`15는 서로 다른 Warning의 native first time grouping에만 쓴다.
+  `controller_seconds`15는 서로 다른 Warning의 native first time grouping과 당시 P9 `plan()`의 정적 mitigation 하한 `max(120, 3×(scrape_seconds+ingestion_seconds+controller_seconds))`에 사용된다. 이 하한은 HPA status-change interval의 실측 상한이나 freeze 성공 보장이 아니며, P10에 자동 적용하지 않는다.
   그 사건은 controller reliability negative/degraded evidence로 남긴다. 이후 별도 request-clock의 same-HPA positive,
   fresh AMW와 resource joint observation이 있어야 하며, 경고를 health PASS로 바꾸거나 원인 인과를 추정하지 않는다.
   Earlier HPA와 later AMW를 같은 evaluation으로 합치지 않는다. Degraded 구간은 convergence/recovery proof에서 제외하고
@@ -105,7 +105,7 @@ hostname, Argo revision과 나머지 drift 검사는 유지한다. Arm마다 ini
 공통 후보는 mitigation300s + recovery180s, drain/마지막 수집60s(합계540s≤600s)를 계획한다. 300s는 계약상 최대 mitigation이다.
 300s 선택 당시 쓴 3×(scrape+raw age+HPA status 변화 간격)은 controller 상한이 아니라 진단값이다: 제24차 276.356s, 제27차 3×(15+53.558+28.979)=292.611s(당시 290s에서 freeze fail closed). PASS를 보장하지 않는다.
 Newest-sample 최초 가시성 상한(제27차 최대33.708s)은 건너뛴 sample을 덮지 못하고, raw age가 함의하는 다음 sample의 지연 하한38.558s(또는 scrape 누락)보다 작으므로 ingestion 상한으로 쓰지 않는다.
-Plan `controller_seconds`15(Warning episode grouping 정책)와 scrape/ingestion/freshness·fault/demand/guard/recovery SLO는 바꾸지 않는다. 과거 invalid raw는 새 run의 유효성 증거가 아니다. Mitigation 연장은 recovery 판정(제27차 not recovered negative)을 바꾸거나 개선한다고 주장하지 않는다.
+Plan `controller_seconds`15(Warning grouping 및 정적 mitigation 하한)와 scrape/ingestion/freshness·fault/demand/guard/recovery SLO는 바꾸지 않는다. 과거 invalid raw는 새 run의 유효성 증거가 아니다. Mitigation 연장은 recovery 판정(제27차 not recovered negative)을 바꾸거나 개선한다고 주장하지 않는다.
 **정정(제30차 근거):** HPA status 변화 간격은 controller sync 상한이 아니다. Upstream HPA `updateStatusIfNeeded`는 같은 status를 쓰지 않으므로,
 변화 없는 간격을 reconciliation 부재로 해석할 수 없다. 제30차 최대38.395s(3×합316.087s)는 전부 새 Pod 의도된 warmup(monotonic +56.4…+129.9s) 안에 있었다.
 따라서 3×(scrape+raw age+status 변화 간격)≤mitigation은 freeze/acceptance gate가 아니라 calibration report의 `status_change_gap_diagnostic`으로만 남긴다.
@@ -319,7 +319,7 @@ C2 queue는 측정 대상, 다른 arm에서는 경쟁 병목 guard다.
 `scaling_ownership_audit`를 더하여 actual file/window/hash/interpretation을 검토해야 `review`가 valid다.
 `manual_replica_changes=0`과 arm별 HAProxy queue role도 필수다. Runtime 후 `compare`의 네 결과를
 같은 incident의 backoff/admission/proxy-scaling corrective action에 연결한다.
-결과가 없는 현재 corrective action은 검증 완료가 아니다.
+결과가 없는 corrective action은 검증 완료가 아니다.
 
 ## Campaign22 차단 원인과 cost-free 교정
 
@@ -353,10 +353,10 @@ CLOSED/invalid evidence다. 신규 source로 과거 manifest/hash를 재결합�
   command 시간에 의존한다. 기존 raw에는 submit clock이 없어 scheduler/host stall과 worker backlog의 비중은
   분리할 수 없다. 300초 이후24개 wave의 첫12개 lag p50은0.0215초, 다음12개는0.4092초이며 두 번째 묶음의 최초 issued는 첫 묶음 최초 completion 뒤 median0.000402초/max0.000602초다. Worker 대기가 driver lag에 포함된다는 근거다. 다음 source는 `submitted`를 기록해 schedule→submit과 submit→issued를 나누고 recovery
   window의 기존 실패 조건별 counts를 보고한다. command·operation latency와 기존0.2초/전체2초 기준은 그대로다.
-  **REVALIDATE:** 같은 수요에서 controller/target 안정화 후 command SLO와 host/worker 지연의 실제 분리.
+  **REVALIDATE (제22차 당시):** 같은 수요에서 controller/target 안정화 후 command SLO와 host/worker 지연의 실제 분리.
   기존 `validate`/`review`는 `not recovered` 자체를 run-invalid 조건으로 삼지 않는다. Valid run의 미회복도 negative result로 보고하며, 이번 validity는 별도 controller/accounting 실패로 막혔다.
 
-**DEFERRED:** 새 source의 actual calibration·freeze·measured C0–C3·동일-window cloud confounder review와 recovery/rollback
+**DEFERRED (제22차 당시):** 새 source의 actual calibration·freeze·measured C0–C3·동일-window cloud confounder review와 recovery/rollback
 검증은 새 실행 권한 없이는 진행하지 않는다. 실제 비교/회복/accounting/owned rollback이라는 P9 목표는 줄이지 않는다.
 Azure/AKS/AMW/credential/Secret GET 또는 mutation 없이 수행한 source/archived-negative/synthetic 검증은 paid acceptance가 아니다.
 
