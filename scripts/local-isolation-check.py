@@ -41,6 +41,17 @@ def apply(config):
     gate.command('kubectl', '-n', 'shared-gate', 'rollout', 'status', 'deployment/haproxy', '--timeout=90s')
 
 
+def effective_check(listeners):
+    # istioctl emits camelCase; Azure admin config_dump uses snake_case.
+    # Reuse the selected local parser rather than mixing those wire formats.
+    gate.auth_filter(listeners)
+    filters = [v['typedConfig'] for v in m.p8.walk(listeners)
+               if v.get('name') == 'envoy.filters.http.ext_authz']
+    m.require(filters and all(not f['httpService'].get('pathPrefix') for f in filters),
+              'effective HTTP check path prefix drift')
+    return filters
+
+
 def run(directory):
     gate.owned_image_node()  # Exact invocation-owned local cluster; never current context alone.
     f = {'owner': os.environ['DEV_USER'], 'repo': 'journey', 'issue': int(os.environ['ISSUE_NUMBER'])}
@@ -91,9 +102,7 @@ def run(directory):
         checks = [json.loads(row) for row in k('-n', 'shared-gate', 'logs', pod['metadata']['name'], '-c', 'app').splitlines()]
         gate.validate_checks(checks)
         listeners = gate.proxy_config(gate.pod('istio=p4-ingress')['metadata']['name'], 'listeners')
-        filters = [v['typed_config'] for v in m.p8.walk(listeners) if v.get('name') == 'envoy.filters.http.ext_authz']
-        m.require(filters and all(not f.get('failure_mode_allow', False) and not f.get('with_request_body') and
-                  not f['http_service'].get('path_prefix') for f in filters), 'effective HTTP check path/body/fail-open drift')
+        filters = effective_check(listeners)
         m.require(gate.pod('app=ext-authz-sim')['metadata']['uid'] == before_target, 'classifier smoke target replaced')
         result = {'classification': 'healthy-path-verified', 'source_sha': gate.command('git', 'rev-parse', 'HEAD').strip(),
                   'scope': 'single-target healthy classifier, not isolated load protection', 'probes': results,

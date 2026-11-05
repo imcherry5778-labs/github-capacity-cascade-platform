@@ -67,6 +67,21 @@ def synthetic(arm):
 
 
 class IsolationTests(unittest.TestCase):
+    def test_selected_local_istioctl_camel_case_filter_contract(self):
+        spec = importlib.util.spec_from_file_location('p10_local', ROOT / 'scripts/local-isolation-check.py')
+        local = importlib.util.module_from_spec(spec); spec.loader.exec_module(local)
+        config = {'allowedHeaders': {'patterns': [{'exact': h} for h in ('x-operation-id', 'x-attempt-id', 'x-gate-test-deny')]},
+                  'httpService': {'serverUri': {'cluster': 'outbound|8080||haproxy.shared-gate.svc.cluster.local'},
+                                  'authorizationRequest': {'headersToAdd': [{'key': 'authorization', 'value': 'p4-check-without-credentials'}]}}}
+        listeners = [{'filterChains': [{'filters': [{'typedConfig': {'httpFilters': [
+            {'name': 'envoy.filters.http.ext_authz', 'typedConfig': config}]}}]}]}]
+        self.assertEqual(local.effective_check(listeners), [config])
+        for change in ({'withRequestBody': {'maxRequestBytes': 1}}, {'failureModeAllow': True},
+                       {'httpService': config['httpService'] | {'pathPrefix': '/auth'}}):
+            bad = copy.deepcopy(listeners)
+            bad[0]['filterChains'][0]['filters'][0]['typedConfig']['httpFilters'][0]['typedConfig'].update(change)
+            with self.assertRaises(ValueError): local.effective_check(bad)
+
     def test_exact_routes_no_identity_or_header_inputs(self):
         for kind, pairs in m.routes(F).items():
             for method, uri in pairs:
