@@ -13,6 +13,7 @@ import tempfile
 import time
 import uuid
 
+sys.dont_write_bytecode = True  # Lifecycle source provenance requires a clean tree.
 ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location('p10', ROOT / 'scripts/critical-bulk-isolation.py')
 m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
