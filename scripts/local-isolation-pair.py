@@ -74,9 +74,12 @@ class Client:
         self.counts = {kind: 0 for kind in m.CLASSES}
         self.lock = threading.Lock()
 
+    def connection(self):
+        return http.client.HTTPConnection('127.0.0.1', self.port, timeout=10)
+
     def fetch(self, kind, method, uri, headers, body=None):
         with self.lock: self.counts[kind] += 1
-        c = http.client.HTTPConnection('127.0.0.1', self.port, timeout=10)
+        c = self.connection()
         try:
             c.request(method, uri, body=body, headers=headers); r = c.getresponse()
             return {'status': r.status, 'body': r.read(), 'error': None}
@@ -250,6 +253,8 @@ def guards_from(snapshots, window, sentinels, accounting_ok, facts):
             all(c['ready'] and c['last_termination'] not in {'OOMKilled', 'Error'} for c in s['snapshot']['pods'][k]['containers'])
             for k in keys) for s in snapshots)
     targets = [k for k in first['pods'] if k.startswith('target-')]
+    # One Local ingress Pod, or every replica of a managed ingress Deployment (`ingress-<uid>`).
+    ingresses = [k for k in first['pods'] if k == 'ingress' or k.startswith('ingress-')]
     pod_names = lambda key: [c['name'] for c in first['pods'][key]['containers']]
     nodes_ok = all(s['snapshot']['nodes'] and all(n['conditions'] == {'Ready': 'True', 'MemoryPressure': 'False', 'DiskPressure': 'False', 'PIDPressure': 'False'}
                                                 for n in s['snapshot']['nodes']) for s in snapshots)
@@ -271,11 +276,12 @@ def guards_from(snapshots, window, sentinels, accounting_ok, facts):
         'forgejo_sidecar': (held and ('istio-proxy' not in pod_names('forgejo') or stable(['forgejo'])), {'sidecar': 'istio-proxy' in pod_names('forgejo')}, span),
         'postgres': (held and stable(['postgres']) and db_ok, {'pod': first['pods']['postgres']['uid'], 'connections_ok': db_ok}, span),
         'node': (held and nodes_ok, {'nodes': [n['name'] for n in first['nodes']]}, span),
-        'scheduling': (held and stable(targets + ['haproxy', 'ingress']) and len(targets) == 2, {'targets': sorted(targets)}, span),
+        'scheduling': (held and stable(targets + ['haproxy'] + ingresses) and len(targets) == 2 and bool(ingresses), {'targets': sorted(targets)}, span),
         'sentinel': (sentinel_ok and sentinel_held, {'reads': len(sentinels)}, sentinel_span),
         'haproxy': (accounting_ok and held and stable(['haproxy']), facts['haproxy'], facts['span']),
-        'tls_native_auth': (facts['native_auth'] is True, {'tls': m.LOCAL_TLS, 'native_auth': facts['native_auth']}, facts['span']),
-        'ingress': (accounting_ok and held and stable(['ingress']), facts['ingress'], facts['span'])}
+        'tls_native_auth': (facts['native_auth'] is True and facts.get('tls', m.LOCAL_TLS) in {True, m.LOCAL_TLS},
+                            {'tls': facts.get('tls', m.LOCAL_TLS), 'native_auth': facts['native_auth']}, facts['span']),
+        'ingress': (accounting_ok and held and bool(ingresses) and stable(ingresses), facts['ingress'], facts['span'])}
     require(set(entries) == m.GUARDS, 'guard inventory')
     return {name: {'observed': True, 'competing_bottleneck': not ok, 'start': s, 'end': e, 'evidence_sha256': digest(evidence)}
             for name, (ok, evidence, (s, e)) in entries.items()}

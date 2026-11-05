@@ -98,6 +98,41 @@ def effective_check(listeners):
     return filters
 
 
+SPOOF = {'x-priority': 'critical', 'x-traffic-class': 'critical', 'x-p10-class': 'critical', 'x-operation-id': 'critical', 'x-attempt-id': 'critical'}
+
+
+def probe_plan(f, auth, git_auth):
+    """(name, method, path, headers, expected status, body): the same table for Local and the managed Azure ingress.
+
+    Selected ingress canonicalization and native Forgejo must agree on the resulting exact fixture endpoint
+    (dot-segment); every other noncanonical/extra-query/method/spoofed form must be denied by the exact classifier.
+    """
+    uri = m.routes(f)['critical'][0][1]
+    plan = [('critical', 'GET', uri, auth, 200, None),
+            ('canonical-dot-segment', 'GET', uri.replace('/issues/', '/./issues/'), auth, 200, None),
+            ('native-auth-deny', 'GET', uri, {}, 404, None)]  # Private Forgejo repo: hide existence.
+    for index, (method, path) in enumerate([('HEAD', uri), ('POST', uri), ('GET', uri + '?priority=critical'),
+                                            ('GET', uri + '/'), ('GET', uri.replace('/issues/', '//issues/')),
+                                            ('GET', uri.replace('/issues/', '/%2fissues/')), ('GET', '/api/v1/version')]):
+        plan.append(('negative-' + str(index + 3), method, path, auth | SPOOF, 403, None))
+    return plan + [('spoof-cannot-change-critical', 'GET', uri, auth | {'x-traffic-class': 'bulk', 'x-p10-class': 'bulk'}, 200, None),
+                   ('credential-body-exclusion', 'GET', uri, auth | {'Cookie': 'p10-cookie-exclusion', 'x-gate-test-deny': 'true'}, 403, 'p10-body-exclusion'),
+                   # Git v0 discovery is an exact allowed smart-HTTP read request. Native Forgejo validates Basic auth.
+                   ('bulk-discovery', 'GET', m.routes(f)['bulk'][0][1], git_auth, 200, None)]
+
+
+def probe_semantics(name, payload, f, title):
+    """Native semantic content of the probes that must succeed; status alone is not success."""
+    if name in {'critical', 'spoof-cannot-change-critical'}:
+        value = json.loads(payload)
+        return value['number'] == f['issue'] and value['title'] == title
+    if name == 'canonical-dot-segment':
+        return json.loads(payload)['number'] == f['issue']
+    if name == 'bulk-discovery':
+        return b'git-upload-pack' in payload
+    return True
+
+
 def run(directory):
     directory = Path(directory)
     def checkpoint(phase, **safe):
@@ -108,7 +143,6 @@ def run(directory):
     f = {'owner': os.environ['DEV_USER'], 'repo': 'journey', 'issue': int(os.environ['ISSUE_NUMBER'])}
     m.fixture(f)
     auth = {'Authorization': 'token ' + os.environ['DEV_TOKEN']}
-    uri = m.routes(f)['critical'][0][1]
     checkpoint('source-preflight')
     original = json.loads(k('-n', 'shared-gate', 'get', 'configmap/haproxy', '-o', 'json'))
     config = m.haproxy(f, 'shared', 'shared-gate').replace('ext-authz-shared.shared-gate.svc.cluster.local', 'ext-authz-sim.shared-gate.svc.cluster.local')
@@ -126,27 +160,10 @@ def run(directory):
         checkpoint('apply-classifier')
         apply(config, checkpoint)
         checkpoint('classifier-ready')
-        payload = probe('critical', 'GET', uri, auth, 200)
-        value = json.loads(payload)
-        m.require(value['number'] == f['issue'] and value['title'] == os.environ['ISSUE_TITLE'], 'native issue semantic mismatch')
-        # Selected ingress canonicalization and native Forgejo must agree on
-        # the resulting exact fixture endpoint; no second URI decoder in HAProxy.
-        normalized = probe('canonical-dot-segment', 'GET', uri.replace('/issues/', '/./issues/'), auth, 200)
-        m.require(json.loads(normalized)['number'] == f['issue'], 'canonical/native route disagreement')
-        probe('native-auth-deny', 'GET', uri, {}, 404)  # Private Forgejo repo: hide existence.
-        for method, path in [('HEAD', uri), ('POST', uri), ('GET', uri + '?priority=critical'),
-                             ('GET', uri + '/'), ('GET', uri.replace('/issues/', '//issues/')),
-                             ('GET', uri.replace('/issues/', '/%2fissues/')), ('GET', '/api/v1/version')]:
-            probe('negative-' + str(len(results)), method, path, auth | {'x-priority': 'critical', 'x-traffic-class': 'critical',
-                  'x-p10-class': 'critical', 'x-operation-id': 'critical', 'x-attempt-id': 'critical'}, 403)
-        probe('spoof-cannot-change-critical', 'GET', uri, auth | {'x-traffic-class': 'bulk', 'x-p10-class': 'bulk'}, 200)
-        probe('credential-body-exclusion', 'GET', uri,
-              auth | {'Cookie': 'p10-cookie-exclusion', 'x-gate-test-deny': 'true'}, 403, 'p10-body-exclusion')
-        # Git v0 discovery is an exact allowed smart-HTTP read request. Native
-        # Forgejo validates Basic auth; no writes or fake HTTP200 success.
         git_auth = {'Authorization': 'Basic ' + base64.b64encode((f['owner'] + ':' + os.environ['DEV_TOKEN']).encode()).decode()}
-        data = probe('bulk-discovery', 'GET', m.routes(f)['bulk'][0][1], git_auth, 200)
-        m.require(b'git-upload-pack' in data, 'native Git discovery mismatch')
+        for name, method, path, headers, expected, body in probe_plan(f, auth, git_auth):
+            payload = probe(name, method, path, headers, expected, body)
+            m.require(probe_semantics(name, payload, f, os.environ['ISSUE_TITLE']), 'native semantic mismatch: ' + name)
         git_env = os.environ.copy() | {'GIT_TERMINAL_PROMPT': '0', 'GIT_CONFIG_NOSYSTEM': '1', 'GIT_CONFIG_GLOBAL': '/dev/null',
                   'GIT_CONFIG_COUNT': '3', 'GIT_CONFIG_KEY_0': 'http.extraHeader', 'GIT_CONFIG_VALUE_0': 'Authorization: ' + git_auth['Authorization'],
                   'GIT_CONFIG_KEY_1': 'protocol.version', 'GIT_CONFIG_VALUE_1': '2',
