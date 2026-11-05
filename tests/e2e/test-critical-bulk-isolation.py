@@ -3,6 +3,7 @@ import copy
 import importlib.util
 from pathlib import Path
 import unittest
+import time
 
 ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location('isolation', ROOT / 'scripts/critical-bulk-isolation.py')
@@ -146,6 +147,29 @@ class IsolationTests(unittest.TestCase):
                        lambda r: r['events'][0]['items'].pop(),
                        lambda r: r['samples'][-2]['targets'][0]['stats'].update(upstream_rq_total=99)):
             r = synthetic('shared'); mutate(r)
+            with self.assertRaises(ValueError): m.validate(r)
+
+    def test_real_driver_schedule_retry_and_sensitive_callback_projection(self):
+        v = plan() | {'duration_seconds': 10, 'bulk_interval_seconds': 2, 'max_attempts': 2}
+        rows = []
+        def probe(op, index):
+            time.sleep(.005)
+            ok = index == 2 or op.startswith('bulk')
+            return {'semantic_result': ok, 'status': 200 if ok else 403,
+                    'error_class': 'none' if ok else 'http_status', 'overload': not ok,
+                    'raw_credential': 'private-callback-sentinel'}
+        m.drive(v, {k: probe for k in m.CLASSES}, rows.append)
+        clients, _, _ = m.client_report(v, rows)
+        self.assertEqual(clients['critical']['logical_operations'], 5)
+        self.assertEqual(clients['critical']['attempts'], 10)
+        self.assertEqual(clients['bulk']['attempts'], 5)
+        self.assertNotIn('private-callback-sentinel', repr(rows))
+        self.assertTrue(all(c['good_fraction'] == 1 for c in clients.values()))
+
+    def test_native_denial_and_false_success_invalid(self):
+        for status, semantic, error in ((404, False, 'http_status'), (200, False, 'semantic_error'), (403, True, 'none')):
+            r = synthetic('shared')
+            r['events'][1]['attempts'][0].update(status=status, semantic_result=semantic, error_class=error)
             with self.assertRaises(ValueError): m.validate(r)
 
     def test_long_scrape_cannot_establish_second_scale_native_signal(self):

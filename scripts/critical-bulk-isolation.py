@@ -223,6 +223,9 @@ def client_report(v, events):
             if index > 1:
                 prior = r['attempts'][index - 2]
                 require(prior['semantic_result'] is False and prior.get('overload') is True, 'unbounded/native-auth retry')
+            require((a['semantic_result'] and a['status'] == 200 and a['error_class'] == 'none') or
+                    (not a['semantic_result'] and a['status'] in {403, 429, 503} and a['error_class'] == 'http_status'),
+                    'native auth/semantic response confounder')
             previous = a['ended']
     ends = [r for r in events if r['record'] == 'end']
     end = source['origin'] + v['duration_seconds']
