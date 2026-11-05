@@ -12,7 +12,9 @@ Paid source `d1ed52b8ba14d77345df5b3f19ae8a599421e516`는 native post-startup Wa
 [제29차](evidence/p9-mitigation-twenty-ninth-20261104/README.md)(`364cfb55`)는 run 완료(unissued0, lag1.585s) 뒤 saved validator가 새 Pod warmup 중 `KEDAScalerFailed` count2를 반복 Warning으로 거부해 CLOSED/invalid다.
 [제30차](evidence/p9-mitigation-thirtieth-20261105/README.md)(`2224f109`)는 run 완료(unissued0, lag1.258s) 뒤 saved validator가 같은 warmup 안 exact HPA Warning count2를 거부해 CLOSED/invalid다. 참고 cadence는 316.087s>300s였다.
 [제31차](evidence/p9-mitigation-thirty-first-20261105/README.md)(`57c64f1a`)는 reviewed valid calibration과 첫 freeze 뒤 measured C0/C1/C2 reviewed valid, C3는 warmup 안 HPA 증가가 한 수집 늦게 보여 saved validator INVALID라 비교하지 않았다.
-현재 누적은 campaign31 / initialize 시작28 / healthy18 / calibration 시작14(reviewed valid2) / freeze1 / measured 시작 각1(reviewed valid C0·C1·C2, C3 invalid) / KEDA actions14/14이다.
+제32차는 첫 시도에서 매 mutation 8045초 reserve 때문에 시작 전 NO-GO였다(cloud mutation0).
++72h 보존과 reserve 정정 뒤의 [제32차](evidence/p9-mitigation-thirty-second-20261105/README.md)(`26d9805e`)는 reviewed valid calibration·freeze, measured C0–C3가 모두 reviewed valid이고 source `compare()`도 valid다.
+현재 누적은 campaign32 / initialize 시작29 / healthy19 / calibration 시작15(reviewed valid3) / freeze2 / measured 시작 각2(reviewed valid C0·C1·C2 각2, C3 1) / compare valid1 / KEDA actions15/15이다.
 Source CI·synthetic·부분 positive를 valid calibration, measured 성과 또는 recovered로 승격하지 않는다.
 
 현재 실행 범위·보존은 [Paid Azure boundary](implementation-plan.md#paid-azure-boundary--p6p11)와 별도 실제 사용자 결정을 따른다.

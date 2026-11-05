@@ -1,0 +1,353 @@
+{
+ "paid_source_sha": "26d9805ed07885fdedbc72ed7febe88d671872a7",
+ "authority_url": "https://github.com/imcherry5778-labs/github-capacity-cascade-platform/issues/47#issuecomment-6645059367",
+ "campaign_approval_url": "https://github.com/imcherry5778-labs/github-capacity-cascade-platform/issues/47#issuecomment-6644006116",
+ "independent_source_gate": "https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/49#pullrequestreview-5777556739",
+ "exact_head_ci": "https://github.com/imcherry5778-labs/github-capacity-cascade-platform/actions/runs/41934775041",
+ "prior_attempt": "first C32 attempt was NO-GO before any Azure call or mutation (per-mutation 8045s reserve); no attempt consumed",
+ "state": "CLOSED: reviewed valid calibration + freeze; measured C0/C1/C2/C3 reviewed valid; source compare() valid; owned cleanup complete",
+ "paid_source_unchanged": true,
+ "operator_template_sha256": {
+  "driver-template.py": "ed798b87fa05a753f3fee91dd5eb9ab252d42a27ed2baadb15e0da9ce4422a9e",
+  "test_campaign_sequence.py": "bf73b5368265f60fa382c68d00c8d2b9a80129ac35a98593477f3c434fa268ac",
+  "test_cadence_replay.py": "80637450fc962798ab2831790b8c8e0e96fece0a3c7c8477db8d08aee6e4d47d",
+  "publish.py": "925d4691d047a519e795cdb38f1b0902a1cad0d6b00dc88467e1a1b147a4f157"
+ },
+ "operator_instance_sha256": {
+  "driver.py": "23b19ef00ba15823f553bba8ef105e9be9686186077239adcb83ce768e817e3f",
+  "preflight.py": "3c210aed3da23949eda29882b2a7b714c8eb4becf080e888a5d0770ef8576029",
+  "launch.py": "c253503ff1700eff668b2fbe70947c992d91741f461a8cee99bed9cf9af62416",
+  "send.sh": "a652368abaa21ae6af7b5ed894021ea70e0206519fc1d2ad9de38c991de22681"
+ },
+ "owned_image_manifest_digest": "sha256:7105a99960d0ddab05618d11bbce63602024f6c4ea0fdaa7e9d7e784886b514e",
+ "plan_sha256": "3da0d1543d699b9e94e5c4243f72944c5ac2c4d9d57fe0b1d6685c33ab047e40",
+ "frozen_sha256": "af9ffc7af3b9cca06205b247b38a979d40d42a0eb3b032de33e4439e8ab14d35",
+ "native_readonly_before_launch": {
+  "subscription": "matches, Enabled",
+  "actor_matches": true,
+  "resource_ids": 34,
+  "Owner": 2,
+  "nodes": 2,
+  "resource_group_locks": 0,
+  "ttl_like_tags": 0,
+  "azure_budget_objects": 0,
+  "spending_limit": "not reported",
+  "note": "no provider-enforced budget or TTL observed; actual cost UNKNOWN; source deadline change is not provider retention proof"
+ },
+ "counts": {
+  "normal_initial": 1,
+  "normal_final": 1,
+  "initialize": 1,
+  "healthy": 1,
+  "calibration": 1,
+  "freeze": 1,
+  "measured": {
+   "C0": 1,
+   "C1": 1,
+   "C2": 1,
+   "C3": 1
+  },
+  "compare": 1,
+  "KEDA_apply": 1,
+  "KEDA_restore": 1,
+  "cloud_mutations": 30
+ },
+ "results": {
+  "preflight": "all read-only gates PASS (remaining 263567s > first-mutation whole reserve 8045s); KEDA-form GET 4726 bytes HTTP200 vector (transport only)",
+  "operator_tests": "sealed sequence 15 / cadence 6 / C0 order 3 OK on 26d9805e",
+  "initialize": "SUCCESS (ingress29=authorization29=target29, auxiliary14)",
+  "KEDA": "native workload identity; exact ScaledObject-owned HPA positive",
+  "C3_preflight": "PASS",
+  "calibration_report": {
+   "cadence_observed": true,
+   "all_pod_series_observed": true,
+   "controller_ownership_verified": true,
+   "missing_required_signals": [],
+   "direct": {
+    "status": "observed",
+    "positive_snapshots": [
+     9,
+     10,
+     11,
+     12,
+     13,
+     14,
+     15
+    ],
+    "from_origin_seconds": [
+     155.68693508394063,
+     299.65511945891194
+    ],
+    "warmup_snapshots": [
+     4,
+     5,
+     6
+    ],
+    "new_target_uids": 1
+   },
+   "status_change_gap_diagnostic": {
+    "scrape": 15.0,
+    "raw_age": 51.467000007629395,
+    "controller_upper": 54.75597166712396,
+    "formula_seconds": 363.66891502426006,
+    "note": "diagnostic only, not a freeze gate"
+   }
+  },
+  "freeze": "source frozen() PASS",
+  "arms": {
+   "C3-calibration1": {
+    "reviewed": "valid",
+    "demand": {
+     "scheduled": 2400,
+     "issued": 2400,
+     "unissued": 0,
+     "failed": 1309,
+     "attempts": 3652,
+     "driver_lag_max_seconds": 1.4682534169405699
+    },
+    "accounting": {
+     "checks": 3691,
+     "target_admitted": 1130,
+     "target_rejected": 2561,
+     "admission_shed": 0,
+     "queue_timeout": 0,
+     "queue_start": 0,
+     "queue_end": 0,
+     "inflight_start": 0,
+     "inflight_end": 0,
+     "path_errors": 0
+    },
+    "recovery": {
+     "status": "not recovered within observation window",
+     "recovery_seconds": null
+    },
+    "scaling": "observed; audit scale ownership before autoscaling claim",
+    "window_utc": {
+     "start": "2026-11-05T00:26:57.377343+00:00",
+     "end": "2026-11-05T00:35:36.094492+00:00"
+    },
+    "warnings": [
+     [
+      "KEDAScalerFailed",
+      3
+     ],
+     [
+      "FailedGetExternalMetric",
+      3
+     ],
+     [
+      "FailedComputeMetricsReplicas",
+      3
+     ]
+    ]
+   },
+   "C0-measured": {
+    "reviewed": "valid",
+    "demand": {
+     "scheduled": 2400,
+     "issued": 2400,
+     "unissued": 0,
+     "failed": 1403,
+     "attempts": 3742,
+     "driver_lag_max_seconds": 1.5306980421300977
+    },
+    "accounting": {
+     "checks": 3777,
+     "target_admitted": 1032,
+     "target_rejected": 2745,
+     "admission_shed": 0,
+     "queue_timeout": 0,
+     "queue_start": 0,
+     "queue_end": 0,
+     "inflight_start": 0,
+     "inflight_end": 0,
+     "path_errors": 0
+    },
+    "recovery": {
+     "status": "recovered",
+     "recovery_seconds": 79.99962412496097
+    },
+    "scaling": "not observed",
+    "window_utc": {
+     "start": "2026-11-05T00:39:04.584725+00:00",
+     "end": "2026-11-05T00:47:49.815095+00:00"
+    },
+    "warnings": []
+   },
+   "C1-measured": {
+    "reviewed": "valid",
+    "demand": {
+     "scheduled": 2400,
+     "issued": 2400,
+     "unissued": 0,
+     "failed": 1283,
+     "attempts": 3714,
+     "driver_lag_max_seconds": 1.212881833082065
+    },
+    "accounting": {
+     "checks": 3751,
+     "target_admitted": 1154,
+     "target_rejected": 2597,
+     "admission_shed": 0,
+     "queue_timeout": 0,
+     "queue_start": 0,
+     "queue_end": 0,
+     "inflight_start": 0,
+     "inflight_end": 0,
+     "path_errors": 0
+    },
+    "recovery": {
+     "status": "recovered",
+     "recovery_seconds": 69.99255062500015
+    },
+    "scaling": "not observed",
+    "window_utc": {
+     "start": "2026-11-05T00:49:13.877786+00:00",
+     "end": "2026-11-05T00:58:05.968801+00:00"
+    },
+    "warnings": []
+   },
+   "C2-measured": {
+    "reviewed": "valid",
+    "demand": {
+     "scheduled": 2400,
+     "issued": 2400,
+     "unissued": 0,
+     "failed": 1321,
+     "attempts": 3786,
+     "driver_lag_max_seconds": 1.1958017088472843
+    },
+    "accounting": {
+     "checks": 3819,
+     "target_admitted": 1112,
+     "target_rejected": 0,
+     "admission_shed": 0,
+     "queue_timeout": 2707,
+     "queue_start": 0,
+     "queue_end": 0,
+     "inflight_start": 0,
+     "inflight_end": 0,
+     "path_errors": 0
+    },
+    "recovery": {
+     "status": "recovered",
+     "recovery_seconds": 79.98810683307238
+    },
+    "scaling": "not observed",
+    "window_utc": {
+     "start": "2026-11-05T00:59:38.687351+00:00",
+     "end": "2026-11-05T01:08:23.179376+00:00"
+    },
+    "warnings": []
+   },
+   "C3-measured": {
+    "reviewed": "valid",
+    "demand": {
+     "scheduled": 2400,
+     "issued": 2400,
+     "unissued": 0,
+     "failed": 1301,
+     "attempts": 3646,
+     "driver_lag_max_seconds": 1.4952337499707937
+    },
+    "accounting": {
+     "checks": 3685,
+     "target_admitted": 1138,
+     "target_rejected": 2547,
+     "admission_shed": 0,
+     "queue_timeout": 0,
+     "queue_start": 0,
+     "queue_end": 0,
+     "inflight_start": 0,
+     "inflight_end": 0,
+     "path_errors": 0
+    },
+    "recovery": {
+     "status": "not recovered within observation window",
+     "recovery_seconds": null
+    },
+    "scaling": "observed; audit scale ownership before autoscaling claim",
+    "window_utc": {
+     "start": "2026-11-05T01:10:46.086086+00:00",
+     "end": "2026-11-05T01:19:36.353287+00:00"
+    },
+    "warnings": [
+     [
+      "KEDAScalerFailed",
+      3
+     ],
+     [
+      "FailedGetExternalMetric",
+      2
+     ],
+     [
+      "FailedComputeMetricsReplicas",
+      2
+     ]
+    ]
+   }
+  },
+  "C2_review_note": "HAProxy queue is the measured C2 admission policy (queue_timeout 2707 of 3819); error/retry deltas 0",
+  "operator_recovery": "none needed; corrected C0 transition (reset before CPU HPA restore) worked",
+  "comparison": {
+   "validity": "valid",
+   "cleanup": "pending; comparison does not establish restoration",
+   "corrective_actions": {
+    "backoff": "link observed C1 result after review",
+    "admission": "link observed C2 result after review",
+    "proxy_scaling": "link C3 ownership/timeline/result after review"
+   },
+   "hypothesis": "reviewed single contemporaneous comparison; no statistical generalization",
+   "scope": "reviewed single contemporaneous comparison; no statistical generalization"
+  },
+  "final_normal": "SUCCESS after restore (validator gate passed)"
+ },
+ "cleanup": {
+  "complete": true,
+  "errors": [],
+  "steps": 15,
+  "PAT": "normal/healthy/final DELETE 204, reuse 401",
+  "independent_readonly_recheck_utc": "2026-11-05T01:22:41Z",
+  "recheck": {
+   "resource_ids": 34,
+   "ids_unchanged": true,
+   "Owner": 2,
+   "nodes": 2,
+   "c32_UAMI_absent": true,
+   "c32_image_tag_absent": true,
+   "temporary_AKS_admin_absent": true,
+   "driver_feeder_exited": true,
+   "lock_released": true
+  },
+  "scope": "Campaign32 owned cleanup only; not global zero residual"
+ },
+ "hold": {
+  "first_mutation_utc": "2026-11-05T00:17:20Z",
+  "cleanup_end_utc": "2026-11-05T01:22:21Z",
+  "approx_minutes": 65
+ },
+ "cost": "UNKNOWN (no billing data read; no provider budget object)",
+ "cumulative": {
+  "campaign": 32,
+  "initialize_started": 29,
+  "healthy": 19,
+  "calibration_started": 15,
+  "reviewed_valid_calibration": 3,
+  "freeze": 2,
+  "measured_started": {
+   "C0": 2,
+   "C1": 2,
+   "C2": 2,
+   "C3": 2
+  },
+  "measured_reviewed_valid": {
+   "C0": 2,
+   "C1": 2,
+   "C2": 2,
+   "C3": 1
+  },
+  "compare_valid": 1,
+  "KEDA_actions": "15/15"
+ },
+ "not_reclassified": "Campaign22-31"
+}
