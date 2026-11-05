@@ -8,7 +8,7 @@ Baseline `58fae6f105bd5bc28e2c85e05a138f6cb3e4ed03`, [Draft PR52](https://github
 
 | 검증 | 결과 | 경계 |
 | --- | --- | --- |
-| P10 targeted tests | 14 PASS | real10s driver 포함; paired conclusion 사례는 synthetic |
+| P10 targeted tests | 17 PASS | real10s driver 포함; paired conclusion 사례는 synthetic. Azure managed row 구조·identity 검증과 시간 가중 saturation 회귀(timestamp-only, burst oversampling) 포함 |
 | pinned HAProxy3.4.6 Docker protocol | PASS | allowlisted3, negative13, unsafe credential/body3개 |
 | P8 adapter tests | 38 PASS | offline; paid runtime 아님 |
 | P9 mitigation tests | 156 OK, skipped3 | skip을 실행 성공으로 합치지 않음 |

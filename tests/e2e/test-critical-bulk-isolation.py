@@ -68,6 +68,33 @@ def synthetic(arm):
                            'frontend': len(scheduled), 'queue_start': 0, 'queue_end': 0, 'inflight_start': 0, 'inflight_end': 0, 'haproxy_retries': 0}}
 
 
+def managed(run, times=(-1, 5, 11)):
+    """Harness-projected managed rows for the run's actual UID/pool series (synthetic)."""
+    final = {t['uid']: t['stats'] for t in run['samples'][-1]['targets']}
+    return [{'at': at, 'sample_at': at, 'targets': [
+        {'uid': t['uid'], 'pool': t['pool'], 'stats': {k: final[t['uid']][k] if at >= 10 and k in m.COUNTERS else 0 for k in m.STATS}}
+        for t in run['samples'][0]['targets']]} for at in times]
+
+
+def azure(arm, **overrides):
+    r = synthetic(arm); r['environment'] = 'azure'; r['managed_samples'] = managed(r)
+    return r | overrides
+
+
+def burst(run, active, until=.25):
+    """Native cadence rows stay; 200 extra snapshots land inside the first 0.2s."""
+    for s in run['samples']:
+        if s['at'] > until:
+            for t in s['targets']: t['stats']['upstream_rq_active'] = 0
+    extra = []
+    for i in range(1, 201):
+        targets = copy.deepcopy(run['samples'][0]['targets'])
+        for t in targets: t['stats']['upstream_rq_active'] = active if t['pool'] != 'critical' else 0
+        extra.append({'at': i * .001, 'sample_at': i * .001, 'targets': targets})
+    run['samples'] = sorted(run['samples'] + extra, key=lambda s: s['sample_at'])
+    return run
+
+
 class IsolationTests(unittest.TestCase):
     def test_selected_local_istioctl_camel_case_filter_contract(self):
         spec = importlib.util.spec_from_file_location('p10_local', ROOT / 'scripts/local-isolation-check.py')
@@ -183,8 +210,70 @@ class IsolationTests(unittest.TestCase):
         self.assertEqual(m.compare(a, b)['status'], 'observation-insufficient')
         b['environment'] = 'azure'; b['managed_samples'] = []
         with self.assertRaises(ValueError): m.validate(b)
-        b['managed_samples'] = [{'at': at, 'sample_at': at} for at in (-1, 10, 50)]
+        # Only a structurally valid managed series with a coverage gap is insufficient.
+        b['managed_samples'] = managed(b, (-1, 10, 50))
         self.assertEqual(m.validate(b)['status'], 'observation-insufficient')
+        a, b = azure('shared'), azure('isolated')
+        a['managed_samples'] = managed(a, (-1, 5, 50))
+        self.assertEqual(m.compare(a, b)['status'], 'observation-insufficient')
+
+    def test_timestamp_only_or_unreconciled_managed_signal_never_positive_or_negative(self):
+        a, b = azure('shared'), azure('isolated')
+        self.assertEqual(m.compare(a, b)['status'], 'positive')
+        for arm_index in range(2):
+            for rows in ([{'at': i, 'sample_at': i} for i in (-.25, 0, 10)],
+                         [{'at': i, 'sample_at': i, 'targets': []} for i in (-1, 5, 11)]):
+                a, b = azure('shared'), azure('isolated')
+                (a, b)[arm_index]['managed_samples'] = rows
+                with self.assertRaises(ValueError): m.compare(a, b)
+        mutations = [lambda r: r['targets'].pop(),
+                     lambda r: r['targets'][0].update(uid='other-pod'),
+                     lambda r: r['targets'][0].update(pool='bulk' if r['targets'][0]['pool'] != 'bulk' else 'critical'),
+                     lambda r: r['targets'][0]['stats'].pop('upstream_rq_active'),
+                     lambda r: r['targets'][0]['stats'].pop('upstream_rq_total'),
+                     lambda r: r['targets'][0]['stats'].update(upstream_rq_active=True),
+                     lambda r: r['targets'][0]['stats'].update(upstream_rq_active=1.0),
+                     lambda r: r['targets'][0]['stats'].update(upstream_rq_active=-1),
+                     lambda r: r['targets'][0]['stats'].update(extra=0),
+                     lambda r: r['targets'][0]['stats'].update(upstream_rq_pending_overflow=1),
+                     lambda r: r['targets'][0]['stats'].update(upstream_rq_pending_active=1),
+                     lambda r: r.update(extra=0),
+                     lambda r: r.update(sample_at=float('nan'))]
+        for arm in m.ARMS:
+            for index in (0, 1, 2):
+                for mutation in mutations:
+                    run = azure(arm); mutation(run['managed_samples'][index])
+                    with self.assertRaises(ValueError): m.validate(run)
+            # A counter that actually advanced in the native drained boundary.
+            final = azure(arm)['samples'][-1]['targets']
+            index, counter = next((i, c) for i, t in enumerate(final) for c in m.COUNTERS if t['stats'][c] > 0)
+            full = final[index]['stats'][counter]
+            def series(times, values):
+                run = azure(arm); run['managed_samples'] = managed(run, times)
+                for row, value in zip(run['managed_samples'], values): row['targets'][index]['stats'][counter] = value
+                return run
+            self.assertEqual(m.validate(series((-1, 5, 8, 11), (0, full, full, full)))['status'], 'valid')
+            for run in (series((-1, 5, 8, 11), (0, full, full - 1, full)),    # counter reset
+                        series((-1, 5, 11), (0, full + 1, full)),             # beyond the drained native counter
+                        series((-1, 5, 11), (0, 0, full - 1)),                # drained boundary != native
+                        series((-1, 5, 11), (0, 0, 0))):                      # stale zero after the drained boundary
+                with self.assertRaises(ValueError): m.validate(run)
+
+    def test_oversampled_native_burst_cannot_create_saturation(self):
+        # 0.25s of 10s is at cap. Row-count would report 202/241; elapsed-time must not.
+        a, b = burst(azure('shared'), 2), burst(azure('isolated'), 2)
+        rows = [s for s in a['samples'] if 0 <= s['sample_at'] <= 10]
+        self.assertGreater(sum(any(t['stats']['upstream_rq_active'] >= 2 for t in s['targets']) for s in rows) / len(rows), .8)
+        result = m.compare(a, b)
+        self.assertEqual(result['status'], 'valid-negative')
+        self.assertFalse(result['bulk_saturation'])
+        self.assertAlmostEqual(result['arms'][0]['saturation_fraction']['shared'], .0375)
+        self.assertAlmostEqual(result['arms'][1]['saturation_fraction']['bulk'], .0375)
+        # Burst of not-at-cap rows inside a fully saturated window must not hide it.
+        a, b = burst(azure('shared'), 0, 10), burst(azure('isolated'), 0, 10)
+        result = m.compare(a, b)
+        self.assertEqual(result['status'], 'positive')
+        self.assertGreaterEqual(result['arms'][1]['saturation_fraction']['bulk'], .95)
 
     def test_drift_missing_signal_early_stop_and_accounting_invalid(self):
         mutations = [lambda r: r['samples'][1]['targets'][0].update(uid='new'),

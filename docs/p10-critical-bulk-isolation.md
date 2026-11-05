@@ -71,6 +71,9 @@ Driver는 각 arrival의 schedule/submit/issue/completion과 attempt index/clock
 
 Native sample 후보0.25s, gap≤2×interval, request/sample/response clock과 전체 window coverage를 검사한다.
 Experiment-owned `p10-envoy` PodMonitor는 기존 managed scraper로 target2개의5개 native stat를 scrape한다. Managed scrape15s + ingestion≤60s는 별도 freshness/coverage다. Minute metrics로 second-scale latency를 추정하지 않는다.
+Active saturation은 sample row 수가 아니라 demand window 경과 시간 비율이다. 인접 native sample 구간을 시간 가중하고 상태 전환은 구간 중간으로 두므로, 짧은 구간에 몰린 중복/burst snapshot은 가중치를 만들지 못한다.
+Azure의 managed row는 harness가 투영한 actual Pod UID/pool별 5개 stat을 모두 담아야 하며, native baseline의 UID/pool과 같고 counter가 감소하지 않으며 drained native counter를 넘지 않고 drained 경계 뒤에는 같아야 한다.
+Timestamp만 있는 row, 빈/일부 누락 series, UID/pool drift, 비정수·음수 값은 invalid다. 구조가 유효한 series의 freshness/coverage gap만 `observation-insufficient`다.
 누락/빈 series는0이 아니다. Counter reset/UID change/log loss/route·demand·source drift/native-auth 또는 TLS 실패/경쟁 병목/accounting gap/early stop은 invalid다.
 설정은 valid해도 observation resolution/coverage가 결론을 뒷받침하지 못하면 `observation-insufficient`다.
 
@@ -105,6 +108,8 @@ Arm 전환 때 old/new target 동시 추가·node 증설로 이 한도를 우회
 
 현재 blockers: actual2-pool normal/paired local calibration·sampling feasibility, managed effective path/normalization mapping,
 actual admission/headroom/공유 환경 current price, independent source gate와 명시적 P10 승인.
+Managed 쪽 **미구현**: AMW/Prometheus query와 Pod label→UID 투영 collector, Prometheus timestamp와 harness monotonic clock의 정렬, 중간 시점의 native-managed 값 대조.
+Offline validator는 투영된 row의 구조·identity·값 범위·drained 경계 일치만 검사한다. 이 검사가 실제 managed 수집이 동작한다는 증거는 아니다.
 Renderer/driver/synthetic test 통과를 Azure feasibility 완료 또는 isolation protection으로 표시하지 않는다.
 
 Owned rollback 계획: demand 중단/수집 drain → exact UID CUSTOM policy 제거 → shared ConfigMap UID/data guarded 복원 →

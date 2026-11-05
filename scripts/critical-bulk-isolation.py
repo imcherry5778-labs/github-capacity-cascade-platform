@@ -27,6 +27,7 @@ ARMS = ('shared', 'isolated')
 CLASSES = ('critical', 'bulk')
 GUARDS = {'haproxy', 'forgejo', 'forgejo_sidecar', 'postgres', 'node', 'scheduling', 'sentinel', 'tls_native_auth', 'ingress'}
 COUNTERS = ('upstream_rq_total', 'upstream_rq_active_overflow', 'upstream_rq_pending_overflow')
+STATS = set(COUNTERS) | {'upstream_rq_active', 'upstream_rq_pending_active'}
 
 
 def fixture(v):
@@ -288,17 +289,47 @@ def pool_guard(v, arm, samples, start, end):
                     t['ready'] is True and t['restarts'] == 0, 'fault/image/resource/lifecycle drift')
             require(t['sidecar_id'] and t['image_id'] and all(re.fullmatch('[0-9a-f]{64}', t[k]) for k in ('mapping_sha256', 'resources_sha256')), 'missing effective inbound binding')
             values = t['stats']
-            require(set(values) == set(COUNTERS) | {'upstream_rq_active', 'upstream_rq_pending_active'} and
-                    all(type(x) is int and x >= 0 for x in values.values()), 'missing/invalid native stat')
+            require(set(values) == STATS and all(type(x) is int and x >= 0 for x in values.values()), 'missing/invalid native stat')
             old = previous.get(t['uid'], values)
             require(all(values[k] >= old[k] for k in COUNTERS), 'counter reset')
             require(values['upstream_rq_pending_overflow'] == 0 and values['upstream_rq_pending_active'] == 0, 'competing pending capacity')
             previous[t['uid']] = values
-    within = [s for s in samples if start <= s['sample_at'] <= end]
-    saturated = {}
-    for pool in expected:
-        saturated[pool] = sum(any(t['pool'] == pool and t['stats']['upstream_rq_active'] >= v['max_requests'] for t in s['targets']) for s in within) / len(within) if within else None
-    return saturated
+    def at_cap(s, pool):
+        return any(t['pool'] == pool and t['stats']['upstream_rq_active'] >= v['max_requests'] for t in s['targets'])
+    # Fraction of elapsed demand-window time, never of sample rows: a row carries no
+    # weight of its own, so a burst of extra snapshots only adds near-zero-length
+    # intervals. A state change is placed at the midpoint of its sampling interval.
+    return {pool: sum(max(0, min(b['sample_at'], end) - max(a['sample_at'], start)) * (at_cap(a, pool) + at_cap(b, pool)) / 2
+                      for a, b in zip(samples, samples[1:])) / (end - start) for pool in expected}
+
+
+def managed_guard(native, managed, coverage_end):
+    """Harness-projected managed (PodMonitor) rows; timestamps alone are never a signal.
+
+    Every row must carry both actual native-baseline Pod UID/pool series with all five
+    stats. Absent, empty or partial series are invalid, never zero; only a structurally
+    valid series with a freshness/coverage gap is observation-insufficient (coverage()).
+    Counters are bounded by, and after the drained boundary equal to, the native counters.
+    """
+    require(managed, 'required managed signals absent')
+    identity = {t['uid']: t['pool'] for t in native[0]['targets']}
+    final = {t['uid']: t['stats'] for t in native[-1]['targets']}
+    previous = {}
+    for row in managed:
+        require(type(row) is dict and set(row) == {'at', 'sample_at', 'targets'} and
+                all(type(row[k]) in {int, float} and math.isfinite(row[k]) for k in ('at', 'sample_at')), 'managed sample fields')
+        targets = row['targets']
+        require(type(targets) is list and len(targets) == len(identity) and all(type(t) is dict and set(t) == {'uid', 'pool', 'stats'} for t in targets) and
+                {t['uid']: t['pool'] for t in targets} == identity, 'managed Pod UID/pool series missing or drifted')
+        for t in targets:
+            values = t['stats']
+            require(type(values) is dict and set(values) == STATS and all(type(x) is int and x >= 0 for x in values.values()), 'missing/invalid managed stat')
+            require(values['upstream_rq_pending_overflow'] == values['upstream_rq_pending_active'] == 0, 'competing pending capacity')
+            old = previous.get(t['uid'], values)
+            require(all(values[k] >= old[k] for k in COUNTERS), 'managed counter reset')
+            require(all(values[k] <= final[t['uid']][k] for k in COUNTERS), 'managed counter beyond drained native counter')
+            require(row['sample_at'] < coverage_end or all(values[k] == final[t['uid']][k] for k in COUNTERS), 'managed/native drained counter mismatch')
+            previous[t['uid']] = values
 
 
 def accounting(arm, evidence, clients):
@@ -349,7 +380,7 @@ def validate(run):
             g['start'] <= start and g['end'] >= coverage_end and re.fullmatch('[0-9a-f]{64}', g['evidence_sha256']) for g in guards.values()), 'same-window confounder guard missing/failed')
     observed = coverage(v, run['samples'], start, coverage_end)
     if run['environment'] == 'azure':
-        require(run['managed_samples'], 'required managed signals absent')
+        managed_guard(run['samples'], run['managed_samples'], coverage_end)
         observed = observed and coverage(v, run['managed_samples'], start, coverage_end, managed=True)
     else:
         require(run['environment'] == 'local', 'unknown environment')
