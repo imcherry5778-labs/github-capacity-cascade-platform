@@ -1,7 +1,7 @@
 # P10 — Critical/Bulk operation isolation (첫 implementation)
 
-상태: **source 구현, cost-free 검증 범위는 [evidence](evidence/p10-source-20261105/README.md) 참조 / Azure 미실행 / P10 acceptance 미완료**.
-Baseline `58fae6f105bd5bc28e2c85e05a138f6cb3e4ed03`에서 시작했다. [P8 incident](incidents/p8-controlled-cascade.md),
+상태: **source 구현(P10-W1) + Local 2-pool paired harness와 managed collector 계약(P10-W2, source-only) / cost-free 검증 범위는 [evidence](evidence/p10-source-20261105/README.md)와 exact-head CI artifact 참조 / Azure 미실행 / P10 acceptance 미완료**.
+W1 baseline `58fae6f105bd5bc28e2c85e05a138f6cb3e4ed03`에서 시작했고 W2는 merged PR52 `ab77792`에서 시작했다. [P8 incident](incidents/p8-controlled-cascade.md),
 [P9 Campaign32](evidence/p9-mitigation-thirty-second-20261105/README.md)의 negative/valid accounting과 raw는 변경하지 않는다.
 P9의 실행 승인·budget·counter를 재사용하지 않는다.
 
@@ -46,6 +46,8 @@ P8의 같은 provider overlay를 재사용하고 provider를 추가하지 않는
 - `test-critical-bulk-isolation.py`: synthetic positive / valid negative / observation-insufficient / invalid 회귀. Synthetic은 runtime proof가 아니다.
 - `check-isolation-haproxy.py`: pinned3.4.6 실제 Docker HTTP dispatch. 두 backend가 같은 app을 쓰는 **protocol test**이므로 physical isolation proof가 아니다.
 - `local-isolation-check.py`: invocation-owned P4 local cluster에서 healthy Issue/Git/native-auth, effective ext_authz, credential/body exclusion을 검사하고 실험 HAProxy를 복원한다. 기존 P4 saturation은 복원 뒤 실행한다. Local HTTP는 Azure TLS proof가 아니다.
+- `local-isolation-pair.py` (P10-W2): 같은 invocation-owned P4 cluster에서 shared(2 replica 1 pool)와 isolated(Critical 1 + Bulk 1)를 **실제 Pod/Service/Istio inbound capacity/HAProxy로** 번갈아 올려 같은 후보 부하를 paired로 건다. 기존 `ext-authz-sim`은 scale 0으로 두고 시작 전 pool 잔존물이 있으면 거부한다. Arm마다 actual Pod UID → sidecar container ID → effective inbound `maxRequests` → Service/EndpointSlice → pool을 매핑하고, warm-up(Pod마다 stats 생성)을 측정에서 제외한다. Driver 산출(`m.drive`)과 native 0.25s sampler, HAProxy ring, 대조 가능한 log/counter, 9개 confounder guard를 한 monotonic clock에 모아 `validate`/`compare`로 판정한다. 종료는 항상 pool 제거, HAProxy/hold/원본 target 복원과 Forgejo stable UID/spec 불변을 읽어 확인(`restoration.json`)하며 복원 실패는 non-zero다. 결과 `positive`/`valid-negative`만 exit 0이고 `observation-insufficient`/invalid는 실패다. 이 결과는 Local single-node loopback이며 Azure·TLS·managed telemetry 증거도, threshold freeze도 아니다. 실제 수치는 exact-head CI artifact(`p10-pair/result.json`)에만 있다.
+- `test-local-isolation-pair.py`: cluster 없이 protocol bytes(실제 `git upload-pack`), 가짜 ingress 상대 probe 분류, native stat 파서, sampler gap, Pod/Service/endpoint 매핑, guard, 복원 판정, 결과 재검증을 검사한다. 통과가 runtime proof는 아니다.
 
 HTTP ext_authz의 method/path 전달과 Authorization 자동 포함은 [selected Envoy API](https://www.envoyproxy.io/docs/envoy/v1.38.6/api-v3/extensions/filters/http/ext_authz/v3/ext_authz.proto)를 확인했다.
 [Istio CUSTOM](https://istio.io/latest/docs/tasks/security/authorization/authz-custom/)과 [HAProxy3.4](https://docs.haproxy.org/3.4/configuration.html) 기준으로 단일 provider와 exact ACL을 유지한다.
@@ -106,10 +108,14 @@ Arm 전환 때 old/new target 동시 추가·node 증설로 이 한도를 우회
    기존 공유비와 P10 증가분/late ingestion을 구분한다. Actual price·cost·남은 budget은 **UNKNOWN**이며 임의 cap을 만들지 않는다.
 6. 명시적 P10 action/count/cost/time 승인과 source/image/plan/identity binding 뒤에만 mutation을 허용한다.
 
-현재 blockers: actual2-pool normal/paired local calibration·sampling feasibility, managed effective path/normalization mapping,
-actual admission/headroom/공유 환경 current price, independent source gate와 명시적 P10 승인.
-Managed 쪽 **미구현**: AMW/Prometheus query와 Pod label→UID 투영 collector, Prometheus timestamp와 harness monotonic clock의 정렬, 중간 시점의 native-managed 값 대조.
-Offline validator는 투영된 row의 구조·identity·값 범위·drained 경계 일치만 검사한다. 이 검사가 실제 managed 수집이 동작한다는 증거는 아니다.
+현재 blockers: Local paired 결과를 확인한 numeric freeze(후보 threshold는 바꾸지 않았고 pair 한 번이 freeze는 아니다), 실제 managed 수집 경로 검증(AMW query/auth/PodMonitor label/지연),
+managed effective path/normalization mapping, actual admission/headroom/공유 환경 current price, independent source gate와 명시적 P10 승인.
+Managed 쪽 contract(P10-W2, **mocked Prometheus 응답으로만 검증**): `managed_selector`/`poll_managed`는 range-vector instant query로 evaluation step이 아닌 **raw scrape sample과 그 timestamp**를 받고,
+`project_managed`는 series의 Pod **이름**을 harness의 Kubernetes inventory로 actual Pod UID/pool에 투영한다(series label은 identity 근거가 아니다).
+빈/일부 누락/미매핑/재작성/비정수 series는 invalid, 한 Pod만 빠진 scrape round는 coverage gap(`observation-insufficient`)이다. Sample의 가시 시점은 그것을 처음 반환한 poll이라 ingestion 지연이 측정된다.
+`clock_pair`/`clock_bound`/`to_monotonic`은 harness wall↔monotonic 대응과 step을 검사하고, `managed_guard`는 각 managed counter를 **자기 시각 전후 native sample(±clock 허용)로 bracket**한다.
+Collector와 harness host 사이의 skew는 시계로 측정되지 않으며 이 bracket으로만 제한된다. `coverage`는 managed에 대해 window 시작 전 가시성을 요구하지 않고(불가능) `sample_at` bracket과 `at − sample_at ≤ scrape+ingestion`을 요구한다.
+Offline validator·collector 통과는 실제 AMW query 인증/endpoint, 실제 PodMonitor series label, 실제 ingestion 지연이 동작한다는 증거가 아니다.
 Renderer/driver/synthetic test 통과를 Azure feasibility 완료 또는 isolation protection으로 표시하지 않는다.
 
 Owned rollback 계획: demand 중단/수집 drain → exact UID CUSTOM policy 제거 → shared ConfigMap UID/data guarded 복원 →

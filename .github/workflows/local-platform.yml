@@ -38,7 +38,7 @@ jobs:
     # 실제 runtime 실행/생략 여부는 job summary에 별도로 기록한다.
     name: static + fresh local lifecycle
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -151,6 +151,15 @@ jobs:
           python3 scripts/shared-gate-saturation.py result "$(dirname "$(dirname "$result")")"
           jq -e --arg sha "$(git rev-parse HEAD)" '.source_sha == $sha and .source_dirty == false and .completed == true' "$result" >/dev/null
 
+      - name: Verify P10 two-pool paired result and restoration
+        if: steps.changes.outputs.runtime_changed == 'true'
+        run: |
+          result="$(find results/local -maxdepth 3 -path '*/shared-gate-*/p10-pair/result.json' -print -quit)"
+          [[ -n "$result" ]] || { echo "P10 paired result missing" >&2; exit 1; }
+          python3 scripts/local-isolation-pair.py result "$(dirname "$(dirname "$result")")"
+          jq -e --arg sha "$(git rev-parse HEAD)" '.source_sha == $sha and .source_dirty == false and .completed == true and (.status == "positive" or .status == "valid-negative")' "$result" >/dev/null
+          jq -r '"P10 Local pair (not Azure evidence): \(.status); critical good shared=\(.arms[0].critical.good_fraction) isolated=\(.arms[1].critical.good_fraction); bulk rejected shared=\(.arms[0].accounting.bulk.rejected) isolated=\(.arms[1].accounting.bulk.rejected)"' "$result" | tee -a "$GITHUB_STEP_SUMMARY"
+
       - name: Retain sanitized shared gate evidence
         if: ${{ always() && steps.changes.outputs.runtime_changed == 'true' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -199,6 +208,14 @@ jobs:
             results/local/shared-gate-*/saturation/retry/after.json
             results/local/shared-gate-*/saturation/retry/path.json
             results/local/shared-gate-*/saturation/retry/summary.json
+            results/local/shared-gate-*/p10-pair/baseline.json
+            results/local/shared-gate-*/p10-pair/checkpoints.jsonl
+            results/local/shared-gate-*/p10-pair/failure.json
+            results/local/shared-gate-*/p10-pair/restoration.json
+            results/local/shared-gate-*/p10-pair/result.json
+            results/local/shared-gate-*/p10-pair/*/run.json
+            results/local/shared-gate-*/p10-pair/*/summary.json
+            results/local/shared-gate-*/p10-pair/*/accounting-failure.json
           if-no-files-found: ignore
           retention-days: 14
 

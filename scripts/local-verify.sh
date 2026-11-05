@@ -100,6 +100,7 @@ static() {
   PYTHONDONTWRITEBYTECODE=1 python3 "$ROOT/tests/e2e/test-azure-operations.py"
   PYTHONDONTWRITEBYTECODE=1 python3 "$ROOT/tests/e2e/test-azure-cascade.py"
   PYTHONDONTWRITEBYTECODE=1 python3 "$ROOT/tests/e2e/test-critical-bulk-isolation.py"
+  PYTHONDONTWRITEBYTECODE=1 python3 "$ROOT/tests/e2e/test-local-isolation-pair.py"
   PYTHONDONTWRITEBYTECODE=1 python3 "$ROOT/tests/e2e/test-azure-mitigation.py"
   PYTHONDONTWRITEBYTECODE=1 python3 "$ROOT/tests/e2e/test-recovery.py"
   PYTHONDONTWRITEBYTECODE=1 python3 "$ROOT/tests/e2e/test-upgrade.py"
