@@ -357,6 +357,12 @@ def managed_rows(value, polls, pods, clock):
                              scrape_seconds=value['plan']['scrape_seconds'])
 
 
+def amw_preflight(fetch, cluster):
+    """Stable `up` scrape plus the campaign's own five-query P10 path (never a scalar/instant union)."""
+    return {'up': fetch('/api/v1/query', {'query': 'up{cluster=%s,namespace="forgejo"}' % json.dumps(cluster)}),
+            'p10': m.poll_managed(fetch, m.managed_selectors(NS, cluster), m.MANAGED_LOOKBACK_SECONDS)['data']}
+
+
 def restoration_verdict(state):
     keys = ('policy_removed', 'mesh_restored', 'namespace_removed', 'ingress_provider_absent', 'stable_unchanged',
             'argo_stable', 'https_healthy')
@@ -563,9 +569,7 @@ class Preflight:
             token = p8.p7.command(['az', 'account', 'get-access-token', '--resource', 'https://prometheus.monitor.azure.com',
                                    '--query', 'accessToken', '-o', 'tsv'])
             endpoint, cluster = self.value['prometheus']['endpoint'], self.value['prometheus']['cluster']
-            query = lambda q: p8.p7.http_json(endpoint + '/api/v1/query', token, timeout=15, form={'query': q})
-            return {'up': query('up{cluster=%s,namespace="forgejo"}' % json.dumps(cluster)),
-                    'p10': query(m.managed_selector(NS, cluster))}
+            return amw_preflight(lambda path, params: p8.p7.http_json(endpoint + path, token, timeout=15, form=params), cluster)
         observe('prometheus', prometheus)
         def https():
             result = p8.request('/api/healthz', {})
@@ -911,11 +915,11 @@ class Campaign:
             binding = m.binding(self.identity, v, self.f, invariants)
             clock_start = m.clock_pair()
             poll_origin = time.monotonic()
-            selector = m.managed_selector(NS, self.value['prometheus']['cluster'])
+            selectors = m.managed_selectors(NS, self.value['prometheus']['cluster'])
             amw = lambda path, params: p8.p7.http_json(self.value['prometheus']['endpoint'] + path, self.prom_token, timeout=5, form=params)
             def poll():
-                lookback = min(600, int(time.monotonic() - poll_origin) + 2 * v['scrape_seconds'])
-                try: polls.append(m.poll_managed(amw, selector, lookback))
+                lookback = min(m.MANAGED_LOOKBACK_SECONDS, int(time.monotonic() - poll_origin) + 2 * v['scrape_seconds'])
+                try: polls.append(m.poll_managed(amw, selectors, lookback))
                 except Exception as exc: poll_failures.append(type(exc).__name__)   # a gap, never a value
             def monitor_managed():
                 while not stop.is_set():

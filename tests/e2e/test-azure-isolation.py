@@ -337,8 +337,34 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(len(rows), 3)
         for r in response['data']['result']: r['metric']['cluster'] = 'other-aks'
         with self.assertRaises(ValueError): az.managed_rows(manifest(), [{'at': 60.0, 'data': response}], pods, t10.CLOCK)
-        selector = m.managed_selector(az.NS, 'aks-test')
-        self.assertIn('cluster="aks-test"', selector); self.assertIn('namespace="p8-shared-gate"', selector)
+        for name, selector in m.managed_selectors(az.NS, 'aks-test').items():
+            self.assertEqual(selector, name + '{cluster="aks-test",namespace="p8-shared-gate",job="p10-envoy",cluster_name="inbound|8080||"}')
+
+    def test_preflight_amw_uses_the_campaign_five_query_path(self):
+        up = observations()['prometheus']['up']
+        def fake(p10, calls):
+            p10_fetch = t10.amw(p10, calls)
+            def fetch(path, params):
+                if params['query'].startswith('up{'):
+                    calls.append((path, params)); return copy.deepcopy(up)
+                return p10_fetch(path, params)
+            return fetch
+        calls = []
+        observed = az.amw_preflight(fake(lambda: t10.prometheus([], {}, None, namespace=az.NS), calls), 'aks-test')
+        self.assertEqual([c[1]['query'] for c in calls], ['up{cluster="aks-test",namespace="forgejo"}'] +
+                         ['%s[%ds]' % (s, m.MANAGED_LOOKBACK_SECONDS) for _, s in sorted(m.managed_selectors(az.NS, 'aks-test').items())])
+        self.assertFalse(any('__name__' in c[1]['query'] for c in calls))
+        obs = observations(); obs['prometheus'] = observed
+        self.assertEqual(az.preflight_verdict(manifest(), obs, PRICE, NOW)['status'], 'ready-for-approval-request')
+        pods = [{'name': 'ext-authz-shared-a', 'uid': 'u0'}]
+        present = az.amw_preflight(fake(lambda: t10.prometheus(pods, {'u0': [0]}, lambda *a: 0, namespace=az.NS), []), 'aks-test')
+        obs['prometheus'] = present
+        self.assertIn('amw-p10-series-present-before-campaign', az.preflight_verdict(manifest(), obs, PRICE, NOW)['blockers'])
+        # A refused or partial P10 query is no observation (unobserved:prometheus), never an empty result.
+        legacy = lambda path, params: (_ for _ in ()).throw(t10.refused(path, 501))
+        with self.assertRaises(t10.urllib.error.HTTPError) as raised:
+            az.amw_preflight(lambda path, params: copy.deepcopy(up) if params['query'].startswith('up{') else legacy(path, params), 'aks-test')
+        raised.exception.close()
 
 
 # --- read-only preflight ---------------------------------------------------------------------------------
@@ -862,7 +888,7 @@ class MeasureSmokeTests(unittest.TestCase):
                       'proxy_retries_sha256', 'sentinel_sha256', 'confounder_policy_sha256')}
         invariants.update(stable_revision=value['identity']['stable_revision'], haproxy_image_id='sha256:x', haproxy_processes=1, haproxy_threads=1, haproxy_maxconn=256)
         pods = [{'name': t['name'], 'uid': t['uid']} for t in ts]
-        amw = t10.prometheus(pods, {t['uid']: [0] for t in ts}, lambda uid, key, t: 0, namespace=az.NS)
+        fetch_amw = t10.amw(lambda: t10.prometheus(pods, {t['uid']: [0] for t in ts}, lambda uid, key, t: 0, namespace=az.NS))
         rt = mock.Mock()
         rt.pod.side_effect = lambda ns, selector: {'metadata': {'name': 'p', 'uid': 'stable'}, 'status': {'containerStatuses': [{'name': 'haproxy', 'imageID': 'sha256:x'}]}}
         c = object.__new__(az.Campaign)
@@ -879,7 +905,7 @@ class MeasureSmokeTests(unittest.TestCase):
         for name, stub in stubs.items(): setattr(c, name, stub)
         sentinel = {'semantic_result': True, 'start_monotonic': 0, 'end_monotonic': 0, 'status': 200, 'error_class': 'none'}
         with mock.patch.object(az, 'DEADLINE', FUTURE), mock.patch.object(az, 'Forward', Forward), mock.patch.object(az.pair, 'AdminFetch', Fetch), \
-             mock.patch.object(az.p8.p4, 'request', lambda *a, **k: dict(sentinel)), mock.patch.object(az.p8.p7, 'http_json', lambda *a, **k: amw):
+             mock.patch.object(az.p8.p4, 'request', lambda *a, **k: dict(sentinel)), mock.patch.object(az.p8.p7, 'http_json', lambda url, token, timeout, form: fetch_amw('/api/v1/query', form)):
             with self.assertRaises(ValueError):
                 c.measure('isolated', 'measured')
         run = directory / 'measured-isolated'

@@ -1,11 +1,13 @@
 """P10 cost-free boundaries; synthetic inputs are NOT runtime evidence."""
 import copy
 import importlib.util
+import io
 import json
 from pathlib import Path
 import unittest
 from unittest import mock
 import time
+import urllib.error
 
 ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location('isolation', ROOT / 'scripts/critical-bulk-isolation.py')
@@ -196,6 +198,23 @@ def prometheus(pods, stamps, trajectory, namespace='shared-gate', **drop):
                                       'pod': pod['name'], 'container': 'istio-proxy', 'instance': '10.42.0.%d:15090' % len(result)},
                            'values': [[1000 + t, str(trajectory(pod['uid'], key, t))] for t in stamps[pod['uid']]]})
     return {'status': 'success', 'data': {'resultType': 'matrix', 'result': result}}
+
+
+def refused(path, code):
+    return urllib.error.HTTPError(path, code, 'refused', {}, io.BytesIO())
+
+
+def amw(response, calls=None):
+    """Fake AMW `POST /api/v1/query`: the observed HTTP 501 for a `__name__` regex matcher, else that exact metric's series."""
+    def fetch(path, params):
+        if calls is not None: calls.append((path, params))
+        if '__name__' in params['query']:
+            raise refused(path, 501)
+        data = response()
+        name = params['query'].split('{', 1)[0]
+        data['data']['result'] = [r for r in data['data']['result'] if r['metric']['__name__'] == name]
+        return data
+    return fetch
 
 
 class IsolationTests(unittest.TestCase):
@@ -600,13 +619,14 @@ class IsolationTests(unittest.TestCase):
         trajectory = lambda uid, key, t: final[uid][key] if t >= 10 and key in m.COUNTERS else 0
         stamps = {pods[0]['uid']: [-12, 3, 18, 33], pods[1]['uid']: [-5, 10, 25, 40]}   # two scrape phases, 15s apart
         calls = []
-        def fetch(path, params):
-            calls.append((path, params)); return prometheus(pods, stamps, trajectory)
-        selector = m.managed_selector('shared-gate', 'aks-test')
-        self.assertIn('job="p10-envoy"', selector); self.assertIn('cluster_name="inbound|8080||"', selector)
-        self.assertIn('cluster="aks-test"', selector); self.assertNotIn('envoy_cluster_name', selector)
-        poll = m.poll_managed(fetch, selector, 600, clock=lambda: 125.0)
-        self.assertEqual(calls, [('/api/v1/query', {'query': selector + '[600s]'})])     # raw samples, not evaluation steps
+        selectors = m.managed_selectors('shared-gate', 'aks-test')
+        self.assertEqual(selectors, {name: name + '{cluster="aks-test",namespace="shared-gate",job="p10-envoy",cluster_name="inbound|8080||"}'
+                                     for name in sorted(m.MANAGED_METRICS)})                                      # five exact metric names
+        poll = m.poll_managed(amw(lambda: prometheus(pods, stamps, trajectory), calls), selectors, 600, clock=lambda: 125.0, wall=lambda: 1125.0)
+        # Raw range vectors (not evaluation steps), one per metric, all at one pinned evaluation time.
+        self.assertEqual(calls, [('/api/v1/query', {'query': selectors[name] + '[600s]', 'time': '1125.000'}) for name in sorted(m.MANAGED_METRICS)])
+        canonical = lambda r: sorted(json.dumps(x, sort_keys=True) for x in r['data']['result'])
+        self.assertEqual(canonical(poll['data']), canonical(prometheus(pods, stamps, trajectory)))           # raw scrape timestamps preserved
         self.assertEqual(poll['at'], 125.0)
         rows = m.project_managed([poll], pods, CLOCK, namespace='shared-gate', prometheus_cluster='aks-test', scrape_seconds=15)
         self.assertEqual(len(rows), 4)
@@ -672,6 +692,52 @@ class IsolationTests(unittest.TestCase):
         later = prometheus(pods, stamps, lambda uid, key, t: 1 if t == 15 and key == 'upstream_rq_total' else 0)
         with self.assertRaises(ValueError):
             m.project_managed([{'at': 60.0, 'data': good()}, {'at': 70.0, 'data': later}], pods, CLOCK, namespace='shared-gate', prometheus_cluster='aks-test', scrape_seconds=15)
+
+    def test_amw_exact_metric_poll_fails_closed(self):
+        pods = [{'name': 'ext-authz-shared-a', 'uid': 'u0', 'pool': 'shared'}, {'name': 'ext-authz-shared-b', 'uid': 'u1', 'pool': 'shared'}]
+        stamps = {'u0': [0, 15, 30], 'u1': [1, 16, 31]}
+        good = lambda: prometheus(pods, stamps, lambda uid, key, t: 0)
+        selectors = m.managed_selectors('shared-gate', 'aks-test')
+        poll = lambda fetch, chosen=selectors: m.poll_managed(fetch, chosen, 600, clock=lambda: 60.0, wall=lambda: 1060.0)
+        self.assertEqual(len(m.project_managed([poll(amw(good))], pods, CLOCK, namespace='shared-gate', prometheus_cluster='aks-test', scrape_seconds=15)), 3)
+        # The retired `__name__=~` selector is what AMW refused with HTTP 501; any such query fails the whole poll.
+        legacy = '{__name__=~"envoy_cluster_upstream_rq_(%s)",cluster="aks-test",namespace="shared-gate",job="p10-envoy",cluster_name="inbound|8080||"}' % \
+            '|'.join(sorted(n[len('envoy_cluster_upstream_rq_'):] for n in m.MANAGED_METRICS))
+        with self.assertRaises(urllib.error.HTTPError) as raised: amw(good)('/api/v1/query', {'query': legacy + '[600s]'})
+        self.assertEqual(raised.exception.code, 501)
+        with self.assertRaises(urllib.error.HTTPError): poll(amw(good), dict(selectors, **{sorted(selectors)[2]: legacy}))
+        for chosen in ({}, dict(list(selectors.items())[:4]), dict(selectors, extra='x'), list(selectors.values())):
+            with self.assertRaises(ValueError): poll(amw(good), chosen)
+        def failing(n, reply):
+            calls = []
+            def fetch(path, params):
+                calls.append(params)
+                return reply(path, params) if len(calls) == n else amw(good)(path, params)
+            return fetch
+        def http(code):
+            def reply(path, params): raise refused(path, code)
+            return reply
+        def edit(fn):
+            def reply(path, params):
+                r = amw(good)(path, params); fn(r); return r
+            return reply
+        for n in range(1, 6):   # any one of the five queries
+            for reply in (http(501), http(503), lambda p, q: {'status': 'error', 'errorType': 'bad_data', 'error': 'x'},
+                          lambda p, q: {'status': 'success', 'data': {'resultType': 'vector', 'result': []}},
+                          lambda p, q: good(),                                                             # series of the other four metrics
+                          edit(lambda r: r['data']['result'].clear()),                                    # one metric absent: partial, not zero
+                          edit(lambda r: r['data']['result'].pop()),                                      # one Pod's series of one metric absent
+                          edit(lambda r: r['data']['result'][0]['values'].pop()),                         # one scrape of one metric absent
+                          edit(lambda r: r['data']['result'][0]['metric'].update(__name__=r['data']['result'][0]['metric']['__name__'].upper())),
+                          edit(lambda r: r['data']['result'][0].pop('values')),
+                          edit(lambda r: r['data']['result'][0]['values'].__setitem__(0, ['1000', '0'])),
+                          edit(lambda r: r['data']['result'][0]['values'].__setitem__(0, [1000.0])),
+                          lambda p, q: None):
+                with self.assertRaises((ValueError, urllib.error.HTTPError)): poll(failing(n, reply))
+        # Nothing before the campaign is an empty matrix of the same five-query shape, never zero-filled.
+        empty = poll(amw(lambda: prometheus([], {}, None)))
+        self.assertEqual(empty, {'at': 60.0, 'data': {'status': 'success', 'data': {'resultType': 'matrix', 'result': []}}})
+        with self.assertRaises(ValueError): m.project_managed([empty], pods, CLOCK, namespace='shared-gate', prometheus_cluster='aks-test', scrape_seconds=15)
 
     def test_managed_visibility_is_not_required_before_the_window(self):
         v = plan()

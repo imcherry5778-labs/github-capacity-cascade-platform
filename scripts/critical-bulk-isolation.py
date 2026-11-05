@@ -394,20 +394,44 @@ MANAGED_METRICS = {'envoy_cluster_upstream_rq_' + k[len('upstream_rq_'):]: k for
 MANAGED_CLUSTER_LABEL = 'cluster_name'
 
 
-def managed_selector(namespace, prometheus_cluster, job='p10-envoy', cluster='inbound|8080||'):
-    names = '|'.join(sorted(k[len('envoy_cluster_upstream_rq_'):] for k in MANAGED_METRICS))
-    return '{__name__=~"envoy_cluster_upstream_rq_(%s)",cluster=%s,namespace=%s,job=%s,%s=%s}' % (
-        names, json.dumps(prometheus_cluster), json.dumps(namespace), json.dumps(job), MANAGED_CLUSTER_LABEL, json.dumps(cluster))
+# Upper bound of one raw range-vector lookback (campaign polls and the pre-campaign emptiness check).
+MANAGED_LOOKBACK_SECONDS = 600
 
 
-def poll_managed(fetch, selector, lookback_seconds, clock=time.monotonic):
-    """One Prometheus-API query for RAW samples (a range vector keeps the actual scrape timestamps).
+def managed_selectors(namespace, prometheus_cluster, job='p10-envoy', cluster='inbound|8080||'):
+    """One exact metric-name selector per managed stat. AMW refuses a `__name__` regex matcher (HTTP 501)."""
+    labels = '{cluster=%s,namespace=%s,job=%s,%s=%s}' % (
+        json.dumps(prometheus_cluster), json.dumps(namespace), json.dumps(job), MANAGED_CLUSTER_LABEL, json.dumps(cluster))
+    return {name: name + labels for name in sorted(MANAGED_METRICS)}
 
-    `fetch(path, params)` returns the parsed JSON. The caller owns authentication; none exists here.
-    `at` is when the response reached the harness, i.e. the latest moment each returned sample was visible.
+
+def poll_managed(fetch, selectors, lookback_seconds, clock=time.monotonic, wall=time.time):
+    """One poll = one raw range-vector query per exact metric (a range vector keeps the actual scrape timestamps;
+    an instant OR of the metrics would not), all evaluated at one pinned `time` so the five windows are identical.
+
+    `fetch(path, params)` returns the parsed JSON. The caller owns authentication; none exists here. Every query must
+    succeed with a matrix of its own metric only, and the merged matrix must hold all five stats for every
+    (Pod, scrape timestamp). Any failed, malformed or partial query raises: the whole poll is a gap, never a value.
+    `at` is taken after the last response, i.e. the latest moment any returned sample was visible to the harness.
     """
-    data = fetch('/api/v1/query', {'query': '%s[%ds]' % (selector, lookback_seconds)})
-    return {'at': clock(), 'data': data}
+    require(type(selectors) is dict and sorted(selectors) == sorted(MANAGED_METRICS), 'managed selectors')
+    evaluated = '%.3f' % wall()
+    result = []
+    for name in sorted(selectors):
+        data = fetch('/api/v1/query', {'query': '%s[%ds]' % (selectors[name], lookback_seconds), 'time': evaluated})
+        require(type(data) is dict and data.get('status') == 'success' and type(data.get('data')) is dict and
+                data['data'].get('resultType') == 'matrix' and type(data['data'].get('result')) is list, 'managed query response')
+        require(all(type(s) is dict and type(s.get('metric')) is dict and s['metric'].get('__name__') == name and
+                    type(s.get('values')) is list for s in data['data']['result']), 'managed series of another metric')
+        result.extend(data['data']['result'])
+    at = clock()
+    scrapes = {}
+    for series in result:
+        for sample in series['values']:
+            require(type(sample) is list and len(sample) == 2 and type(sample[0]) in {int, float} and math.isfinite(sample[0]), 'managed sample timestamp')
+            scrapes.setdefault((series['metric'].get('pod'), round(sample[0], 3)), set()).add(series['metric']['__name__'])
+    require(all(names == set(MANAGED_METRICS) for names in scrapes.values()), 'partial managed poll')
+    return {'at': at, 'data': {'status': 'success', 'data': {'resultType': 'matrix', 'result': result}}}
 
 
 def project_managed(polls, pods, clock, *, namespace, prometheus_cluster, scrape_seconds, cluster='inbound|8080||', job='p10-envoy'):
