@@ -96,8 +96,8 @@ ChatGPT가 각 work unit 시작 전에 다음을 확정한다.
 - REVALIDATE result
 - 필요한 DEFERRED value 또는 측정 계획
 - acceptance criteria
-- required evidence
-- cost/external side effect
+- required evidence (유료 controlled experiment는 계획한 sample interval·freshness·window coverage로 positive/valid negative/invalid/관측 불충분을 구분할 수 있는지 cost-free 사례로 먼저 확인)
+- cost/external side effect (다단계 유료 실행은 첫 external mutation 전에 전체 단계·owned cleanup의 시간·비용 feasibility를 확인하고, 이후에는 완료한 단계를 재예약하지 않고 남은 전체 작업과 안전한 rollback reserve를 갱신)
 - cleanup/rollback boundary
 - stop conditions
 
