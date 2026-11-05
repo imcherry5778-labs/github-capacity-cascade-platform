@@ -56,20 +56,31 @@ APPROVAL_URL = r'https://github\.com/imcherry5778-labs/github-capacity-cascade-p
 DB_ENV_KEYS = {'PGHOST', 'PGPORT', 'PGDATABASE', 'PGUSER', 'PGPASSWORD', 'PGSSLMODE'}
 GUARD_SECONDS, SENTINEL_SECONDS = 2.0, 1.0
 GUARD_POLICY = {'guards': sorted(m.GUARDS), 'sentinel_seconds': SENTINEL_SECONDS, 'guard_seconds': GUARD_SECONDS, 'environment': 'azure'}
-# Reads the preflight needs, and the extra verbs the campaign needs. A missing verb is an exact blocker; this
-# source never grants, requests or escalates a role.
+# Reads the preflight needs, and the extra verbs the campaign's kubectl commands need (client-side `apply` = get +
+# create/patch; `rollout restart` = patch; `rollout status` and `--wait` = get/list/watch; exec/logs/port-forward read the
+# Pod first). A missing verb is an exact blocker; this source never grants, requests or escalates a role.
+# tests/e2e/test-azure-isolation.py derives the verbs from the recorded commands and requires them to be covered here.
 READ_ACCESS = (('list', 'nodes', None), ('list', 'pods', None), ('get', 'namespaces', None),
                ('get', 'configmaps', MESH_NS), ('get', 'authorizationpolicies.security.istio.io', INGRESS_NS),
-               ('create', 'pods/exec', INGRESS_NS), ('get', 'customresourcedefinitions.apiextensions.k8s.io', None),
+               ('get', 'pods', INGRESS_NS), ('create', 'pods/exec', INGRESS_NS), ('get', 'customresourcedefinitions.apiextensions.k8s.io', None),
                ('get', 'applications.argoproj.io', 'argocd'), ('get', 'deployments.apps', 'forgejo'))
-CAMPAIGN_ACCESS = (('create', 'namespaces', None), ('delete', 'namespaces', None), ('patch', 'configmaps', MESH_NS),
+CAMPAIGN_ACCESS = (('create', 'namespaces', None), ('delete', 'namespaces', None), ('list', 'namespaces', None), ('watch', 'namespaces', None),
+                   ('patch', 'configmaps', MESH_NS),
                    ('create', 'authorizationpolicies.security.istio.io', INGRESS_NS),
                    ('delete', 'authorizationpolicies.security.istio.io', INGRESS_NS),
-                   ('create', 'secrets', NS), ('create', 'deployments.apps', NS), ('delete', 'deployments.apps', NS),
-                   ('create', 'services', NS), ('delete', 'services', NS), ('create', 'pods', NS),
-                   ('create', 'sidecars.networking.istio.io', NS), ('create', 'podmonitors.azmonitoring.coreos.com', NS),
-                   ('create', 'pods/exec', NS), ('create', 'pods/portforward', NS), ('create', 'pods/portforward', 'forgejo'),
-                   ('get', 'pods/log', NS), ('get', 'pods/log', INGRESS_NS), ('get', 'endpointslices.discovery.k8s.io', NS))
+                   ('get', 'pods/log', INGRESS_NS), ('get', 'pods', 'forgejo'), ('create', 'pods/portforward', 'forgejo'),
+                   ('get', 'resourcequotas', NS), ('create', 'resourcequotas', NS),
+                   ('get', 'secrets', NS), ('create', 'secrets', NS),
+                   ('get', 'configmaps', NS), ('create', 'configmaps', NS), ('patch', 'configmaps', NS),
+                   ('get', 'deployments.apps', NS), ('list', 'deployments.apps', NS), ('watch', 'deployments.apps', NS),
+                   ('create', 'deployments.apps', NS), ('patch', 'deployments.apps', NS), ('delete', 'deployments.apps', NS),
+                   ('get', 'services', NS), ('list', 'services', NS), ('watch', 'services', NS),
+                   ('create', 'services', NS), ('delete', 'services', NS),
+                   ('get', 'pods', NS), ('create', 'pods', NS),
+                   ('get', 'sidecars.networking.istio.io', NS), ('create', 'sidecars.networking.istio.io', NS),
+                   ('get', 'podmonitors.azmonitoring.coreos.com', NS), ('create', 'podmonitors.azmonitoring.coreos.com', NS),
+                   ('create', 'pods/exec', NS), ('create', 'pods/portforward', NS), ('get', 'pods/log', NS),
+                   ('list', 'endpointslices.discovery.k8s.io', NS))
 
 
 # --- exact manifest / approval / ledger ----------------------------------------------------------------
@@ -352,8 +363,39 @@ def restoration_verdict(state):
     return {'restored': not state.get('problems') and all(state.get(k) is True for k in keys), **state}
 
 
+def _dict(value, keys):
+    return type(value) is dict and keys <= set(value)
+
+
+def _list(value, nonempty=True):
+    return type(value) is list and (bool(value) or not nonempty)
+
+
+def _vector(value, kind):
+    return _dict(value, {'status', 'data'}) and value['status'] == 'success' and _dict(value['data'], {'resultType', 'result'}) and \
+        value['data']['resultType'] == kind and _list(value['data']['result'], nonempty=False)
+
+
+# A section reaches the readiness evaluation only when it is a complete observation. Empty/partial structures are
+# never "nothing wrong": the P10 pre-campaign AMW series may be empty and leftovers must be explicit False, nothing else.
+SECTION_SHAPES = {
+    'source': lambda o: _dict(o, {'head', 'clean'}),
+    'access': lambda o: _dict(o, {'read', 'campaign'}) and type(o['read']) is dict and type(o['campaign']) is dict,
+    'cluster': lambda o: _dict(o, {'id', 'agentPoolProfiles', 'serviceMeshProfile'}) and _list(o['agentPoolProfiles']),
+    'capacity': lambda o: _dict(o, {'nodes', 'pods'}) and _list(o['nodes']) and _list(o['pods']),
+    'mesh': lambda o: _dict(o, {'metadata', 'data'}) and _dict(o['data'], {'mesh'}),
+    'ingress': lambda o: _list(o) and all(_dict(i, {'uid', 'listeners', 'routes'}) for i in o),
+    'leftovers': lambda o: type(o) is dict and set(o) == {'namespace', 'policy'} and all(type(x) is bool for x in o.values()),
+    'argo': lambda o: _dict(o, {'spec', 'status'}),
+    'prometheus': lambda o: _dict(o, {'up', 'p10'}) and _vector(o['up'], 'vector') and _vector(o['p10'], 'matrix'),
+}
+
+
 def preflight_verdict(value, obs, price, now):
-    """Fail-closed readiness of the *approval request*, never an approval: missing observations are blockers."""
+    """Fail-closed readiness of the *approval request*, never an approval.
+
+    Missing, empty, partial or malformed observations are blockers; nothing reaches readiness by being skipped.
+    """
     manifest(value)
     identity, v = value['identity'], value['plan']
     blockers, facts = [], {}
@@ -361,67 +403,72 @@ def preflight_verdict(value, obs, price, now):
         if not condition:
             blockers.append(code)
         return condition
-    def section(name):
-        return need('unobserved:' + name, obs.get(name) is not None) and obs[name]
-    source = section('source')
-    if source:
-        need('source-not-exact-clean-head', source == {'head': identity['source_sha'], 'clean': True})
-    access = section('access')
-    if access:
-        missing = [list(k) for k in READ_ACCESS if access['read'].get('|'.join(map(str, k))) is not True]
+    def section(name, evaluate):
+        observed = obs.get(name)
+        if observed is None:
+            return need('unobserved:' + name, False)
+        if not SECTION_SHAPES[name](observed):
+            return need('malformed:' + name, False)
+        try:
+            evaluate(observed)
+        except (ValueError, KeyError, TypeError, IndexError, AttributeError):
+            need('malformed:' + name, False)
+    def access(a):
+        missing = [list(k) for k in READ_ACCESS if a['read'].get('|'.join(map(str, k))) is not True]
         need('kubernetes-read-rbac', not missing)
         facts['read_access_missing'] = missing
-        facts['campaign_access_missing'] = [list(k) for k in CAMPAIGN_ACCESS if access['campaign'].get('|'.join(map(str, k))) is not True]
+        facts['campaign_access_missing'] = [list(k) for k in CAMPAIGN_ACCESS if a['campaign'].get('|'.join(map(str, k))) is not True]
         need('campaign-rbac-decision', not facts['campaign_access_missing'])
-    cluster = section('cluster')
-    if cluster:
-        pools = cluster['agentPoolProfiles']
-        need('cluster-identity', cluster.get('cluster_uid') == identity['cluster_uid'] and cluster['id'].lower() == identity['cluster_resource_id'].lower())
-        need('mesh-revision', cluster['serviceMeshProfile']['istio']['revisions'] == [identity['revision']])
+    def cluster(c):
+        pools = c['agentPoolProfiles']
+        need('cluster-identity', c.get('cluster_uid') == identity['cluster_uid'] and c['id'].lower() == identity['cluster_resource_id'].lower())
+        need('mesh-revision', c['serviceMeshProfile']['istio']['revisions'] == [identity['revision']])
         need('fixed-nodes', sum(p['count'] for p in pools) == 2 and not any(p.get('enableAutoScaling') for p in pools))
-        facts['cluster'] = {'kubernetes_version': cluster.get('currentKubernetesVersion'), 'nodes': sum(p['count'] for p in pools),
+        facts['cluster'] = {'kubernetes_version': c.get('currentKubernetesVersion'), 'nodes': sum(p['count'] for p in pools),
                             'vm_sizes': sorted({p['vmSize'] for p in pools}), 'revision': identity['revision']}
-    capacity = section('capacity')
-    if capacity:
-        result = headroom(capacity['nodes'], capacity['pods'], demand(identity, v, value['fixture']))
+    def capacity(c):
+        result = headroom(c['nodes'], c['pods'], demand(identity, v, value['fixture']))
         need('node-headroom', result['fits'])
         facts['headroom'] = result
-    mesh = section('mesh')
-    if mesh:
+    def mesh(original):
         try:
-            facts['mesh'] = mesh_contract(mesh, identity)
-        except (ValueError, KeyError):
+            facts['mesh'] = mesh_contract(original, identity)
+        except ValueError:
             need('mesh-shared-configmap', False)
-    ingress = section('ingress')
-    if ingress:
+    def ingress(pods):
         try:
-            need('ingress-absent', ingress)
-            facts['ingress'] = [ingress_contract(i['listeners'], i['routes'], identity['forgejo_hostname']) for i in ingress]
-        except (ValueError, KeyError):
+            facts['ingress'] = [ingress_contract(i['listeners'], i['routes'], identity['forgejo_hostname']) for i in pods]
+        except ValueError:
             need('ingress-https-normalization-contract', False)
-    leftovers = section('leftovers')
-    if leftovers:
-        need('p10-leftover-objects', not any(leftovers.values()))
+    def argo(app):
+        need('stable-argo', app['spec']['sources'][1]['targetRevision'] == app['spec']['sources'][2]['targetRevision'] == identity['stable_revision'] and
+             app['status']['sync']['status'] == 'Synced' and app['status']['health']['status'] == 'Healthy')
+    def amw(p):
+        need('amw-stable-scrape', any(r['metric'].get('job') == 'forgejo' and r['value'][1] == '1' for r in p['up']['data']['result']))
+        need('amw-p10-series-present-before-campaign', p['p10']['data']['result'] == [])
+    section('source', lambda s: need('source-not-exact-clean-head', s == {'head': identity['source_sha'], 'clean': True}))
+    section('access', access)
+    section('cluster', cluster)
+    section('capacity', capacity)
+    section('mesh', mesh)
+    section('ingress', ingress)
+    section('leftovers', lambda left: need('p10-leftover-objects', not any(left.values())))
     need('podmonitor-crd', obs.get('crd') is True)
-    argo = section('argo')
-    if argo:
-        need('stable-argo', argo['spec']['sources'][1]['targetRevision'] == argo['spec']['sources'][2]['targetRevision'] == identity['stable_revision'] and
-             argo['status']['sync']['status'] == 'Synced' and argo['status']['health']['status'] == 'Healthy')
+    section('argo', argo)
     need('ext-authz-image-absent-or-unreadable', obs.get('image') is True)
-    amw = section('prometheus')
-    if amw:
-        need('amw-stable-scrape', amw['up'].get('status') == 'success' and any(r['metric'].get('job') == 'forgejo' and r['value'][1] == '1'
-                                                                           for r in amw['up']['data']['result']))
-        need('amw-p10-series-present-before-campaign', amw['p10'].get('status') == 'success' and amw['p10']['data']['result'] == [])
+    section('prometheus', amw)
     need('https-healthz-tls', obs.get('https') == {'status': 200, 'error_class': 'none', 'semantic_result': True})
     need('retention-reserve', now + timedelta(seconds=total_seconds(v)) < DEADLINE)
     require(type(price) is dict and set(price) == {'node_hour_usd', 'amw_per_10m_samples_usd', 'retrieved_utc'} and
-            all(type(price[k]) in {int, float} and price[k] > 0 for k in ('node_hour_usd', 'amw_per_10m_samples_usd')), 'price input')
+            all(type(price[k]) in {int, float} and math.isfinite(price[k]) and price[k] > 0 for k in ('node_hour_usd', 'amw_per_10m_samples_usd')), 'price input')
+    # Freshness is recorded for the approver, not capped here; a future or non-UTC retrieval time is not a price observation.
+    retrieved = p8.p7.utc(price['retrieved_utc'])
+    require(retrieved <= now, 'price retrieved in the future')
     hours = total_seconds(v) / 3600
     samples = 2 * (len(m.STATS) + 5) * math.ceil(total_seconds(v) / v['scrape_seconds'])   # 5 stats + 5 scrape series per target
     facts['cost'] = {'existing_shared_node_hold_usd': round(2 * hours * price['node_hour_usd'], 4),
                      'p10_amw_increment_usd': round(samples / 1e7 * price['amw_per_10m_samples_usd'], 6), 'hold_seconds': total_seconds(v),
-                     'price': price, 'budget_and_headroom': 'UNKNOWN', 'note': 'retail list price; actual billed cost and remaining budget UNKNOWN'}
+                     'price': price, 'price_age_hours': round((now - retrieved).total_seconds() / 3600, 2), 'budget_and_headroom': 'UNKNOWN', 'note': 'retail list price; actual billed cost and remaining budget UNKNOWN'}
     return {'status': 'blocked' if blockers else 'ready-for-approval-request', 'blockers': blockers, 'facts': facts,
             'source_sha': identity['source_sha'], 'manifest_sha256': digest(value),
             'decisions_required': ['explicit P10 action/count/cost/time approval', 'campaign Kubernetes role (never self-granted)',

@@ -414,6 +414,37 @@ class PreflightTests(unittest.TestCase):
         self.assertIn('retention-reserve', result['blockers'])
         with self.assertRaises(ValueError): az.preflight_verdict(manifest(), observations(), PRICE | {'node_hour_usd': 0}, NOW)
 
+    def test_empty_partial_or_malformed_sections_never_reach_readiness(self):
+        cases = {'ingress': [[], [{}], [{'uid': 'i1', 'listeners': {}, 'routes': {}}], {}],      # empty ingress Pod list, partial, contract-less
+                 'capacity': [{}, {'nodes': [], 'pods': []}, {'nodes': [node('n1')]}, []],
+                 'argo': [{}, {'spec': {}, 'status': {}}, []],
+                 'prometheus': [{}, {'up': {}, 'p10': {}}, {'up': observations()['prometheus']['up']},
+                                {'up': observations()['prometheus']['up'], 'p10': {'status': 'error', 'data': {'resultType': 'matrix', 'result': []}}}],
+                 'leftovers': [{}, {'namespace': False}, {'namespace': None, 'policy': False}, {'namespace': 0, 'policy': 0}, []],
+                 'cluster': [{}, {'id': 'x', 'agentPoolProfiles': [], 'serviceMeshProfile': {}}],
+                 'access': [{}, {'read': [], 'campaign': {}}],
+                 'source': [{}, []], 'mesh': [{}, {'metadata': {}, 'data': {}}]}
+        for name, values in cases.items():
+            for value in values:
+                obs = observations(); obs[name] = value
+                result = az.preflight_verdict(manifest(), obs, PRICE, NOW)
+                self.assertEqual(result['status'], 'blocked', (name, value))
+                self.assertTrue(any(b in {'malformed:' + name, 'unobserved:' + name} or b.startswith(('kubernetes-read', 'campaign-rbac', 'source-', 'p10-leftover',
+                                    'amw-', 'stable-argo', 'ingress-', 'node-', 'cluster-', 'mesh-'))
+                                    for b in result['blockers']), (name, value, result['blockers']))
+        # Allowed emptiness: no P10 series before the campaign, and explicitly known-absent leftovers.
+        obs = observations()
+        self.assertEqual((obs['prometheus']['p10']['data']['result'], obs['leftovers']), ([], {'namespace': False, 'policy': False}))
+        self.assertEqual(az.preflight_verdict(manifest(), obs, PRICE, NOW)['status'], 'ready-for-approval-request')
+
+    def test_price_retrieval_time_is_recorded_not_capped(self):
+        result = az.preflight_verdict(manifest(), observations(), PRICE | {'retrieved_utc': '2026-10-01T00:00:00Z'}, NOW)
+        self.assertEqual((result['status'], result['facts']['cost']['price_age_hours']), ('ready-for-approval-request', 864.0))
+        for bad in ('2026-11-07T00:00:00Z', '2026-11-05T00:00:00+09:00', 'yesterday'):
+            with self.assertRaises(ValueError, msg=bad): az.preflight_verdict(manifest(), observations(), PRICE | {'retrieved_utc': bad}, NOW)
+        for bad in (float('nan'), float('inf'), -1, True):
+            with self.assertRaises(ValueError, msg=str(bad)): az.preflight_verdict(manifest(), observations(), PRICE | {'node_hour_usd': bad}, NOW)
+
     def test_preflight_kubectl_is_read_only(self):
         for args in (('get', 'pods'), ('-n', 'x', 'get', 'configmap', 'y', '-o', 'json'), ('auth', 'can-i', 'create', 'pods/exec', '-n', 'x'),
                      ('-n', 'x', 'exec', 'p', '-c', 'istio-proxy', '--', 'pilot-agent', 'request', 'GET', 'config_dump')):
@@ -502,6 +533,206 @@ class FakeAzure:
 
     def request(self, path, headers, expected=None, direct=False):
         return {'semantic_result': self.healthy, 'status': 200 if self.healthy else 503}
+
+
+CLI_RESOURCE = {'namespace': 'namespaces', 'authorizationpolicy': 'authorizationpolicies.security.istio.io', 'configmap': 'configmaps',
+                'deployment': 'deployments.apps', 'service': 'services', 'endpointslices': 'endpointslices.discovery.k8s.io', 'pods': 'pods',
+                'nodes': 'nodes', 'application': 'applications.argoproj.io'}
+KIND_RESOURCE = {'Namespace': 'namespaces', 'ResourceQuota': 'resourcequotas', 'ConfigMap': 'configmaps', 'Secret': 'secrets',
+                 'Deployment': 'deployments.apps', 'Service': 'services', 'Pod': 'pods', 'Sidecar': 'sidecars.networking.istio.io',
+                 'PodMonitor': 'podmonitors.azmonitoring.coreos.com', 'AuthorizationPolicy': 'authorizationpolicies.security.istio.io'}
+
+
+class RbacCluster:
+    """Records the Kubernetes verb/resource/namespace each campaign kubectl command needs.
+
+    Client-side `apply` = get + create (new) or patch (existing); `rollout restart` = get + patch; `rollout status` and
+    `--wait` = get/list/watch; exec/logs/port-forward read the Pod first. Responses are minimal but well-formed.
+    """
+    def __init__(self):
+        self.needs = set(); self.objects = {}; self.pools = None; self.policy = None
+        self.mesh = {'mesh': json.dumps({'defaultConfig': {}})}
+        self.selector = t8.identity()['ingress_selector']
+
+    def need(self, verb, resource, ns):
+        self.needs.add((verb, resource, ns))
+
+    def ns_pods(self):
+        if self.pools is None: return []
+        pods = [p for p in admitted_pods(self.pools or 'shared') if p['metadata']['labels'].get('app') != 'ext-authz-sim' or self.pools]
+        for pod in pods:
+            if pod['metadata']['labels'].get('app') == 'ext-authz-sim':
+                pod['status'] = target_pod(pod['metadata']['uid'], pod['metadata']['labels']['p10.pool'])['status']
+                for c in pod['status']['containerStatuses'] + pod['status']['initContainerStatuses']: c['restartCount'] = 0
+                pod['status'].update(phase='Running', conditions=[{'type': 'Ready', 'status': 'True'}])
+            else:
+                pod['status'] = {'containerStatuses': [{'name': c['name'], 'imageID': 'sha256:x', 'ready': True, 'restartCount': 0}
+                                                       for c in pod['spec']['containers']], 'phase': 'Running',
+                                 'conditions': [{'type': 'Ready', 'status': 'True'}], 'podIP': '10.0.0.5'}
+        return pods
+
+    def all_pods(self):
+        stable = {'metadata': {'name': 'forgejo-0', 'uid': 'forgejo-uid', 'namespace': 'forgejo', 'labels': {'app.kubernetes.io/name': 'forgejo'}},
+                  'spec': {'containers': [{'name': 'forgejo'}]}, 'status': {'phase': 'Running', 'conditions': [{'type': 'Ready', 'status': 'True'}],
+                  'containerStatuses': [{'name': 'forgejo', 'ready': True, 'restartCount': 0, 'imageID': 'sha256:f'}]}}
+        ingress = copy.deepcopy(stable); ingress['metadata'].update(name='ingress-0', uid='ingress-uid', namespace=az.INGRESS_NS, labels=dict(self.selector))
+        return [stable, ingress] + self.ns_pods()
+
+    def k(self, *args):
+        a = list(args); ns = None
+        if a[:1] == ['-n']: ns, a = a[1], a[2:]
+        verb = a[0]
+        if verb == 'get':
+            if '-A' in a:
+                self.need('list', 'pods', None); return json.dumps({'items': self.all_pods()})
+            resource = CLI_RESOURCE[a[1].split('/')[0]]
+            named = len(a) > 2 and not a[2].startswith('-')
+            self.need('get' if named else 'list', resource, None if resource in {'namespaces', 'nodes'} else ns)
+            return self.get(resource, ns, a[2] if named else None, a)
+        if verb == 'exec':
+            self.need('get', 'pods', ns); self.need('create', 'pods/exec', ns)
+            command = a[a.index('--') + 1:]
+            if command[:3] == ['pilot-agent', 'request', 'GET']:
+                path = command[3]
+                if ns == az.INGRESS_NS:
+                    return json.dumps(ingress_listeners(provider=self.policy is not None) if 'listeners' in path else ingress_routes())
+                clusters, listeners, stats, bootstrap = admin()
+                return json.dumps(clusters if 'clusters' in path else listeners if 'listeners' in path else bootstrap if 'bootstrap' in path else stats)
+            if command[:2] == ['cat', '/config/hold-ms']: return '1000'
+            if command[0] == 'psql': return json.dumps({'query_ok': True, 'connections': 1, 'max_connections': 100, 'reserved': 3})
+            if command[0] == 'wget': return t10.REAL_STATS
+            return t10.REAL_INFO if 'show info' in command[-1] else ''
+        if verb == 'logs':
+            self.need('get', 'pods', ns); self.need('get', 'pods/log', ns); return ''
+        if verb == 'patch':
+            self.need('patch', CLI_RESOURCE[a[1]], ns)
+            if a[1] == 'configmap' and ns == az.MESH_NS: self.mesh = json.loads(a[-1])['data']
+            return ''
+        if a[:2] == ['rollout', 'restart']:
+            self.need('get', 'deployments.apps', ns); self.need('patch', 'deployments.apps', ns); return ''
+        if verb == 'delete' and a[1] == 'authorizationpolicy':
+            self.need('delete', CLI_RESOURCE[a[1]], ns); self.policy = None; return ''
+        raise AssertionError('unmodelled kubectl ' + ' '.join(args))
+
+    def get(self, resource, ns, name, a):
+        absent = '' if '--ignore-not-found' in a else None
+        if resource == 'namespaces':
+            if name == az.NS and self.pools is None: return absent if absent is not None else (_ for _ in ()).throw(ValueError('absent'))
+            return 'namespace/' + name if '-o' in a and a[a.index('-o') + 1] == 'name' else json.dumps({'metadata': {'labels': {'p8.campaign': 'p8test'}}})
+        if resource == 'authorizationpolicies.security.istio.io':
+            if self.policy is None: return ''
+            return json.dumps({'metadata': self.policy}) if a[-1] == 'json' else 'authorizationpolicy/p8-shared-gate'
+        if resource == 'configmaps':
+            return json.dumps({'metadata': {'name': name, 'namespace': az.MESH_NS, 'uid': 'cm-uid'}, 'data': self.mesh})
+        if resource == 'deployments.apps': return json.dumps({'spec': {'replicas': 1}})
+        if resource == 'applications.argoproj.io': return json.dumps(observations()['argo'])
+        if resource == 'nodes': return json.dumps({'items': [node('n1') | {'status': node('n1')['status'] | {'conditions': [{'type': 'Ready', 'status': 'True'}]}}]})
+        if resource == 'services': return json.dumps(service(name[len('ext-authz-'):]))
+        if resource == 'endpointslices.discovery.k8s.io':
+            pool = a[a.index('-l') + 1].split('=ext-authz-')[1]
+            return json.dumps({'items': slices(pool, [p['metadata']['uid'] for p in self.ns_pods() if p['metadata']['labels'].get('p10.pool') == pool])})
+        if resource == 'pods':
+            pods = self.all_pods() if ns != az.NS else self.ns_pods()
+            pods = [p for p in pods if p['metadata']['namespace'] == ns]
+            if '-l' in a:
+                key, value = a[a.index('-l') + 1].split('=')
+                pods = [p for p in pods if p['metadata']['labels'].get(key) == value]
+            return json.dumps({'items': pods})
+        raise AssertionError('unmodelled get ' + resource)
+
+    def run(self, args, **kw):
+        a = args[args.index('kubectl') + 1:]
+        a = [x for x in a if not x.startswith('--request-timeout')]
+        ns = a[a.index('-n') + 1] if '-n' in a else None
+        if 'apply' in a or ('delete' in a and '-f' in a):
+            value = json.loads(kw['input'])
+            for item in value.get('items', [value]):
+                resource = KIND_RESOURCE[item['kind']]
+                item_ns = item['metadata'].get('namespace')
+                key = (resource, item_ns, item['metadata']['name'])
+                if 'apply' in a:
+                    self.need('get', resource, item_ns); self.need('patch' if key in self.objects else 'create', resource, item_ns)
+                    self.objects[key] = item
+                    if item['kind'] == 'AuthorizationPolicy': self.policy = {'uid': 'policy-uid', 'labels': item['metadata']['labels']}
+                else:
+                    for verb in ('delete', 'get', 'list', 'watch'): self.need(verb, resource, item_ns)
+                    self.objects.pop(key, None)
+            pools = sorted(k[2] for k in self.objects if k[0] == 'deployments.apps' and k[2].startswith('ext-authz-'))
+            self.pools = None if not any(k[0] == 'namespaces' for k in self.objects) else \
+                ('shared' if pools == ['ext-authz-shared'] else 'isolated' if pools == ['ext-authz-bulk', 'ext-authz-critical'] else 'none')
+            if self.pools == 'none': self.pools = ''
+        elif 'rollout' in a and 'status' in a:
+            for verb in ('get', 'list', 'watch'): self.need(verb, 'deployments.apps', ns)
+        elif a[:2] == ['delete', 'namespace']:
+            for verb in ('delete', 'get', 'list', 'watch'): self.need(verb, 'namespaces', None)
+            self.objects = {}; self.pools = None
+        else:
+            raise AssertionError('unmodelled subprocess ' + ' '.join(args))
+        return mock.Mock(returncode=0, stdout='')
+
+    def popen(self, args, **kw):
+        a = args[args.index('kubectl') + 1:]
+        ns = a[a.index('-n') + 1]
+        self.need('get', 'pods', ns); self.need('create', 'pods/portforward', ns)
+        return mock.Mock(poll=lambda: None, wait=lambda timeout=None: 0)
+
+
+def covered(need, granted):
+    verb, resource, ns = need
+    return need in granted or (verb, resource, None) in granted
+
+
+class CampaignAccessTests(unittest.TestCase):
+    def campaign_needs(self):
+        cluster = RbacCluster()
+        rt = object.__new__(az.p8.Runtime); rt.value = t8.identity(); rt.k = cluster.k
+        directory = tempfile.mkdtemp()
+        value = manifest()
+        c = object.__new__(az.Campaign)
+        c.value, c.identity, c.v, c.f, c.out, c.rt = value, value['identity'], value['plan'], value['fixture'], Path(directory), rt
+        c.client = mock.Mock(token='tok', title='T')
+        c.owned_namespace, c.policy, c.mesh, c.arm, c.stable = False, None, None, None, None
+        db = Path(directory) / 'db.json'; db.write_text(json.dumps({'PGHOST': 'h', 'PGDATABASE': 'd', 'PGUSER': 'u', 'PGPASSWORD': 'p'})); db.chmod(0o600)
+        def converge():   # the real converge's reads; its gateway_scope parsing is covered by the P8 tests
+            c.j('-n', az.INGRESS_NS, 'get', 'authorizationpolicy', 'p8-shared-gate', '-o', 'json'); c.rt.pod(az.NS, 'app=haproxy')
+            for i in c.ingress_pods():
+                c.rt.admin(az.INGRESS_NS, i['metadata']['name'], 'config_dump?resource=dynamic_listeners')
+                c.rt.admin(az.INGRESS_NS, i['metadata']['name'], 'clusters?format=json')
+        c.converge = converge
+        with mock.patch.object(az, 'DEADLINE', FUTURE), mock.patch.object(az.subprocess, 'run', cluster.run), \
+             mock.patch.object(az.subprocess, 'Popen', cluster.popen), mock.patch.object(az, 'time', FakeTime()), \
+             mock.patch.object(az.p8, 'request', lambda *a, **k: {'semantic_result': True, 'status': 200}), mock.patch.dict(os.environ, {'P10_DB_ENV': str(db)}):
+            c.ledger = az.Ledger(Path(directory) / 'ledger.jsonl', value)
+            c.start()
+            c.setup('isolated')
+            targets = c.identify('isolated')
+            for t in targets: c.k('-n', az.NS, 'logs', t['name'], '-c', 'app')   # healthy app-log exclusion read
+            c.guard_snapshot({t['uid'] for t in targets}); c.haproxy_snapshot(); c.log_counts(targets, '2026-11-06T00:00:00Z')
+            for forward in (az.Forward(az.NS, targets[0]['name'], '19101:15000', Path(directory) / 'a.log'),
+                            az.Forward('forgejo', 'forgejo-0', '13000:3000', Path(directory) / 'd.log')):
+                forward.stop()
+            restored = c.restore()
+        self.assertIs(restored['restored'], True)
+        return cluster.needs
+
+    def test_every_campaign_command_is_covered_by_the_checked_access(self):
+        needs = self.campaign_needs()
+        granted = set(az.READ_ACCESS) | set(az.CAMPAIGN_ACCESS)
+        self.assertEqual(sorted(n for n in needs if not covered(n, granted)), [])
+        # Each listed campaign verb is actually exercised (no speculative grant), and dropping any one leaves a command uncovered.
+        for entry in az.CAMPAIGN_ACCESS:
+            self.assertTrue(any(covered(n, {entry}) for n in needs), entry)
+            narrow = granted - {entry}
+            self.assertTrue([n for n in needs if not covered(n, narrow)], entry)
+
+    def test_any_missing_campaign_verb_blocks_the_approval_request(self):
+        for entry in az.CAMPAIGN_ACCESS + az.READ_ACCESS:
+            obs = observations()
+            group = 'campaign' if entry in az.CAMPAIGN_ACCESS else 'read'
+            obs['access'][group]['|'.join(map(str, entry))] = False
+            result = az.preflight_verdict(manifest(), obs, PRICE, NOW)
+            self.assertEqual(result['status'], 'blocked', entry)
+            self.assertIn('campaign-rbac-decision' if group == 'campaign' else 'kubernetes-read-rbac', result['blockers'], entry)
 
 
 class FakeTime:
