@@ -1,6 +1,6 @@
 # P10 — Critical/Bulk operation isolation (첫 implementation)
 
-상태: **source 구현, cost-free 검증 중 / Azure 미실행 / P10 acceptance 미완료**.
+상태: **source 구현, cost-free 검증 범위는 [evidence](evidence/p10-source-20261105/README.md) 참조 / Azure 미실행 / P10 acceptance 미완료**.
 Baseline `58fae6f105bd5bc28e2c85e05a138f6cb3e4ed03`에서 시작했다. [P8 incident](incidents/p8-controlled-cascade.md),
 [P9 Campaign32](evidence/p9-mitigation-thirty-second-20261105/README.md)의 negative/valid accounting과 raw는 변경하지 않는다.
 P9의 실행 승인·budget·counter를 재사용하지 않는다.
@@ -21,7 +21,7 @@ HAProxy는 `url`의 exact match를 사용한다. Prefix·case folding·추가 UR
 Client priority/class header, correlation ID, source IP, PAT, role은 분류 input이 아니다.
 Ingress가 먼저 수행한 canonicalization 뒤의 method/path가 분류 경계다. Dot-segment가 canonical Issue URI가 될 때
 check와 native Forgejo가 **같은 Issue**를 읽는지 별도로 검증한다. HAProxy 자체 raw noncanonical URI는 거부한다.
-Escaped slash·double slash·wrong method·추가 query·absolute URI가 Critical로 진입하면 classifier escape다.
+HAProxy가 관측한 escaped slash·double slash·wrong method·추가 query·absolute URI가 Critical로 진입하면 classifier escape다.
 Selected managed ingress에서 normalization/effective HTTP check를 다시 관측하기 전 Azure 실행은 보류한다.
 
 | 항목 | Shared control | Isolated |
