@@ -135,6 +135,14 @@ def render(identity, v, f, arm):
     hp = next(o for o in items if o['kind'] == 'Deployment' and o['metadata']['name'] == 'haproxy')
     hp['spec']['template']['spec']['containers'][0]['readinessProbe'] = {
         'exec': {'command': ['wget', '-q', '-O', '/dev/null', 'http://127.0.0.1:8404/stats']}}
+    # Existing managed scraper; no collector/controller or extra Service.
+    items.append(dict(apiVersion='azmonitoring.coreos.com/v1', kind='PodMonitor',
+        metadata={'name': 'p10-envoy', 'namespace': p8.NS, 'labels': {'p8.campaign': identity['campaign']}},
+        spec={'selector': {'matchLabels': {'app': 'ext-authz-sim'}}, 'podMetricsEndpoints': [{
+            'port': 'http-envoy-prom', 'path': '/stats/prometheus', 'interval': str(v['scrape_seconds']) + 's',
+            'relabelings': [{'targetLabel': 'job', 'replacement': 'p10-envoy'}],
+            'metricRelabelings': [{'sourceLabels': ['__name__'],
+                'regex': 'envoy_cluster_upstream_rq_(active_overflow|active|total|pending_active|pending_overflow)', 'action': 'keep'}]}]}))
     # The existing single provider/mesh overlay and original native/TLS route are
     # reused without adding an extension provider or stable resource.
     return result

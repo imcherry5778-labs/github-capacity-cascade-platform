@@ -33,9 +33,11 @@ Mac에서 Linux 전용 full `make static/local`을 실행했다고 주장하지 
 ## 미실행 / 남은 gate
 
 - actual2-pool paired calibration, numeric freeze와 physical pool mapping/runtime protection: **not verified**.
-- Azure/AKS/AMW/credential/Secret/inventory 조회와 mutation/paid test: **실행하지 않음**.
-- actual managed ingress normalization/method/path, native/init admission/headroom/current price: **UNKNOWN / not verified**.
+- Azure tenant/AKS/AMW/credential/Secret/inventory 조회와 mutation/paid test: **실행하지 않음**.
+- actual managed ingress normalization/method/path, native/init admission/headroom/공유 환경 current price: **UNKNOWN / not verified**.
 - independent source gate와 별도 P10 paid approval: **없음**.
 
 [분류·topology·acceptance·bounded feasibility 후보](../../p10-critical-bulk-isolation.md)를 따른다.
 P8/P9 historical negative/valid/raw는 수정하지 않았고 source/CI 검증을 paid acceptance나 P10 완료로 승격하지 않는다.
+
+[Public retail pricing projection](retail-price-summary.json)은 tenant 인증 없는 read-only public API 결과다. Incremental USD2는 planning estimate이며 budget cap/실제 비용/실행 승인이 아니다.

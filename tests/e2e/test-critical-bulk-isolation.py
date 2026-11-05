@@ -95,6 +95,10 @@ class IsolationTests(unittest.TestCase):
             self.assertEqual(len(targets), 1 if arm == 'shared' else 2)
             self.assertFalse(any(o['kind'] in {'HorizontalPodAutoscaler', 'ScaledObject', 'EnvoyFilter', 'PersistentVolumeClaim', 'Gateway', 'VirtualService'} for o in items))
             self.assertEqual(r['policy.json'], m.p8.render(t8.identity())['policy.json'])
+            monitors = [o for o in items if o['kind'] == 'PodMonitor']
+            self.assertEqual(len(monitors), 1)
+            self.assertEqual(monitors[0]['spec']['selector']['matchLabels'], {'app': 'ext-authz-sim'})
+            self.assertEqual(monitors[0]['spec']['podMetricsEndpoints'][0]['interval'], '15s')
             configs += [t['spec']['template']['spec']['containers'][0] for t in targets]
             hp = m.haproxy(F, arm)
             self.assertIn('retries 0', hp)

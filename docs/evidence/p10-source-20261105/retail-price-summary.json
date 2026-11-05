@@ -1,0 +1,72 @@
+{
+  "recorded_at_utc": "2026-11-05T06:40:42.295371+00:00",
+  "access": "public unauthenticated Retail Prices API only; no tenant/resource inventory",
+  "source_urls": [
+    "https://prices.azure.com/api/retail/prices?%24filter=serviceName+eq+%27Container+Registry%27+and+armRegionName+eq+%27koreacentral%27",
+    "https://prices.azure.com/api/retail/prices?%24filter=serviceName+eq+%27Azure+Monitor%27+and+armRegionName+eq+%27koreacentral%27",
+    "https://prices.azure.com/api/retail/prices?%24filter=serviceName+eq+%27Log+Analytics%27+and+armRegionName+eq+%27koreacentral%27",
+    "https://prices.azure.com/api/retail/prices?%24filter=serviceName+eq+%27Bandwidth%27+and+armRegionName+eq+%27koreacentral%27"
+  ],
+  "selected_items": [
+    {
+      "serviceName": "Container Registry",
+      "productName": "Container Registry",
+      "skuName": "Basic",
+      "meterName": "Data Stored",
+      "unitOfMeasure": "1 GB/Month",
+      "retailPrice": 0.1,
+      "currencyCode": "USD",
+      "effectiveStartDate": "2018-02-20T00:00:00Z",
+      "tierMinimumUnits": 0.0
+    },
+    {
+      "serviceName": "Azure Monitor",
+      "productName": "Azure Monitor",
+      "skuName": "Metric Samples Ingested",
+      "meterName": "Metric Samples Ingested Metric samples",
+      "unitOfMeasure": "10M",
+      "retailPrice": 0.11,
+      "currencyCode": "USD",
+      "effectiveStartDate": "2026-10-01T00:00:00Z",
+      "tierMinimumUnits": 0.0
+    },
+    {
+      "serviceName": "Log Analytics",
+      "productName": "Log Analytics",
+      "skuName": "Analytics Logs",
+      "meterName": "Analytics Logs Data Ingestion",
+      "unitOfMeasure": "1 GB",
+      "retailPrice": 3.11,
+      "currencyCode": "USD",
+      "effectiveStartDate": "2018-02-01T00:00:00Z",
+      "tierMinimumUnits": 5.0
+    },
+    {
+      "serviceName": "Bandwidth",
+      "productName": "Rtn Preference: MGN",
+      "skuName": "Standard",
+      "meterName": "Standard Data Transfer Out",
+      "unitOfMeasure": "1 GB",
+      "retailPrice": 0.0,
+      "currencyCode": "USD",
+      "effectiveStartDate": "2022-05-01T00:00:00Z",
+      "tierMinimumUnits": 0.0
+    }
+  ],
+  "planning_envelopes": {
+    "extra_acr_gb_full_month": 0.2,
+    "log_ingestion_gb": 0.2,
+    "metric_samples": 100000,
+    "egress_gb": 1
+  },
+  "incremental_estimate_usd": 2,
+  "hard_cap": false,
+  "approval": false,
+  "existing_shared_environment_cost": "UNKNOWN; excluded from incremental estimate",
+  "limitations": [
+    "volume envelopes are planning assumptions, not measured limits",
+    "no retention extension or new node/server/disk",
+    "actual invoice and remaining budget UNKNOWN",
+    "other Azure Monitor/query charges require final plan review"
+  ]
+}
