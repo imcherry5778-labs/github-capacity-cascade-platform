@@ -133,3 +133,36 @@ Final ActualCost query는 성공했고 기존 두 RG의 2026-10-28 합계 **KRW1
 계획 USD2 / 추가 검토 USD10은 유지하며 billing hard cap이 아니다.
 Environment 2026-10-30 10:30 KST, Foundation/Bootstrap 2026-10-31 00:33 KST 보존 기한을 유지한다.
 자동 연장·전체 teardown·DNS 변경은 수행하지 않았다.
+
+## P9 mitigation 결과와 corrective action 상태
+
+같은 P8 incident의 corrective action은 [P9 제32차 evidence](../evidence/p9-mitigation-thirty-second-20261105/README.md)의 4-arm 결과에 연결한다.
+- 측정 조건: paid source `26d9805ed07885fdedbc72ed7febe88d671872a7`의 같은 fault/demand(mitigation300s + recovery180s, arm당 2400 arrivals)다.
+- 판정 근거: 모든 판정은 source `reviewed()`, `frozen()`, `compare()`가 냈다.
+- Raw 위치: [sanitized archive](../evidence/p9-mitigation-thirty-second-20261105/raw-evidence.tar.gz) 안의 `frozen.json`, `comparison.json`, `C*-measured/reviewed-summary.json`, `C*-measured/confounder-review.json`이다.
+
+4-arm 공통 사실:
+- 각 arm은 reviewed valid였고, issued 2400, unissued 0이었다.
+- 동일-window confounder 11개는 모두 관측됐고 `competing_bottleneck=false`였다.
+- 비교는 C3 calibration의 reviewed valid freeze 뒤에 실행됐고, `compare()`는 valid였다.
+
+| Corrective action | Arm | 관측 결과 (한 번의 실험) |
+| --- | --- | --- |
+| (기준) | C0 control, CPU HPA | recovered 80.0s, scaling 관측 안 됨 |
+| backoff | C1 | recovered 70.0s |
+| admission | C2 HAProxy | recovered 80.0s. queue_timeout 2707건은 의도한 admission mechanism이며, target rejected는 0이다 |
+| proxy-scaling | C3 KEDA | scale-up을 실제로 관측했다(signal → desired → Ready → traffic). 180s continuing-demand 안에서 recovery는 성립하지 않았다(source `not recovered within observation window`) |
+
+해석 경계:
+- **Valid negative는 invalid가 아니다.** C3는 reviewed valid run이며 결과가 recovery 미성립이다.
+- **원인 범위:** C3의 미성립은 all-Pod 수렴(+66.4s) 뒤의 증명/sampling 한계에서 나왔다. 수렴 뒤 window는 semantic failure·retry 없이 good과 `observation-gap`이 번갈아 나왔다. Snapshot 간격은 약 20s인데, 계약은 coverage를 모두 갖춘 연속 10초 window 3개를 요구한다.
+- **C3에 대해 말하지 않는 것:**
+  - 실제 성능이 열등하다는 증거가 아니다.
+  - C3 요청이 모두 실패했다는 뜻도 아니다.
+  - C3를 recovered로 재분류하지 않는다.
+  - 현재 계약을 완화하지 않는다.
+- **결과 전반에 대해 말하지 않는 것:**
+  - 이 결과는 단일 동시 비교이며 통계적 일반화가 아니다.
+  - Recovery 시간 차이(C1 70s, C0·C2 80s)를 근거로 C1이나 C2가 우월하다고 주장하지 않는다. 어떤 arm도 winner로 정하지 않는다.
+- **후속 연구(P9 완료 전제 아님):** 더 촘촘한 recovery 관측 cadence 설계는 DEFERRED다.
+- **원복:** [owned cleanup](../evidence/p9-mitigation-thirty-second-20261105/README.md#원복계수)으로 따로 확인했다. 15/15, ARM 34 IDs / Owner 2 / nodes 2였다. Comparison 자체는 원복을 증명하지 않는다.

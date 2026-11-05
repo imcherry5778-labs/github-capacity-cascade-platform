@@ -1,8 +1,9 @@
-# P9-W1 Mitigation & Recovery
+# P9 Mitigation & Recovery
 
 목표는 동일 fault/demand의 C0–C3 비교, continuing-demand recovery, 실제 request accounting과 P9-owned 원복 evidence다.
-P9 acceptance는 아직 미충족이다. [제24차 실제 결과](evidence/p9-mitigation-twenty-fourth-20261104/README.md)는 CLOSED/invalid이며 남은 실행 권한은 close와 함께 소멸했다.
-누적 campaign24 / public initialize21 / healthy12 / started-invalid calibration9 / measured 각0 / KEDA apply·restore actions9/9을 보존한다.
+**현재 상태:** [제32차](evidence/p9-mitigation-thirty-second-20261105/README.md)에서 reviewed valid calibration과 freeze를 거쳤다. 그 뒤 measured C0–C3 4 arm이 모두 reviewed valid였고, source `compare()`도 valid였다. Owned cleanup도 완료했다.
+Corrective action 연결은 [P8 incident record](incidents/p8-controlled-cascade.md#p9-mitigation-결과와-corrective-action-상태)에 있다. 최종 독립 merge gate는 대기 중이다.
+아래 제22–31차 기록과 counters는 당시 상태 그대로 보존한다. [제24차](evidence/p9-mitigation-twenty-fourth-20261104/README.md)는 CLOSED/invalid였고, 당시 누적은 campaign24 / public initialize21 / healthy12 / started-invalid calibration9 / measured 각0 / KEDA apply·restore actions9/9이었다.
 Paid source `d1ed52b8ba14d77345df5b3f19ae8a599421e516`는 native post-startup Warning과 AMW inventory age61.512초의60초 guard 초과로 중단했다. Ring conservation 부분 관측과 원복은 확인했지만 valid calibration은 없다.
 [제23차](evidence/p9-mitigation-twenty-third-20261103/README.md)의 source `076bc8a3dbd09e8192057e19df8b6cc5cb55274d`와 controller·HAProxy log 결손 negative도 그대로 보존한다.
 [제25차](evidence/p9-mitigation-twenty-fifth-20261104/README.md)(`a8c86516`)는 collector GET HTTP414로,
