@@ -59,6 +59,68 @@ def forgejo(status_for=None, refs_status=200, pack_status=200):
     return behave
 
 
+class FakeCluster:
+    """Model of the shared-gate namespace: objects by (kind, name) and the few mutable fixture fields run_pair touches."""
+    PLURAL = {'deployments': 'Deployment', 'services': 'Service', 'sidecars.networking.istio.io': 'Sidecar'}
+
+    def __init__(self, apply_fail_after=None, delete_failures=0, rollout_failure=False, haproxy_failure_once=False, identify_failure=False,
+                 patch_failure=False, ghost=False, interrupt_in=None, objects=None, unlabeled=False):
+        self.objects, self.calls, self.deleted_names = set(objects or ()), [], []
+        self.apply_fail_after, self.delete_failures, self.rollout_failure = apply_fail_after, delete_failures, rollout_failure
+        self.haproxy_failure_once, self.identify_failure, self.patch_failure, self.ghost = haproxy_failure_once, identify_failure, patch_failure, ghost
+        self.interrupt_in, self.unlabeled = interrupt_in, unlabeled
+        self.haproxy, self.hold, self.replicas, self.base = 'ORIGINAL ext-authz-sim.shared-gate', '0', 1, None
+
+    @staticmethod
+    def key(item): return (item['kind'], item['metadata']['name'])
+
+    def apply_list(self, items):
+        self.calls.append('apply')
+        for index, item in enumerate(items):
+            if self.apply_fail_after is not None and index >= self.apply_fail_after:
+                raise subprocess.CalledProcessError(1, 'kubectl apply')
+            self.objects.add(self.key(item))
+
+    def delete_list(self, items):
+        self.calls.append('delete')
+        if self.delete_failures:
+            self.delete_failures -= 1
+            raise subprocess.CalledProcessError(1, 'kubectl delete')
+        for item in items:
+            self.deleted_names.append('%s/%s' % self.key(item))
+            if not self.ghost: self.objects.discard(self.key(item))
+
+    def present(self, items): return ['%s/%s' % self.key(i) for i in items if self.key(i) in self.objects]
+
+    def wait_gone(self, selector, timeout): pass
+
+    def rollout(self, name, seconds):
+        if self.rollout_failure and 'ext-authz-sim' not in name: raise subprocess.CalledProcessError(1, 'kubectl rollout')
+
+    def haproxy_apply(self, config, checkpoint):
+        if self.haproxy_failure_once and 'ext-authz-sim' not in config:
+            self.haproxy_failure_once = False; self.haproxy = config
+            raise ValueError('ingress HAProxy endpoint did not converge')
+        self.haproxy = config
+
+    def kube(self, *args):
+        if 'patch' in args:
+            if self.patch_failure: self.patch_failure = False; raise subprocess.CalledProcessError(1, 'kubectl patch')
+            self.hold = json.loads(args[args.index('-p') + 1])['data']['hold-ms']
+        if 'scale' in args:
+            self.replicas = int([a for a in args if a.startswith('--replicas=')][0].split('=')[1])
+        return ''
+
+    def kj(self, *args):
+        if 'configmap/haproxy' in args: return {'data': {'haproxy.cfg': self.haproxy}}
+        if 'configmap/ext-authz-hold' in args: return {'data': {'hold-ms': self.hold}}
+        if 'deployment/ext-authz-sim' in args: return {'spec': {'replicas': self.replicas}, 'status': {'readyReplicas': self.replicas}}
+        if 'pods' in args: return {'items': [{'metadata': {'name': 'pool-pod'}}] if self.ghost and self.objects else []}
+        kind = self.PLURAL.get(args[args.index('get') + 1])
+        labeled = [] if self.unlabeled else [n for k, n in sorted(self.objects) if k == kind]
+        return {'items': [{'metadata': {'name': n}} for n in labeled]}
+
+
 class PairTests(unittest.TestCase):
     def client(self, server):
         return pair.Client(F, 'tok', SHA, 'T', port=server.server_address[1])
@@ -248,38 +310,140 @@ class PairTests(unittest.TestCase):
         self.assertEqual(pair.expected_log_counts(rows), {'ingress': 3, 'target': 3, 'app': 2})
         self.assertEqual(pair.expected_log_counts([dict(rows[0], termination='SC', status=502)]), {'ingress': 1, 'target': 0, 'app': 0})
 
-    def restore_environment(self, **override):
-        base = {'haproxy_config': 'ORIGINAL', 'hold_ms': '0', 'replicas': 1, 'stable': [{'kind': 'Deployment'}]}
-        state = {'haproxy': 'ORIGINAL', 'hold': '0', 'ready': 1, 'stable': [{'kind': 'Deployment'}], 'resources': [], 'pods': []} | override
-        def kj(*args):
-            if 'configmap/haproxy' in args: return {'data': {'haproxy.cfg': state['haproxy']}}
-            if 'configmap/ext-authz-hold' in args: return {'data': {'hold-ms': state['hold']}}
-            if 'deployment/ext-authz-sim' in args: return {'spec': {'replicas': 1}, 'status': {'readyReplicas': state['ready']}}
-            if 'pods' in args: return {'items': [{'metadata': {'name': p}} for p in state['pods']]}
-            return {'items': [{'metadata': {'name': r}} for r in state['resources']]}
-        return base, kj, state
+    # --- owned cleanup: the real setup/run_pair/restore code against a cluster model with injectable failures -----------
 
-    def test_restoration_is_proven_not_assumed(self):
+    def environment(self, directory, cluster):
+        """Files, env and patches for run_pair. Only cluster effects and the measurement itself are replaced."""
+        out = Path(directory)
+        sha = 'a' * 40
+        m.save(out / 'source.json', {'sha': sha, 'dirty': False})
+        m.save(out / 'p10-healthy.json', {'source_sha': sha, 'experiment_haproxy_restored': True, 'classification': 'healthy-path-verified',
+                                          'forgejo_native_auth': True})
+        m.save(out / 'app-image.json', {'config_digest': 'sha256:' + 'f' * 64})
+        (out / 'marker').write_text('d' * 64 + '\n')
+        base = {'haproxy_config': 'ORIGINAL ext-authz-sim.shared-gate', 'hold_ms': '0', 'replicas': 1,
+                'stable': [{'kind': 'Deployment', 'uid': 'u', 'spec': {}}], 'template': t10.TEMPLATE}
+        cluster.base = base
+        env = {'DEV_USER': 'dev', 'DEV_TOKEN': 'tok', 'ISSUE_NUMBER': '7', 'ISSUE_TITLE': 'T', 'MAIN_SHA': SHA,
+               'LOCAL_CLUSTER_OWNERSHIP_MARKER': str(out / 'marker')}
+        def identify(arm, v):
+            if cluster.identify_failure: raise ValueError('effective inbound capacity/hold did not converge')
+            return [{'uid': str(i), 'pool': 'shared' if arm == 'shared' else m.CLASSES[i], 'name': 'pod-%d' % i} for i in range(2)]
+        def measure(run, arm, targets):
+            if cluster.interrupt_in == arm: raise KeyboardInterrupt()
+            (run.out / arm).mkdir()
+            return t10.synthetic(arm)
+        patches = [mock.patch.dict(os.environ, env), mock.patch.object(pair.gate, 'owned_image_node'), mock.patch.object(pair, 'baseline', lambda: base),
+                   mock.patch.object(pair, 'kj', cluster.kj), mock.patch.object(pair, 'apply_list', cluster.apply_list),
+                   mock.patch.object(pair, 'delete_list', cluster.delete_list), mock.patch.object(pair, 'present', cluster.present),
+                   mock.patch.object(pair, 'wait_gone', cluster.wait_gone), mock.patch.object(pair, 'rollout', cluster.rollout),
+                   mock.patch.object(pair, 'stable_snapshot', lambda: base['stable']), mock.patch.object(pair.gate, 'kube', cluster.kube),
+                   mock.patch.object(pair.local, 'apply', cluster.haproxy_apply), mock.patch.object(pair, 'identify', identify),
+                   mock.patch.object(pair.Run, 'measure', measure)]
+        return patches
+
+    def run_pair(self, cluster):
+        directory = tempfile.mkdtemp()
+        patches = self.environment(directory, cluster)
+        for patch in patches: patch.start()
+        try:
+            try: code = pair.run_pair(directory)
+            except BaseException as exc: code = type(exc).__name__
+        finally:
+            for patch in reversed(patches): patch.stop()
+        read = lambda name: json.loads((Path(directory) / 'p10-pair' / name).read_text()) if (Path(directory) / 'p10-pair' / name).exists() else None
+        return code, read('restoration.json'), read('failure.json'), read('result.json')
+
+    def assert_pristine(self, cluster, restoration):
+        self.assertEqual(cluster.objects, set())
+        self.assertEqual((cluster.haproxy, cluster.hold, cluster.replicas), (cluster.base['haproxy_config'], '0', 1))
+        self.assertIs(restoration['restored'], True)
+        self.assertEqual((restoration['owned_pending'], restoration['p10_resources'], restoration['problems']), (0, [], []))
+
+    def test_clean_run_releases_ownership_and_leaves_the_cluster_pristine(self):
+        cluster = FakeCluster()
+        code, restoration, failure, result = self.run_pair(cluster)
+        self.assertEqual((code, failure, result['status']), (0, None, 'positive'))
+        self.assert_pristine(cluster, restoration)
+        self.assertEqual(cluster.calls.count('apply'), 2)   # one inventory per arm, the first removed before the second is admitted
+
+    def test_failure_at_every_setup_step_still_removes_what_may_exist(self):
+        cases = {'partial apply (first object only)': FakeCluster(apply_fail_after=1), 'apply fails before any object': FakeCluster(apply_fail_after=0),
+                 'rollout never completes': FakeCluster(rollout_failure=True), 'HAProxy swap fails after pools exist': FakeCluster(haproxy_failure_once=True),
+                 'mapping/identify fails': FakeCluster(identify_failure=True), 'hold patch fails before apply': FakeCluster(patch_failure=True)}
+        for name, cluster in cases.items():
+            code, restoration, failure, result = self.run_pair(cluster)
+            self.assertEqual((code, result), (1, None), name)
+            self.assertIsNotNone(failure, name)
+            self.assert_pristine(cluster, restoration)
+
+    def test_a_pool_object_created_by_the_failed_apply_is_removed_by_exact_name(self):
+        cluster = FakeCluster(apply_fail_after=2)
+        code, restoration, failure, _ = self.run_pair(cluster)
+        self.assertEqual(code, 1)
+        self.assertEqual(sorted(cluster.deleted_names), sorted(['Deployment/ext-authz-shared', 'Service/ext-authz-shared', 'Sidecar/p10-capacity']))
+        self.assert_pristine(cluster, restoration)
+
+    def test_transition_delete_failure_keeps_ownership_and_restoration_retries(self):
+        cluster = FakeCluster(delete_failures=1)    # the arm transition's delete fails once; the restoration delete succeeds
+        code, restoration, failure, result = self.run_pair(cluster)
+        self.assertEqual((code, result, failure['class']), (1, None, 'ValueError'))
+        self.assertEqual(cluster.calls, ['apply', 'delete', 'delete'])   # not re-applied; the shared inventory was still owned
+        self.assert_pristine(cluster, restoration)
+
+    def test_incomplete_cleanup_is_nonzero_and_reported(self):
+        for name, cluster in {'delete keeps failing': FakeCluster(delete_failures=99),
+                              'delete succeeds but the objects remain': FakeCluster(ghost=True)}.items():
+            code, restoration, failure, result = self.run_pair(cluster)
+            self.assertEqual((code, result), (1, None), name)
+            self.assertIs(restoration['restored'], False, name)
+            self.assertGreater(restoration['owned_pending'], 0, name)
+            self.assertTrue(any(p.startswith('pools:') for p in restoration['problems']), name)
+            self.assertTrue(cluster.objects, name)           # nothing claims they are gone
+        # A run that measured fine but could not clean up must not pass either.
+        cluster = FakeCluster(ghost=True, delete_failures=0)
+        cluster.ghost_after = 'apply'
+        code, restoration, _, result = self.run_pair(cluster)
+        self.assertEqual((code, result), (1, None)); self.assertIs(restoration['restored'], False)
+
+    def test_interrupt_still_runs_the_owned_cleanup(self):
+        cluster = FakeCluster(interrupt_in='isolated')
+        code, restoration, failure, result = self.run_pair(cluster)
+        self.assertEqual((code, failure, result), ('KeyboardInterrupt', None, None))   # propagates, after cleanup
+        self.assert_pristine(cluster, restoration)
+
+    def test_existing_object_with_a_p10_name_is_never_adopted_or_deleted(self):
+        for existing in ({('Deployment', 'ext-authz-bulk')}, {('Service', 'ext-authz-shared')}, {('Sidecar', 'p10-capacity')}):
+            cluster = FakeCluster(objects=set(existing), unlabeled=True)    # present, but not labeled as a P10 pool
+            code, restoration, failure, result = self.run_pair(cluster)
+            self.assertEqual((code, result), ('ValueError', None))
+            self.assertEqual(cluster.calls, [])             # no apply, no delete, no scale
+            self.assertEqual(cluster.objects, existing)     # untouched
+
+    def test_restore_is_idempotent_and_only_claims_what_it_read_back(self):
+        cluster = FakeCluster()
+        cluster.base = {'haproxy_config': 'ORIGINAL', 'hold_ms': '0', 'replicas': 1, 'stable': [{'kind': 'Deployment'}]}
+        cluster.haproxy = 'EXPERIMENT'
         with mock.patch.dict(os.environ, {'DEV_TOKEN': 'tok', 'MAIN_SHA': SHA, 'ISSUE_TITLE': 'T'}):
-            run = pair.Run(Path(tempfile.mkdtemp()), {'sha': SHA}, F, t10.plan(), {}, {}, {})
-        def restore(**override):
-            base, kj, state = self.restore_environment(**override)
-            run.base = base
-            with mock.patch.object(pair, 'kj', kj), mock.patch.object(pair, 'delete_list'), mock.patch.object(pair, 'wait_gone'), \
-                    mock.patch.object(pair.local, 'apply'), mock.patch.object(pair, 'stable_snapshot', lambda: state['stable']), \
-                    mock.patch.object(pair.gate, 'kube'), mock.patch.object(pair, 'rollout'):
-                return run.restore([[{'kind': 'Deployment'}]])
-        self.assertTrue(restore()['restored'])
-        for override in ({'haproxy': 'EXPERIMENT'}, {'hold': '1000'}, {'ready': 0}, {'stable': [{'kind': 'changed'}]},
-                         {'resources': ['ext-authz-shared']}, {'pods': ['ext-authz-shared-x']}):
-            self.assertFalse(restore(**override)['restored'], override)
-        # A failing step is reported and still lets the remaining steps run.
-        base, kj, state = self.restore_environment(); run.base = base
-        with mock.patch.object(pair, 'kj', kj), mock.patch.object(pair, 'delete_list', side_effect=RuntimeError), mock.patch.object(pair, 'wait_gone'), \
-                mock.patch.object(pair.local, 'apply') as apply, mock.patch.object(pair, 'stable_snapshot', lambda: state['stable']), \
-                mock.patch.object(pair.gate, 'kube'), mock.patch.object(pair, 'rollout'):
-            result = run.restore([[{'kind': 'Deployment'}]])
-        self.assertEqual(result['problems'], ['pools:RuntimeError']); self.assertFalse(result['restored']); apply.assert_called_once()
+            run = pair.Run(Path(tempfile.mkdtemp()), {'sha': SHA}, F, t10.plan(), cluster.base, {}, {})
+        for patch in (mock.patch.object(pair, 'kj', cluster.kj), mock.patch.object(pair, 'delete_list', cluster.delete_list),
+                      mock.patch.object(pair, 'present', cluster.present), mock.patch.object(pair, 'wait_gone', cluster.wait_gone),
+                      mock.patch.object(pair, 'rollout', cluster.rollout), mock.patch.object(pair, 'stable_snapshot', lambda: cluster.base['stable']),
+                      mock.patch.object(pair.gate, 'kube', cluster.kube), mock.patch.object(pair.local, 'apply', cluster.haproxy_apply)):
+            patch.start(); self.addCleanup(patch.stop)
+        self.assertTrue(run.restore()['restored']); self.assertTrue(run.restore()['restored'])      # nothing owned: still proves the state
+        cluster.hold, cluster.replicas = '1000', 0
+        for broken, key in (('haproxy', 'haproxy_restored'), ('stable', 'stable_forgejo_unchanged')):
+            cluster.base['stable'] = [{'kind': 'Deployment'}]; cluster.haproxy = 'ORIGINAL'
+            if broken == 'stable':
+                cluster.base['stable'] = [{'kind': 'Deployment'}]
+                with mock.patch.object(pair, 'stable_snapshot', lambda: [{'kind': 'changed'}]):
+                    result = run.restore()
+            else:
+                with mock.patch.object(cluster, 'haproxy_apply', lambda config, checkpoint: None):
+                    with mock.patch.object(pair.local, 'apply', cluster.haproxy_apply):
+                        cluster.haproxy = 'DRIFTED'; result = run.restore()
+            self.assertIs(result['restored'], False, broken); self.assertIs(result[key], False, broken)
 
     def test_saved_pair_is_revalidated_from_raw_files(self):
         with tempfile.TemporaryDirectory() as directory:

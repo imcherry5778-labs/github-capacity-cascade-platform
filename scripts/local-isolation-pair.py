@@ -306,11 +306,27 @@ def stable_snapshot():
     return sorted(({'kind': i['kind'], 'uid': i['metadata']['uid'], 'spec': i['spec']} for i in items), key=lambda x: x['kind'])
 
 
-def left_over():
-    """Any P10 pool object or Pod from an earlier run: never adopted, never silently cleaned."""
+def present(items):
+    """Which of the exact inventory objects exist, by kind/namespace/name (never by label)."""
+    found = []
+    for item in items:
+        group = item['apiVersion'].split('/')[0] if '/' in item['apiVersion'] else ''
+        name = gate.kube('-n', item['metadata']['namespace'], 'get', item['kind'].lower() + ('.' + group if group else ''),
+                         item['metadata']['name'], '--ignore-not-found', '-o', 'name').strip()
+        if name: found.append(name)
+    return found
+
+
+def left_over(inventory):
+    """Anything a P10 run would create or overwrite that is already there: never adopted, never silently cleaned.
+
+    Labeled P10 objects and Pods from an earlier run, and also any object -- labeled or not -- that already holds
+    one of the exact names this run is about to apply (and later delete).
+    """
     found = [i['metadata']['name'] for kind in ('deployments', 'services', 'sidecars.networking.istio.io')
              for i in kj('-n', NS, 'get', kind, '-l', 'p10.pair=owned', '-o', 'json')['items']]
-    return found + [p['metadata']['name'] for p in kj('-n', NS, 'get', 'pods', '-l', 'app=ext-authz-pool', '-o', 'json')['items']]
+    found += [p['metadata']['name'] for p in kj('-n', NS, 'get', 'pods', '-l', 'app=ext-authz-pool', '-o', 'json')['items']]
+    return found + [name for items in inventory for name in present(items)]
 
 
 def baseline():
@@ -477,6 +493,9 @@ class Run:
         self.auth = {'Authorization': 'token ' + os.environ['DEV_TOKEN']}
         self.expected = (fixture['issue'], os.environ['ISSUE_TITLE'])
         self.issue_uri = m.routes(fixture)['critical'][0][1]
+        # Exact rendered inventories this run created or may have partly created. Registered before the first apply
+        # and released only after their absence is read back, so no failure point can orphan a pool object.
+        self.owned = []
 
     def checkpoint(self, phase, **safe):
         with (self.out / 'checkpoints.jsonl').open('a') as stream:
@@ -489,6 +508,7 @@ class Run:
     def setup(self, arm):
         """Admit the arm's pools (after the previous topology is gone), then its HAProxy backend selection."""
         rendered = m.local_render(self.identity, self.v, self.f, arm, self.base['template'])
+        self.owned.append(rendered['pools.json']['items'])   # before any mutation: a partial apply is still owned
         gate.kube('-n', NS, 'patch', 'configmap', 'ext-authz-hold', '--type=merge', '-p', json.dumps({'data': {'hold-ms': str(self.v['hold_ms'])}}))
         apply_list(rendered['pools.json']['items'])
         for item in rendered['pools.json']['items']:
@@ -499,7 +519,7 @@ class Run:
         local.apply(rendered['haproxy.cfg'], self.checkpoint)
         targets = identify(arm, self.v)
         self.checkpoint('mapping', arm=arm, pools=sorted({t['pool'] for t in targets}), pods=len(targets))
-        return rendered, targets
+        return targets
 
     def warm_up(self, targets, fetch):
         """Not measured: prove routing and native auth through the arm, then materialize every target's stats.
@@ -637,13 +657,25 @@ class Run:
         self.checkpoint('raw-saved', arm=arm, operations=sum(e['record'] == 'operation' for e in events), samples=len(sampler.rows))
         return run
 
-    def restore(self, applied):
+    def remove_owned(self):
+        """Delete the exact owned inventory (absent objects are fine) and release ownership only once it reads back absent."""
+        errors = []
+        for items in self.owned:
+            try: delete_list(items)
+            except Exception as exc: errors.append(type(exc).__name__)
+        require(not errors, 'owned pool objects not deleted: ' + ','.join(sorted(set(errors))))
+        wait_gone('app=ext-authz-pool', 180)
+        remaining = [name for items in self.owned for name in present(items)]
+        require(not remaining, 'owned pool objects remain: ' + ','.join(remaining))
+        self.owned.clear()
+
+    def restore(self):
         """Remove the owned pools, restore HAProxy/hold/original target, and prove the original state is back."""
         problems, state, base = [], {}, self.base
         def step(name, action):
             try: action()
             except Exception as exc: problems.append(name + ':' + type(exc).__name__)
-        step('pools', lambda: ([delete_list(items) for items in applied], wait_gone('app=ext-authz-pool', 180)))
+        step('pools', self.remove_owned)
         step('haproxy', lambda: local.apply(base['haproxy_config'], self.checkpoint))
         step('hold', lambda: gate.kube('-n', NS, 'patch', 'configmap', 'ext-authz-hold', '--type=merge', '-p', json.dumps({'data': {'hold-ms': base['hold_ms']}})))
         step('target', lambda: (gate.kube('-n', NS, 'scale', 'deployment/ext-authz-sim', f'--replicas={base["replicas"]}'),
@@ -652,13 +684,14 @@ class Run:
             state['p10_resources'] = [i['metadata']['name'] for kind in ('deployments', 'services', 'sidecars.networking.istio.io') for i in
                                        kj('-n', NS, 'get', kind, '-l', 'p10.pair=owned', '-o', 'json')['items']]
             state['pool_pods'] = len(kj('-n', NS, 'get', 'pods', '-l', 'app=ext-authz-pool', '-o', 'json')['items'])
+            state['owned_pending'] = sum(len(items) for items in self.owned)
             state['haproxy_restored'] = kj('-n', NS, 'get', 'configmap/haproxy', '-o', 'json')['data']['haproxy.cfg'] == base['haproxy_config']
             state['hold_restored'] = kj('-n', NS, 'get', 'configmap/ext-authz-hold', '-o', 'json')['data']['hold-ms'] == base['hold_ms']
             deployment = kj('-n', NS, 'get', 'deployment/ext-authz-sim', '-o', 'json')
             state['target_replicas_restored'] = deployment['spec']['replicas'] == base['replicas'] == deployment['status'].get('readyReplicas', 0)
             state['stable_forgejo_unchanged'] = stable_snapshot() == base['stable']
         step('verify', verify)
-        restored = not problems and not state.get('p10_resources') and state.get('pool_pods') == 0 and all(
+        restored = not problems and not state.get('p10_resources') and state.get('pool_pods') == 0 and state.get('owned_pending') == 0 and all(
             state.get(k) is True for k in ('haproxy_restored', 'hold_restored', 'target_replicas_restored', 'stable_forgejo_unchanged'))
         return {'restored': restored, 'problems': problems, **state}
 
@@ -685,20 +718,20 @@ def run_pair(out_root):
     identity = {'source_sha': source['sha'], 'cluster_uid': Path(os.environ['LOCAL_CLUSTER_OWNERSHIP_MARKER']).read_text().strip(),
                 'stable_revision': digest(base['stable']), 'ext_authz_image_id': json.loads((out_root / 'app-image.json').read_text())['config_digest']}
     m.local_identity(identity)
-    require('ext-authz-sim.' + NS in base['haproxy_config'] and base['replicas'] >= 1 and not left_over(), 'fixture is not in the expected pre-P10 state')
+    inventory = [m.local_render(identity, v, fixture, arm, base['template'])['pools.json']['items'] for arm in m.ARMS]
+    require('ext-authz-sim.' + NS in base['haproxy_config'] and base['replicas'] >= 1 and not left_over(inventory), 'fixture is not in the expected pre-P10 state')
     run = Run(directory, source, fixture, v, base, identity, health)
     m.save(directory / 'baseline.json', {'hold_ms': base['hold_ms'], 'replicas': base['replicas'], 'haproxy_config_sha256': digest(base['haproxy_config']),
                                           'stable_sha256': digest(base['stable']), 'template': base['template'], 'plan': v, 'source': source})
     run.checkpoint('baseline')
-    applied, runs, failure = [], {}, None
+    runs, failure = {}, None
     try:
         gate.kube('-n', NS, 'scale', 'deployment/ext-authz-sim', '--replicas=0')
         wait_gone('app=ext-authz-sim', 180)
         for arm in m.ARMS:
-            if applied:   # nothing from the transition is measured: remove the previous pools, then admit the new ones
-                delete_list(applied.pop()); wait_gone('app=ext-authz-pool', 180)
-            rendered, targets = run.setup(arm)
-            applied.append(rendered['pools.json']['items'])
+            if run.owned:   # nothing from the transition is measured: remove the previous pools, then admit the new ones
+                run.remove_owned()
+            targets = run.setup(arm)
             runs[arm] = run.measure(arm, targets)
             try:
                 summary = summarize(m.validate(runs[arm]))
@@ -710,9 +743,11 @@ def run_pair(out_root):
         failure = {'phase': 'run', 'class': type(exc).__name__, 'message': str(exc) if isinstance(exc, ValueError) and len(str(exc)) < 200 else None}
         m.save(directory / 'failure.json', failure)
         run.checkpoint('failed', error=failure['class'], message=failure['message'])
-    restoration = run.restore(applied)
-    m.save(directory / 'restoration.json', restoration)
-    run.checkpoint('restored', restored=restoration['restored'])
+    finally:
+        # Also for BaseException (interrupt, cancellation): the owned inventory is removed whatever stopped the run.
+        restoration = run.restore()
+        m.save(directory / 'restoration.json', restoration)
+        run.checkpoint('restored', restored=restoration['restored'])
     if failure or not restoration['restored']:
         return 1
     return finish(directory, runs, source)
