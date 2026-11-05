@@ -230,7 +230,8 @@ def client_report(v, events):
     ends = [r for r in events if r['record'] == 'end']
     end = source['origin'] + v['duration_seconds']
     require(len(ends) == 1 and ends[0]['expected_end'] == end and
-            end <= ends[0]['at'] <= end + v['drain_seconds'], 'early stop/incomplete drain')
+            end <= ends[0]['at'] <= end + v['drain_seconds'] and
+            max(r['completed'] for r in operations) <= ends[0]['at'], 'early stop/incomplete drain')
     for kind in CLASSES:
         selected = [r for r in operations if r['kind'] == kind]
         latencies = [r['completed'] - r['scheduled'] for r in selected]
@@ -250,7 +251,7 @@ def coverage(v, samples, start, end, *, managed=False):
     """
     cadence = v['scrape_seconds'] if managed else v['sample_seconds']
     max_age = v['scrape_seconds'] + v['ingestion_seconds'] if managed else 2 * v['sample_seconds']
-    if not samples or samples[0]['at'] > start or samples[-1]['at'] < end:
+    if not samples or samples[0]['at'] > start or samples[-1]['at'] < end or samples[0]['sample_at'] > start or samples[-1]['sample_at'] < end:
         return False
     return all(0 <= s['at'] - s['sample_at'] <= max_age for s in samples) and all(
         0 < b['sample_at'] - a['sample_at'] <= 2 * cadence for a, b in zip(samples, samples[1:]))
@@ -262,7 +263,12 @@ def pool_guard(v, arm, samples, start, end):
     expected = {'shared': 2} if arm == 'shared' else {'critical': 1, 'bulk': 1}
     require(len(baseline) == 2 and {p: sum(t['pool'] == p for t in baseline) for p in expected} == expected and
             len({t['uid'] for t in baseline}) == 2, 'actual target topology/UID mapping')
-    identity_keys = ('uid', 'pool', 'sidecar_id', 'image_id', 'capacity', 'hold_ms', 'mapping_sha256')
+    require(len({t['sidecar_id'] for t in baseline}) == 2 and
+            len({t['service_uid'] for t in baseline}) == len(expected) and
+            all(t['endpoint_pod_uid'] == t['uid'] and t['service'] == 'ext-authz-' + t['pool'] for t in baseline),
+            'actual Service endpoint/sidecar mapping')
+    identity_keys = ('uid', 'pool', 'sidecar_id', 'image_id', 'capacity', 'hold_ms', 'mapping_sha256',
+                     'resources_sha256', 'service', 'service_uid', 'endpoint_pod_uid')
     require(all(t['stats']['upstream_rq_active'] == 0 for t in samples[0]['targets'] + samples[-1]['targets']), 'native boundary inflight')
     initial = {t['uid']: {k: t[k] for k in identity_keys} for t in baseline}
     previous = {}
@@ -272,7 +278,7 @@ def pool_guard(v, arm, samples, start, end):
         for t in s['targets']:
             require(t['capacity'] == v['max_requests'] and t['hold_ms'] == v['hold_ms'] and
                     t['ready'] is True and t['restarts'] == 0, 'fault/image/resource/lifecycle drift')
-            require(t['sidecar_id'] and t['image_id'] and re.fullmatch('[0-9a-f]{64}', t['mapping_sha256']), 'missing effective inbound binding')
+            require(t['sidecar_id'] and t['image_id'] and all(re.fullmatch('[0-9a-f]{64}', t[k]) for k in ('mapping_sha256', 'resources_sha256')), 'missing effective inbound binding')
             values = t['stats']
             require(set(values) == set(COUNTERS) | {'upstream_rq_active', 'upstream_rq_pending_active'} and
                     all(type(x) is int and x >= 0 for x in values.values()), 'missing/invalid native stat')
@@ -319,6 +325,7 @@ def validate(run):
     require(run['runtime_before'] == run['runtime_after'] == run['binding']['invariants'], 'runtime configuration drift')
     require(run['healthy_classification'] is True and run['native_auth'] is True and run['tls'] is True, 'healthy/native-auth/TLS gate')
     clients, start, end = client_report(v, run['events'])
+    coverage_end = max(end, max(e['completed'] for e in run['events'] if e['record'] == 'operation'))
     saturated = pool_guard(v, arm, run['samples'], start, end)
     counts = accounting(arm, run['accounting'], clients)
     # Bind class accounting to actual per-UID native counter differences.
@@ -331,10 +338,11 @@ def validate(run):
                     sum(c[key] for c in relevant), 'native counter vs class accounting mismatch')
     guards = run['guards']
     require(set(guards) == GUARDS and all(g['observed'] is True and g['competing_bottleneck'] is False and
-            g['start'] <= start and g['end'] >= end and re.fullmatch('[0-9a-f]{64}', g['evidence_sha256']) for g in guards.values()), 'same-window confounder guard missing/failed')
-    observed = coverage(v, run['samples'], start, end)
+            g['start'] <= start and g['end'] >= coverage_end and re.fullmatch('[0-9a-f]{64}', g['evidence_sha256']) for g in guards.values()), 'same-window confounder guard missing/failed')
+    observed = coverage(v, run['samples'], start, coverage_end)
     if run['environment'] == 'azure':
-        observed = observed and coverage(v, run['managed_samples'], start, end, managed=True)
+        require(run['managed_samples'], 'required managed signals absent')
+        observed = observed and coverage(v, run['managed_samples'], start, coverage_end, managed=True)
     else:
         require(run['environment'] == 'local', 'unknown environment')
     return {'status': 'valid' if observed else 'observation-insufficient', 'arm': arm, 'clients': clients,
@@ -345,6 +353,9 @@ def validate(run):
 def compare(shared, isolated):
     a, b = validate(shared), validate(isolated)
     require(shared['binding'] == isolated['binding'] and shared['environment'] == isolated['environment'], 'comparison source/revision/demand/fault/confounder binding drift')
+    signature = lambda run: {(t['image_id'], t['resources_sha256'], t['capacity'], t['hold_ms'], t['mapping_sha256'])
+                             for t in run['samples'][0]['targets']}
+    require(signature(shared) == signature(isolated) and len(signature(shared)) == 1, 'cross-arm actual image/resource/capacity drift')
     if any(r['status'] == 'observation-insufficient' for r in (a, b)):
         return {'status': 'observation-insufficient', 'arms': [a, b]}
     v = shared['plan']

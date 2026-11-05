@@ -34,7 +34,9 @@ def synthetic(arm):
         c['app'] += int(success)
     events.append({'record': 'end', 'at': 10, 'expected_end': 10})
     targets = [{'uid': str(i), 'sidecar_id': 'envoy-' + str(i), 'pool': 'shared' if arm == 'shared' else m.CLASSES[i],
-                'image_id': 'sha256:fixture', 'capacity': 2, 'hold_ms': 1000, 'mapping_sha256': 'a' * 64,
+                'image_id': 'sha256:fixture', 'resources_sha256': 'c' * 64,
+                'service': 'ext-authz-' + ('shared' if arm == 'shared' else m.CLASSES[i]),
+                'service_uid': 'svc-shared' if arm == 'shared' else 'svc-' + str(i), 'endpoint_pod_uid': str(i), 'capacity': 2, 'hold_ms': 1000, 'mapping_sha256': 'a' * 64,
                 'ready': True, 'restarts': 0,
                 'stats': {k: 0 for k in m.COUNTERS + ('upstream_rq_active', 'upstream_rq_pending_active')}} for i in range(2)]
     samples = []
@@ -100,6 +102,13 @@ class IsolationTests(unittest.TestCase):
             self.assertNotIn('src ', hp)
         self.assertTrue(all(c == configs[0] for c in configs))
 
+    def test_cross_arm_actual_image_or_resource_drift_invalid(self):
+        for field in ('image_id', 'resources_sha256'):
+            a, b = synthetic('shared'), synthetic('isolated')
+            for sample in b['samples']:
+                for target in sample['targets']: target[field] = 'd' * 64
+            with self.assertRaises(ValueError): m.compare(a, b)
+
     def test_schedule_identical_counts_separate_operations(self):
         s = m.schedule(plan())
         self.assertEqual(len(s), 540)
@@ -126,11 +135,14 @@ class IsolationTests(unittest.TestCase):
         a['samples'] = [s for s in a['samples'] if s['at'] < 1 or s['at'] > 9]
         self.assertEqual(m.compare(a, b)['status'], 'observation-insufficient')
         b['environment'] = 'azure'; b['managed_samples'] = []
+        with self.assertRaises(ValueError): m.validate(b)
+        b['managed_samples'] = [{'at': at, 'sample_at': at} for at in (-1, 10, 50)]
         self.assertEqual(m.validate(b)['status'], 'observation-insufficient')
 
     def test_drift_missing_signal_early_stop_and_accounting_invalid(self):
         mutations = [lambda r: r['samples'][1]['targets'][0].update(uid='new'),
                      lambda r: r['samples'][1]['targets'][0].update(sidecar_id='restarted'),
+                     lambda r: r['samples'][1]['targets'][0].update(endpoint_pod_uid='wrong-pod'),
                      lambda r: r['samples'][1]['targets'][0]['stats'].pop('upstream_rq_total'),
                      lambda r: r['accounting']['classes']['bulk'].update(checks=1),
                      lambda r: r['accounting'].update(classifier_escapes=1),
@@ -171,6 +183,15 @@ class IsolationTests(unittest.TestCase):
             r = synthetic('shared')
             r['events'][1]['attempts'][0].update(status=status, semantic_result=semantic, error_class=error)
             with self.assertRaises(ValueError): m.validate(r)
+
+    def test_last_completion_and_sample_timestamp_need_full_coverage(self):
+        r = synthetic('shared')
+        r['events'][1]['completed'] = 12
+        with self.assertRaises(ValueError): m.validate(r)
+        v = plan()
+        # Late query responses alone cannot establish the end of the window.
+        samples = [{'at': -.25, 'sample_at': -.25}, {'at': 120, 'sample_at': 119.75}]
+        self.assertFalse(m.coverage(v, samples, 0, 120))
 
     def test_long_scrape_cannot_establish_second_scale_native_signal(self):
         v = plan()
