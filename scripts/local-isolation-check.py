@@ -32,13 +32,59 @@ def call(method, uri, headers=None, body=None):
     finally: c.close()
 
 
-def apply(config):
+HAPROXY_CLUSTER = 'outbound|8080||haproxy.shared-gate.svc.cluster.local'
+
+
+def apply(config, checkpoint):
     value = {'apiVersion': 'v1', 'kind': 'ConfigMap', 'metadata': {'name': 'haproxy', 'namespace': 'shared-gate'},
              'data': {'haproxy.cfg': config}}
     subprocess.run(['kubectl', '--request-timeout=30s', 'apply', '-f', '-'], input=json.dumps(value),
                    text=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=True, timeout=45)
     k('-n', 'shared-gate', 'rollout', 'restart', 'deployment/haproxy')
     gate.command('kubectl', '-n', 'shared-gate', 'rollout', 'status', 'deployment/haproxy', '--timeout=90s')
+    converge(checkpoint)
+
+
+def converge(checkpoint):
+    # rollout status does not prove the ingress Envoy dropped the replaced HAProxy
+    # endpoint; a stale one is an ext_authz error (status_on_error 403, no decision).
+    # Wait for the actual check cluster, never a gated probe retry.
+    ingress = gate.pod('istio=p4-ingress')['metadata']['name']
+    state = {}
+    for _ in range(60):
+        pods = json.loads(k('-n', 'shared-gate', 'get', 'pods', '-l', 'app=haproxy', '-o', 'json'))['items']
+        ready = [p for p in pods if not p['metadata'].get('deletionTimestamp') and
+                 any(c['type'] == 'Ready' and c['status'] == 'True' for c in p['status'].get('conditions', []))]
+        clusters = json.loads(k('-n', 'shared-gate', 'exec', ingress, '-c', 'istio-proxy', '--',
+                                'pilot-agent', 'request', 'GET', 'clusters?format=json'))
+        hosts = [h for c in clusters.get('cluster_statuses', []) if c.get('name') == HAPROXY_CLUSTER
+                 for h in c.get('host_statuses', [])]
+        healthy = [h for h in hosts if h.get('health_status', {}).get('eds_health_status') == 'HEALTHY' and
+                   not set(h['health_status']) - {'eds_health_status'}]
+        new_pod = len(pods) == len(ready) == 1 and len(hosts) == len(healthy) == 1 and \
+            healthy[0]['address']['socket_address'] == {'address': ready[0]['status']['podIP'], 'port_value': 8080}
+        state = {'haproxy_pods': len(pods), 'ready_pods': len(ready), 'endpoints': len(hosts),
+                 'healthy_endpoints': len(healthy), 'endpoint_is_new_pod': new_pod}
+        if new_pod:
+            checkpoint('haproxy-converged', **state)
+            return
+        time.sleep(1)
+    checkpoint('haproxy-not-converged', **state)
+    m.require(False, 'ingress HAProxy endpoint did not converge')
+
+
+def last_proxy_record(checkpoint, name):
+    # Allowlisted access-log fields only; upstream host addresses are not kept.
+    rows = k('-n', 'shared-gate', 'logs', gate.pod('istio=p4-ingress')['metadata']['name'], '-c', 'istio-proxy', '--tail=50').splitlines()
+    records = []
+    for row in rows:
+        try: value = json.loads(row)
+        except ValueError: continue
+        if isinstance(value, dict) and value.get('record') == 'proxy_request':
+            records.append(value)
+    if records:
+        checkpoint(name + '-ingress-log', status=records[-1].get('status'), details=records[-1].get('details'),
+                   upstream_cluster=records[-1].get('upstream_cluster'))
 
 
 def effective_check(listeners):
@@ -71,12 +117,14 @@ def run(directory):
     def probe(name, method, path, headers, expected, body=None):
         status, decision, payload = call(method, path, headers, body)
         checkpoint(name, status=status, expected_status=expected, decision=decision if decision in {None, 'ALLOW', 'DENY'} else 'unexpected')
+        if status != expected:
+            last_proxy_record(checkpoint, name)
         m.require(status == expected, 'P10 healthy probe failed: ' + name)
         results.append({'probe': name, 'status': status, 'decision': decision})
         return payload
     try:
         checkpoint('apply-classifier')
-        apply(config)
+        apply(config, checkpoint)
         checkpoint('classifier-ready')
         payload = probe('critical', 'GET', uri, auth, 200)
         value = json.loads(payload)
@@ -124,7 +172,7 @@ def run(directory):
                   'tls': 'not verified by local HTTP; required separately before Azure', 'fixture_values_retained': False}
     finally:
         checkpoint('restore-classifier')
-        apply(original['data']['haproxy.cfg'])
+        apply(original['data']['haproxy.cfg'], checkpoint)
     checkpoint('restored')
     m.save(Path(directory) / 'p10-healthy.json', result | {'experiment_haproxy_restored': True})
 

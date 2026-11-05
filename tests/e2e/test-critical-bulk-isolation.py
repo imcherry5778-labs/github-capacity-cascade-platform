@@ -1,8 +1,10 @@
 """P10 cost-free boundaries; synthetic inputs are NOT runtime evidence."""
 import copy
 import importlib.util
+import json
 from pathlib import Path
 import unittest
+from unittest import mock
 import time
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -81,6 +83,32 @@ class IsolationTests(unittest.TestCase):
             bad = copy.deepcopy(listeners)
             bad[0]['filterChains'][0]['filters'][0]['typedConfig']['httpFilters'][0]['typedConfig'].update(change)
             with self.assertRaises(ValueError): local.effective_check(bad)
+
+    def test_local_haproxy_swap_waits_for_actual_ingress_endpoint(self):
+        spec = importlib.util.spec_from_file_location('p10_local', ROOT / 'scripts/local-isolation-check.py')
+        local = importlib.util.module_from_spec(spec); spec.loader.exec_module(local)
+        ready = {'type': 'Ready', 'status': 'True'}
+        new = {'metadata': {}, 'status': {'podIP': '10.0.0.2', 'conditions': [ready]}}
+        old = {'metadata': {'deletionTimestamp': 'x'}, 'status': {'podIP': '10.0.0.1', 'conditions': [ready]}}
+        def clusters(ip, health='HEALTHY'):
+            return {'cluster_statuses': [{'name': local.HAPROXY_CLUSTER, 'host_statuses': [
+                {'address': {'socket_address': {'address': ip, 'port_value': 8080}}, 'health_status': {'eds_health_status': health}}]}]}
+        def run(states):
+            states = iter(states); current = {}; marks = []
+            def kube(*args):
+                if 'pods' in args:
+                    current.update(next(states)); return json.dumps({'items': current['pods']})
+                return json.dumps(current['clusters'])
+            with mock.patch.object(local, 'k', kube), mock.patch.object(local.time, 'sleep'), \
+                    mock.patch.object(local.gate, 'pod', lambda _l: {'metadata': {'name': 'ingress'}}):
+                local.converge(lambda phase, **safe: marks.append((phase, safe)))
+            return marks
+        marks = run([{'pods': [old, new], 'clusters': clusters('10.0.0.1')},
+                     {'pods': [new], 'clusters': clusters('10.0.0.2', 'UNHEALTHY')},
+                     {'pods': [new], 'clusters': clusters('10.0.0.2')}])
+        self.assertEqual(marks[-1][0], 'haproxy-converged')
+        with self.assertRaises(ValueError):
+            run([{'pods': [new], 'clusters': clusters('10.0.0.1')}] * 60)
 
     def test_exact_routes_no_identity_or_header_inputs(self):
         for kind, pairs in m.routes(F).items():
