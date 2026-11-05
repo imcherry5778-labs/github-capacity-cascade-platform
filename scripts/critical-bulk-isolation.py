@@ -389,11 +389,15 @@ def to_monotonic(clock, timestamp):
 
 
 MANAGED_METRICS = {'envoy_cluster_upstream_rq_' + k[len('upstream_rq_'):]: k for k in STATS}
+# Selected managed bootstrap tag (P9 Azure evidence: `stats_tags` emits `cluster_name`, never the Envoy default
+# `envoy_cluster_name`). `cluster` is the AMW cluster label that scopes the shared workspace to the target cluster.
+MANAGED_CLUSTER_LABEL = 'cluster_name'
 
 
-def managed_selector(namespace, job='p10-envoy', cluster='inbound|8080||'):
+def managed_selector(namespace, prometheus_cluster, job='p10-envoy', cluster='inbound|8080||'):
     names = '|'.join(sorted(k[len('envoy_cluster_upstream_rq_'):] for k in MANAGED_METRICS))
-    return '{__name__=~"envoy_cluster_upstream_rq_(%s)",job="%s",namespace="%s",envoy_cluster_name="%s"}' % (names, job, namespace, cluster)
+    return '{__name__=~"envoy_cluster_upstream_rq_(%s)",cluster=%s,namespace=%s,job=%s,%s=%s}' % (
+        names, json.dumps(prometheus_cluster), json.dumps(namespace), json.dumps(job), MANAGED_CLUSTER_LABEL, json.dumps(cluster))
 
 
 def poll_managed(fetch, selector, lookback_seconds, clock=time.monotonic):
@@ -406,7 +410,7 @@ def poll_managed(fetch, selector, lookback_seconds, clock=time.monotonic):
     return {'at': clock(), 'data': data}
 
 
-def project_managed(polls, pods, clock, *, namespace, scrape_seconds, cluster='inbound|8080||', job='p10-envoy'):
+def project_managed(polls, pods, clock, *, namespace, prometheus_cluster, scrape_seconds, cluster='inbound|8080||', job='p10-envoy'):
     """Prometheus raw samples -> rows for managed_guard()/coverage(); Pod label -> actual Pod UID/pool.
 
     Series carry the Pod *name* only, so identity comes from the harness's Kubernetes inventory, never
@@ -427,7 +431,8 @@ def project_managed(polls, pods, clock, *, namespace, scrape_seconds, cluster='i
             labels = series['metric']
             metric = MANAGED_METRICS.get(labels.get('__name__'))
             require(metric and labels.get('namespace') == namespace and labels.get('job') == job and
-                    labels.get('envoy_cluster_name') == cluster, 'unexpected managed series')
+                    labels.get('cluster') == prometheus_cluster and labels.get(MANAGED_CLUSTER_LABEL) == cluster and
+                    'envoy_cluster_name' not in labels, 'unexpected managed series')
             pod = inventory.get(labels.get('pod'))
             require(pod, 'managed series from unmapped Pod')
             for timestamp, raw in series['values']:
