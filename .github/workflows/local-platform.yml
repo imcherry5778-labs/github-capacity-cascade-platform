@@ -159,6 +159,7 @@ jobs:
           path: |
             results/local/p10-protocol.json
             results/local/shared-gate-*/p10-healthy.json
+            results/local/shared-gate-*/p10-checkpoints.jsonl
             results/local/shared-gate-*/source.json
             results/local/shared-gate-*/direct-baseline.json
             results/local/shared-gate-*/app-image.json

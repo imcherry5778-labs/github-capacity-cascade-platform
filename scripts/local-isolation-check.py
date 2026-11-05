@@ -53,22 +53,31 @@ def effective_check(listeners):
 
 
 def run(directory):
+    directory = Path(directory)
+    def checkpoint(phase, **safe):
+        with (directory / 'p10-checkpoints.jsonl').open('a') as stream:
+            stream.write(json.dumps({'phase': phase, **safe}) + '\n')
+    checkpoint('owner-preflight')
     gate.owned_image_node()  # Exact invocation-owned local cluster; never current context alone.
     f = {'owner': os.environ['DEV_USER'], 'repo': 'journey', 'issue': int(os.environ['ISSUE_NUMBER'])}
     m.fixture(f)
     auth = {'Authorization': 'token ' + os.environ['DEV_TOKEN']}
     uri = m.routes(f)['critical'][0][1]
+    checkpoint('source-preflight')
     original = json.loads(k('-n', 'shared-gate', 'get', 'configmap/haproxy', '-o', 'json'))
     config = m.haproxy(f, 'shared', 'shared-gate').replace('ext-authz-shared.shared-gate.svc.cluster.local', 'ext-authz-sim.shared-gate.svc.cluster.local')
     before_target = gate.pod('app=ext-authz-sim')['metadata']['uid']
     results = []
     def probe(name, method, path, headers, expected, body=None):
         status, decision, payload = call(method, path, headers, body)
+        checkpoint(name, status=status, expected_status=expected, decision=decision if decision in {None, 'ALLOW', 'DENY'} else 'unexpected')
         m.require(status == expected, 'P10 healthy probe failed: ' + name)
         results.append({'probe': name, 'status': status, 'decision': decision})
         return payload
     try:
+        checkpoint('apply-classifier')
         apply(config)
+        checkpoint('classifier-ready')
         payload = probe('critical', 'GET', uri, auth, 200)
         value = json.loads(payload)
         m.require(value['number'] == f['issue'] and value['title'] == os.environ['ISSUE_TITLE'], 'native issue semantic mismatch')
@@ -94,13 +103,17 @@ def run(directory):
                   'GIT_CONFIG_COUNT': '3', 'GIT_CONFIG_KEY_0': 'http.extraHeader', 'GIT_CONFIG_VALUE_0': 'Authorization: ' + git_auth['Authorization'],
                   'GIT_CONFIG_KEY_1': 'protocol.version', 'GIT_CONFIG_VALUE_1': '2',
                   'GIT_CONFIG_KEY_2': 'credential.helper', 'GIT_CONFIG_VALUE_2': ''}
+        checkpoint('bulk-smart-http-v2-start')
         git = subprocess.run(['git', 'ls-remote', '--exit-code', 'http://127.0.0.1:18080/' + f['owner'] + '/journey.git', 'refs/heads/main'],
                              env=git_env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=15)
+        checkpoint('bulk-smart-http-v2-end', command_exit=git.returncode)
         m.require(git.returncode == 0 and git.stdout.split()[0] == os.environ['MAIN_SHA'], 'native smart HTTP semantic read')
         results.append({'probe': 'bulk-smart-http-v2', 'command_exit': 0, 'expected_main': True})
+        checkpoint('app-log-exclusion')
         pod = gate.pod('app=ext-authz-sim')
         checks = [json.loads(row) for row in k('-n', 'shared-gate', 'logs', pod['metadata']['name'], '-c', 'app').splitlines()]
         gate.validate_checks(checks)
+        checkpoint('effective-check-config')
         listeners = gate.proxy_config(gate.pod('istio=p4-ingress')['metadata']['name'], 'listeners')
         filters = effective_check(listeners)
         m.require(gate.pod('app=ext-authz-sim')['metadata']['uid'] == before_target, 'classifier smoke target replaced')
@@ -110,7 +123,9 @@ def run(directory):
                   'credential_body_exclusion': True, 'forgejo_native_auth': True,
                   'tls': 'not verified by local HTTP; required separately before Azure', 'fixture_values_retained': False}
     finally:
+        checkpoint('restore-classifier')
         apply(original['data']['haproxy.cfg'])
+    checkpoint('restored')
     m.save(Path(directory) / 'p10-healthy.json', result | {'experiment_haproxy_restored': True})
 
 
