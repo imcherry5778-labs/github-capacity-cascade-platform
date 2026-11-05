@@ -59,6 +59,9 @@ GUARD_POLICY = {'guards': sorted(m.GUARDS), 'sentinel_seconds': SENTINEL_SECONDS
 # Reads the preflight needs, and the extra verbs the campaign's kubectl commands need (client-side `apply` = get +
 # create/patch; `rollout restart` = patch; `rollout status` and `--wait` = get/list/watch; exec/logs/port-forward read the
 # Pod first). A missing verb is an exact blocker; this source never grants, requests or escalates a role.
+# pods/exec and pods/portforward stay `create`: kubectl >= 1.30/1.31 opens them as a WebSocket GET (authorized as `get`), but
+# since 1.35 kube-apiserver adds a synthetic `create` check on that upgrade (AuthorizePodWebsocketUpgradeCreatePermission, default
+# on; kubernetes/kubernetes#134577), and a refused upgrade falls back to SPDY POST = `create`. `get` alone is never sufficient.
 # tests/e2e/test-azure-isolation.py derives the verbs from the recorded commands and requires them to be covered here.
 READ_ACCESS = (('list', 'nodes', None), ('list', 'pods', None), ('get', 'namespaces', None),
                ('get', 'configmaps', MESH_NS), ('get', 'authorizationpolicies.security.istio.io', INGRESS_NS),
@@ -388,6 +391,7 @@ SECTION_SHAPES = {
     'source': lambda o: _dict(o, {'head', 'clean'}),
     'access': lambda o: _dict(o, {'read', 'campaign'}) and type(o['read']) is dict and type(o['campaign']) is dict,
     'cluster': lambda o: _dict(o, {'id', 'agentPoolProfiles', 'serviceMeshProfile'}) and _list(o['agentPoolProfiles']),
+    'cluster_uid': lambda o: type(o) is str and re.fullmatch('[0-9a-f-]{36}', o) is not None,
     'capacity': lambda o: _dict(o, {'nodes', 'pods'}) and _list(o['nodes']) and _list(o['pods']),
     'mesh': lambda o: _dict(o, {'metadata', 'data'}) and _dict(o['data'], {'mesh'}),
     'ingress': lambda o: _list(o) and all(_dict(i, {'uid', 'listeners', 'routes'}) for i in o),
@@ -427,7 +431,7 @@ def preflight_verdict(value, obs, price, now):
         need('campaign-rbac-decision', not facts['campaign_access_missing'])
     def cluster(c):
         pools = c['agentPoolProfiles']
-        need('cluster-identity', c.get('cluster_uid') == identity['cluster_uid'] and c['id'].lower() == identity['cluster_resource_id'].lower())
+        need('cluster-resource-id', c['id'].lower() == identity['cluster_resource_id'].lower())
         need('mesh-revision', c['serviceMeshProfile']['istio']['revisions'] == [identity['revision']])
         need('fixed-nodes', sum(p['count'] for p in pools) == 2 and not any(p.get('enableAutoScaling') for p in pools))
         facts['cluster'] = {'kubernetes_version': c.get('currentKubernetesVersion'), 'nodes': sum(p['count'] for p in pools),
@@ -455,6 +459,8 @@ def preflight_verdict(value, obs, price, now):
     section('source', lambda s: need('source-not-exact-clean-head', s == {'head': identity['source_sha'], 'clean': True}))
     section('access', access)
     section('cluster', cluster)
+    # Identity only from the actually read kube-system Namespace UID; an unread UID is unobserved, never a mismatch or a match.
+    section('cluster_uid', lambda uid: need('cluster-identity', uid == identity['cluster_uid']))
     section('capacity', capacity)
     section('mesh', mesh)
     section('ingress', ingress)
@@ -537,29 +543,28 @@ class Preflight:
         observe('cluster', cluster)
         observe('access', lambda: {'read': {'|'.join(map(str, k)): self.can(*k) for k in READ_ACCESS},
                                    'campaign': {'|'.join(map(str, k)): self.can(*k) for k in CAMPAIGN_ACCESS}})
-        if obs['access'] and all(obs['access']['read'].values()):
-            if obs['cluster']:
-                observe('cluster_uid', lambda: self.k('get', 'namespace', 'kube-system', '-o', 'jsonpath={.metadata.uid}').stdout)
-                obs['cluster']['cluster_uid'] = obs.get('cluster_uid')
-            observe('capacity', lambda: {'nodes': self.j('get', 'nodes', '-o', 'json')['items'],
-                                         'pods': self.j('get', 'pods', '-A', '-o', 'json')['items']})
-            observe('mesh', lambda: self.j('-n', MESH_NS, 'get', 'configmap', 'istio-shared-configmap-' + identity['revision'], '-o', 'json'))
-            def ingress():
-                selector = ','.join(k + '=' + v for k, v in identity['ingress_selector'].items())
-                pods = self.j('-n', INGRESS_NS, 'get', 'pods', '-l', selector, '-o', 'json')['items']
-                admin = lambda pod, path: json.loads(self.k('-n', INGRESS_NS, 'exec', pod, '-c', 'istio-proxy', '--',
-                                                            'pilot-agent', 'request', 'GET', path).stdout)
-                return [{'uid': p['metadata']['uid'], 'listeners': admin(p['metadata']['name'], 'config_dump?resource=dynamic_listeners'),
-                         'routes': admin(p['metadata']['name'], 'config_dump?resource=dynamic_route_configs')} for p in pods]
-            observe('ingress', ingress)
-            observe('leftovers', lambda: {
-                'namespace': bool(self.k('get', 'namespace', NS, '--ignore-not-found', '-o', 'name').stdout.strip()),
-                'policy': bool(self.k('-n', INGRESS_NS, 'get', 'authorizationpolicy', 'p8-shared-gate', '--ignore-not-found', '-o', 'name').stdout.strip())})
-            def crd():
-                value = self.j('get', 'crd', 'podmonitors.azmonitoring.coreos.com', '-o', 'json')
-                return any(c['type'] == 'Established' and c['status'] == 'True' for c in value['status']['conditions'])
-            observe('crd', crd)
-            observe('argo', lambda: self.j('-n', 'argocd', 'get', 'application', 'forgejo-azure', '-o', 'json'))
+        # Every read is its own observation: a denied `can-i` is a blocker by itself, never a reason to skip (and so
+        # derive) the others. A failed read is unobserved (None), never filled in.
+        observe('cluster_uid', lambda: self.k('get', 'namespace', 'kube-system', '-o', 'jsonpath={.metadata.uid}').stdout.strip())
+        observe('capacity', lambda: {'nodes': self.j('get', 'nodes', '-o', 'json')['items'],
+                                     'pods': self.j('get', 'pods', '-A', '-o', 'json')['items']})
+        observe('mesh', lambda: self.j('-n', MESH_NS, 'get', 'configmap', 'istio-shared-configmap-' + identity['revision'], '-o', 'json'))
+        def ingress():
+            selector = ','.join(k + '=' + v for k, v in identity['ingress_selector'].items())
+            pods = self.j('-n', INGRESS_NS, 'get', 'pods', '-l', selector, '-o', 'json')['items']
+            admin = lambda pod, path: json.loads(self.k('-n', INGRESS_NS, 'exec', pod, '-c', 'istio-proxy', '--',
+                                                        'pilot-agent', 'request', 'GET', path).stdout)
+            return [{'uid': p['metadata']['uid'], 'listeners': admin(p['metadata']['name'], 'config_dump?resource=dynamic_listeners'),
+                     'routes': admin(p['metadata']['name'], 'config_dump?resource=dynamic_route_configs')} for p in pods]
+        observe('ingress', ingress)
+        observe('leftovers', lambda: {
+            'namespace': bool(self.k('get', 'namespace', NS, '--ignore-not-found', '-o', 'name').stdout.strip()),
+            'policy': bool(self.k('-n', INGRESS_NS, 'get', 'authorizationpolicy', 'p8-shared-gate', '--ignore-not-found', '-o', 'name').stdout.strip())})
+        def crd():
+            value = self.j('get', 'crd', 'podmonitors.azmonitoring.coreos.com', '-o', 'json')
+            return any(c['type'] == 'Established' and c['status'] == 'True' for c in value['status']['conditions'])
+        observe('crd', crd)
+        observe('argo', lambda: self.j('-n', 'argocd', 'get', 'application', 'forgejo-azure', '-o', 'json'))
         def image():
             registry, reference = identity['ext_authz_image'].split('/', 1)
             p8.p7.command(['az', 'acr', 'repository', 'show', '--name', registry.split('.', 1)[0], '--image', reference, '-o', 'json'])

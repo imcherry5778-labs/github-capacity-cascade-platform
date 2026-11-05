@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 import importlib.util
 import json
 import os
+import subprocess
 from pathlib import Path
 import tempfile
 import unittest
@@ -377,9 +378,10 @@ def observations():
     up = {'status': 'success', 'data': {'resultType': 'vector', 'result': [{'metric': {'job': 'forgejo'}, 'value': [1, '1']}]}}
     return {'source': {'head': SHA, 'clean': True},
             'access': {'read': {key(k): True for k in az.READ_ACCESS}, 'campaign': {key(k): True for k in az.CAMPAIGN_ACCESS}},
-            'cluster': {'id': identity['cluster_resource_id'].replace('resourceGroups', 'resourcegroups'), 'cluster_uid': identity['cluster_uid'],
+            'cluster': {'id': identity['cluster_resource_id'].replace('resourceGroups', 'resourcegroups'),
                         'currentKubernetesVersion': '1.36.4', 'serviceMeshProfile': {'istio': {'revisions': [identity['revision']]}},
                         'agentPoolProfiles': [{'count': 2, 'vmSize': 'Standard_D4s_v4', 'enableAutoScaling': False}]},
+            'cluster_uid': identity['cluster_uid'],
             'capacity': {'nodes': [node('n1'), node('n2')], 'pods': [running('n1', '2', '4Gi')]},
             'mesh': {'metadata': {'name': 'istio-shared-configmap-asm-1-30', 'namespace': 'aks-istio-system', 'uid': 'cm'}, 'data': {'mesh': '{}'}},
             'ingress': [{'uid': 'i1', 'listeners': ingress_listeners(), 'routes': ingress_routes()}],
@@ -404,12 +406,102 @@ class PreflightTests(unittest.TestCase):
         obs['access'] = {'read': {k: False for k in obs['access']['read']}, 'campaign': {k: False for k in obs['access']['campaign']}}
         for section in ('capacity', 'mesh', 'ingress', 'leftovers', 'crd', 'argo'):
             obs[section] = None
-        obs['cluster']['cluster_uid'] = None
+        obs['cluster_uid'] = None
         result = az.preflight_verdict(manifest(), obs, PRICE, NOW)
         self.assertEqual(result['status'], 'blocked')
         self.assertEqual(result['facts']['read_access_missing'], [list(k) for k in az.READ_ACCESS])
-        for code in ('kubernetes-read-rbac', 'campaign-rbac-decision', 'unobserved:capacity', 'unobserved:ingress', 'podmonitor-crd', 'cluster-identity'):
+        for code in ('kubernetes-read-rbac', 'campaign-rbac-decision', 'unobserved:capacity', 'unobserved:ingress', 'podmonitor-crd', 'unobserved:cluster_uid'):
             self.assertIn(code, result['blockers'])
+        self.assertNotIn('cluster-identity', result['blockers'])   # an unread UID is unobserved, not a derived mismatch
+
+    def test_cluster_identity_is_only_the_actually_read_uid(self):
+        identity = manifest()['identity']
+        verdict = lambda obs: az.preflight_verdict(manifest(), obs, PRICE, NOW)
+        obs = observations(); obs['cluster_uid'] = identity['cluster_uid'][:-1] + ('0' if identity['cluster_uid'][-1] != '0' else '1')
+        self.assertEqual(verdict(obs)['blockers'], ['cluster-identity'])
+        obs = observations(); obs['cluster']['id'] = identity['cluster_resource_id'] + 'x'
+        self.assertEqual(verdict(obs)['blockers'], ['cluster-resource-id'])   # ARM identity is not the UID check
+        for bad in ('', identity['cluster_uid'] + '\n', identity['cluster_uid'].upper(), 'kube-system', 1, [identity['cluster_uid']]):
+            obs = observations(); obs['cluster_uid'] = bad
+            blockers = verdict(obs)['blockers']
+            self.assertIn('malformed:cluster_uid', blockers, bad); self.assertNotIn('cluster-identity', blockers, bad)
+        obs = observations(); del obs['cluster_uid']
+        self.assertEqual(verdict(obs)['blockers'], ['unobserved:cluster_uid'])
+        # A UID placed inside the AKS (ARM) observation is not a Kubernetes read and is never used.
+        obs = observations(); obs['cluster']['cluster_uid'] = obs.pop('cluster_uid')
+        self.assertEqual(verdict(obs)['blockers'], ['unobserved:cluster_uid'])
+
+    def test_exec_and_portforward_need_create_and_get_alone_blocks(self):
+        # kube-apiserver >= 1.35 checks `create` on the WebSocket upgrade too; SPDY fallback is POST = `create`.
+        sub = [e for e in az.READ_ACCESS + az.CAMPAIGN_ACCESS if e[1] in {'pods/exec', 'pods/portforward'}]
+        self.assertEqual({e[0] for e in sub}, {'create'})
+        obs = observations(); exec_ingress = ('create', 'pods/exec', az.INGRESS_NS)
+        obs['access']['read']['|'.join(map(str, exec_ingress))] = False
+        obs['access']['read']['get|pods/exec|' + az.INGRESS_NS] = True      # the handshake verb alone is not the permission
+        result = az.preflight_verdict(manifest(), obs, PRICE, NOW)
+        self.assertEqual((result['blockers'], result['facts']['read_access_missing']), (['kubernetes-read-rbac'], [list(exec_ingress)]))
+
+    def collect(self, denied=(), fail=None):
+        """Real Preflight.k/can/readonly_args against a fake kubectl/az; `fail` makes one read raise."""
+        value = manifest(); identity = value['identity']; base = observations(); reads = []
+        cluster = dict(base['cluster'], fqdn='aks.example', cluster_uid='ignored-arm-field')
+        def kubectl(a):
+            reads.append(tuple(a))
+            if a[:2] == ['auth', 'can-i']:
+                return 'no' if (a[2], a[3], a[5] if len(a) > 5 else None) in denied else 'yes'
+            if fail and fail in a: raise subprocess.CalledProcessError(1, 'kubectl')
+            a = a[2:] if a[:1] == ['-n'] else a
+            if a[:3] == ['get', 'namespace', 'kube-system']: return identity['cluster_uid']
+            if a[:2] == ['get', 'namespace'] or a[:2] == ['get', 'authorizationpolicy']: return ''
+            if a[:2] == ['get', 'nodes']: return json.dumps({'items': base['capacity']['nodes']})
+            if a[:3] == ['get', 'pods', '-A']: return json.dumps({'items': base['capacity']['pods']})
+            if a[:2] == ['get', 'pods']: return json.dumps({'items': [{'metadata': {'name': 'ingress-0', 'uid': 'i1'}}]})
+            if a[:2] == ['get', 'configmap']: return json.dumps(base['mesh'])
+            if a[0] == 'exec': return json.dumps(ingress_listeners() if 'listeners' in a[-1] else ingress_routes())
+            if a[:2] == ['get', 'crd']: return json.dumps({'status': {'conditions': [{'type': 'Established', 'status': 'True'}]}})
+            if a[:2] == ['get', 'application']: return json.dumps(base['argo'])
+            raise AssertionError(a)
+        def run(args, **kw):
+            if args[:3] == ['kubectl', 'config', 'view']: return mock.Mock(stdout='https://aks.example:443')
+            self.assertEqual(args[:2], ['kubectl', '--request-timeout=15s'])
+            return mock.Mock(returncode=0, stdout=kubectl(list(args[2:])))
+        def command(args):
+            if args[:1] == ['git']: return identity['source_sha'] if 'rev-parse' in args else ''
+            if args[:3] == ['az', 'aks', 'show']: return json.dumps(cluster)
+            if args[:3] == ['az', 'acr', 'repository']: return '{}'
+            if args[:3] == ['az', 'account', 'get-access-token']: return 'synthetic-token'
+            raise AssertionError(args)
+        p10 = t10.amw(lambda: t10.prometheus([], {}, None, namespace=az.NS))
+        http = lambda url, token, timeout, form: copy.deepcopy(base['prometheus']['up']) if form['query'].startswith('up{') else p10('/api/v1/query', form)
+        preflight = object.__new__(az.Preflight); preflight.value = value
+        with mock.patch.object(az.subprocess, 'run', run), mock.patch.object(az.p8.p7, 'command', command), \
+             mock.patch.object(az.p8.p7, 'http_json', http), mock.patch.object(az.p8, 'request', lambda *a: dict(base['https'])):
+            obs, errors = preflight.collect()
+        return obs, errors, reads, az.preflight_verdict(value, obs, PRICE, NOW)
+
+    def test_preflight_reads_are_independent_of_denied_can_i(self):
+        exec_ingress = ('create', 'pods/exec', az.INGRESS_NS)
+        obs, errors, reads, verdict = self.collect()
+        self.assertEqual((errors, verdict['status']), ({}, 'ready-for-approval-request'))
+        # The observed live shape: only the ingress exec can-i denied. Every read still happens and is used as observed.
+        obs, errors, reads, verdict = self.collect(denied={exec_ingress})
+        self.assertEqual(errors, {}); self.assertTrue(all(obs[k] is not None for k in obs))
+        self.assertEqual(obs['cluster_uid'], manifest()['identity']['cluster_uid']); self.assertNotIn('cluster_uid', obs['cluster'])
+        self.assertTrue(any(r[2:3] == ('exec',) for r in reads))
+        self.assertEqual(verdict['blockers'], ['kubernetes-read-rbac'])                       # the denied can-i is never a PASS
+        everything = set(az.READ_ACCESS) | set(az.CAMPAIGN_ACCESS)
+        obs, errors, reads, verdict = self.collect(denied=everything)
+        self.assertEqual((errors, sorted(verdict['blockers'])), ({}, ['campaign-rbac-decision', 'kubernetes-read-rbac']))
+        # One actually failed read is exactly that section unobserved; the other reads are unaffected and nothing is filled in.
+        for token, name, code in (('kube-system', 'cluster_uid', 'unobserved:cluster_uid'), ('nodes', 'capacity', 'unobserved:capacity'),
+                                  ('configmap', 'mesh', 'unobserved:mesh'), ('exec', 'ingress', 'unobserved:ingress'),
+                                  ('authorizationpolicy', 'leftovers', 'unobserved:leftovers'), ('crd', 'crd', 'podmonitor-crd'),
+                                  ('application', 'argo', 'unobserved:argo')):
+            obs, errors, reads, verdict = self.collect(denied={exec_ingress}, fail=token)
+            self.assertEqual((obs[name], errors), (None, {name: 'CalledProcessError'}), token)
+            self.assertTrue(all(obs[k] is not None for k in obs if k != name), token)
+            self.assertEqual(sorted(verdict['blockers']), sorted(['kubernetes-read-rbac', code]), token)
+            self.assertNotIn('cluster-identity', verdict['blockers'], token)
 
     def test_every_failed_or_missing_observation_blocks(self):
         def edit(path, value):
@@ -431,7 +523,8 @@ class PreflightTests(unittest.TestCase):
                  'amw-stable-scrape': edit(('prometheus', 'up', 'data', 'result'), []),
                  'amw-p10-series-present-before-campaign': edit(('prometheus', 'p10', 'data', 'result'), [{'metric': {}, 'values': []}]),
                  'https-healthz-tls': edit(('https', 'error_class'), 'transport'),
-                 'unobserved:prometheus': edit(('prometheus',), None), 'unobserved:cluster': edit(('cluster',), None)}
+                 'unobserved:prometheus': edit(('prometheus',), None), 'unobserved:cluster': edit(('cluster',), None),
+                 'unobserved:cluster_uid': edit(('cluster_uid',), None)}
         for code, change in cases.items():
             obs = observations(); change(obs)
             result = az.preflight_verdict(manifest(), obs, PRICE, NOW)
