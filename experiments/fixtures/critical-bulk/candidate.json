@@ -1,0 +1,19 @@
+{
+  "duration_seconds": 120,
+  "critical_interval_seconds": 2,
+  "bulk_interval_seconds": 0.25,
+  "critical_workers": 2,
+  "bulk_workers": 16,
+  "max_attempts": 1,
+  "max_requests": 2,
+  "hold_ms": 1000,
+  "sample_seconds": 0.25,
+  "scrape_seconds": 15,
+  "ingestion_seconds": 60,
+  "drain_seconds": 15,
+  "max_driver_lag_seconds": 0.25,
+  "critical_deadline_seconds": 2,
+  "protection_fraction": 0.95,
+  "degradation_fraction": 0.10,
+  "saturation_fraction": 0.50
+}

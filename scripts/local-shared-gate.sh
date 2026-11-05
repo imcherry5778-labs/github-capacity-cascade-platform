@@ -148,7 +148,8 @@ python3 "$validator" capture "$out" >"$out/path.json"
   source "$ROOT/.tmp/journey/credentials.env"
   # shellcheck source=/dev/null
   source "$ROOT/.tmp/journey/state.env"
-  export DEV_TOKEN DEV_USER ISSUE_NUMBER ISSUE_TITLE
+  export DEV_TOKEN DEV_USER ISSUE_NUMBER ISSUE_TITLE MAIN_SHA
+  python3 "$ROOT/scripts/local-isolation-check.py" "$out"
   python3 "$ROOT/scripts/shared-gate-saturation.py" run "$out"
 )
 phase saturation

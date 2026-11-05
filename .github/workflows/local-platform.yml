@@ -17,6 +17,8 @@ on:
       - tests/e2e/**
       - cmd/ext-authz-sim/**
       - experiments/fixtures/shared-gate/**
+      - experiments/fixtures/critical-bulk/**
+      - docs/p10-critical-bulk-isolation.md
       - docs/local-operations.md
       - docs/p9-mitigation-recovery.md
       - docs/evidence/p9-*/**
@@ -98,6 +100,11 @@ jobs:
         id: static
         run: make static
 
+      - name: P10 pinned HAProxy classifier protocol
+        run: |
+          mkdir -p results/local
+          python3 tests/e2e/check-isolation-haproxy.py results/local/p10-protocol.json
+
       - name: Fresh lifecycle (make local) + owned cleanup
         if: steps.changes.outputs.runtime_changed == 'true'
         id: lifecycle
@@ -150,6 +157,9 @@ jobs:
         with:
           name: local-shared-gate-results
           path: |
+            results/local/p10-protocol.json
+            results/local/shared-gate-*/p10-healthy.json
+            results/local/shared-gate-*/p10-checkpoints.jsonl
             results/local/shared-gate-*/source.json
             results/local/shared-gate-*/direct-baseline.json
             results/local/shared-gate-*/app-image.json
