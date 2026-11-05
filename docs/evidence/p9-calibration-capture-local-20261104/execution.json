@@ -1,0 +1,177 @@
+{
+  "image": "docker.io/library/haproxy:3.4.6-alpine@sha256:7af8255207ee9964ccb4eec8ce4b7a40b777769665e3ae83897fb01b24d8a43a",
+  "platform": "linux/amd64",
+  "cpu_limit": ".25",
+  "memory_limit": "256m",
+  "arms": [
+    {
+      "arm": "C0",
+      "requests": 3300,
+      "rows": 3300,
+      "counter_min": 0,
+      "counter_max": 3299,
+      "lc_duplicates": 114,
+      "lc_gaps": 114,
+      "capture_count": 14,
+      "max_capture_seconds": 0.8197754158172756,
+      "ring_dropped": 0,
+      "dropped_logs_total": 248,
+      "status_counts": {
+        "200": 3257,
+        "503": 43
+      },
+      "frontend": {
+        "status": "OPEN",
+        "stot": 3300,
+        "req_tot": 3300,
+        "scur": 0
+      },
+      "termination_counts": {
+        "sC": 43,
+        "--": 3257
+      },
+      "OOMKilled": false
+    },
+    {
+      "arm": "C1",
+      "requests": 3300,
+      "rows": 3300,
+      "counter_min": 0,
+      "counter_max": 3298,
+      "lc_duplicates": 77,
+      "lc_gaps": 76,
+      "capture_count": 22,
+      "max_capture_seconds": 0.886608166852966,
+      "ring_dropped": 0,
+      "dropped_logs_total": 2961,
+      "status_counts": {
+        "200": 2621,
+        "503": 679
+      },
+      "frontend": {
+        "status": "OPEN",
+        "stot": 3300,
+        "req_tot": 3300,
+        "scur": 0
+      },
+      "termination_counts": {
+        "sC": 679,
+        "--": 2621
+      },
+      "OOMKilled": false
+    },
+    {
+      "arm": "C2",
+      "requests": 3428,
+      "rows": 3428,
+      "counter_min": 0,
+      "counter_max": 3427,
+      "lc_duplicates": 79,
+      "lc_gaps": 79,
+      "capture_count": 12,
+      "max_capture_seconds": 0.43565583298914135,
+      "ring_dropped": 0,
+      "dropped_logs_total": 315,
+      "status_counts": {
+        "200": 35,
+        "429": 3234,
+        "503": 159
+      },
+      "frontend": {
+        "status": "OPEN",
+        "stot": 3428,
+        "req_tot": 3428,
+        "scur": 0
+      },
+      "termination_counts": {
+        "sQ": 135,
+        "PR": 3234,
+        "sC": 24,
+        "--": 35
+      },
+      "OOMKilled": false
+    },
+    {
+      "arm": "C3",
+      "requests": 3300,
+      "rows": 3300,
+      "counter_min": 0,
+      "counter_max": 3299,
+      "lc_duplicates": 48,
+      "lc_gaps": 48,
+      "capture_count": 36,
+      "max_capture_seconds": 0.7870903329458088,
+      "ring_dropped": 0,
+      "dropped_logs_total": 108,
+      "status_counts": {
+        "200": 2148,
+        "503": 1152
+      },
+      "frontend": {
+        "status": "OPEN",
+        "stot": 3300,
+        "req_tot": 3300,
+        "scur": 0
+      },
+      "termination_counts": {
+        "sC": 1152,
+        "--": 2148
+      },
+      "OOMKilled": false
+    }
+  ],
+  "source_file_sha256": "8761b362d9308bb0d3ebd179f711b3933fb8790576be422dd53eaa306ce1fdfe",
+  "test_file_sha256": "d42e938255b412a2ba73a65819f88dc807eeb87208103a1eb347c708eefae73c",
+  "Azure_runtime": "not executed",
+  "owned_containers_removed": true,
+  "source_commit": "5360df5ef93647dd4e9374232440cea32c2aa23f",
+  "scope": "cost-free local source validation only; no Azure calls",
+  "actual_HAProxy_version": "3.4.6-56332c5",
+  "nc": "BusyBox 1.37.0",
+  "validation": {
+    "p9_unittest": {
+      "tests": 137,
+      "result": "PASS",
+      "skipped": 3,
+      "note": "two Docker opt-in tests and one existing skipped test"
+    },
+    "pinned_Docker": {
+      "tests": 2,
+      "seconds": 52.565,
+      "result": "PASS"
+    },
+    "make_static_mac": {
+      "result": "BLOCKED",
+      "initial": "BSD stat does not support -c",
+      "after_GNU_coreutils": "existing Linux bootstrap harness requires unavailable flock",
+      "unrelated_source_modified": false
+    },
+    "exact_head_CI": "see final PR49 comment; no prior CI relabeled as current"
+  },
+  "overwrite_negative": {
+    "actual_ring_bytes": 4096,
+    "frontend_stot": 121,
+    "retained_rows": 20,
+    "actual_400_CR_Tw_minus1": 1,
+    "result": "expected fail closed; no missing rows filled"
+  },
+  "historical": {
+    "paid_source_sha": "076bc8a3dbd09e8192057e19df8b6cc5cb55274d",
+    "campaign23": "CLOSED/invalid unchanged",
+    "campaign22_archive_sha256": "70df52e309d98b44d47dde8d73405ab8a6f89c7e9cdca80768c1c6315e969674",
+    "campaign23_archive_sha256": "d1e340eb44c7b01d15c884d3b6b5952bc096fbd3172b98bd8b0eb93df521666f",
+    "counts": "campaign23/initialize20/healthy11/invalid calibration8/measured each0/KEDA8/8"
+  },
+  "paid_authority": "none for candidate or campaign24",
+  "cleanup": "local test containers removed; prior Campaign23 cleanup record preserved; no cloud state refreshed",
+  "archive_sha256": "be5eac1dc6fc1f66fc04cb59d09c3590d3a8a95fa2bcfcd43c8e2b69683b39ce",
+  "archive_members": 9,
+  "publication_scan": "PASS; no redaction or resigning",
+  "limitations": [
+    "Local HTTP stub and Docker Desktop are not AKS/KEDA/AMW/native auth or recovery validation.",
+    "Connect-timeout sC responses occurred under the local load; records were retained, not system-health PASS.",
+    "DroppedLogs is process-wide; exact Campaign23 loss hop and scaler evaluation cause remain UNKNOWN.",
+    "Authoritative native boundary is captures[0] and the last capture containing haproxy.frontend (before final readiness-only check).",
+    "Finite capacity fails closed; live exec/network/Pod memory and future startup contract still need independent review/authorization."
+  ]
+}

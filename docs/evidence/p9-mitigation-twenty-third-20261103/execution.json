@@ -1,0 +1,271 @@
+{
+  "source_sha": "076bc8a3dbd09e8192057e19df8b6cc5cb55274d",
+  "approval": "https://github.com/imcherry5778-labs/github-capacity-cascade-platform/issues/47#issuecomment-6604629172",
+  "campaign": 23,
+  "status": "CLOSED/invalid",
+  "paid_source_changed": false,
+  "counts": {
+    "normal": 1,
+    "public_initialize": 1,
+    "healthy_journey": 1,
+    "calibration_started_invalid": 1,
+    "measured": {
+      "C0": 0,
+      "C1": 0,
+      "C2": 0,
+      "C3": 0
+    },
+    "KEDA_apply": 1,
+    "KEDA_restore": 1
+  },
+  "prior_cumulative": {
+    "campaign": 22,
+    "public_initialize": 19,
+    "healthy_journey": 10,
+    "calibration_started_invalid": 7,
+    "measured_each_arm": 0,
+    "KEDA_apply_restore": [
+      7,
+      7
+    ]
+  },
+  "cumulative": {
+    "campaign": 23,
+    "public_initialize": 20,
+    "healthy_journey": 11,
+    "calibration_started_invalid": 8,
+    "measured_each_arm": 0,
+    "KEDA_apply_restore": [
+      8,
+      8
+    ]
+  },
+  "calibration_process_complete_but_saved_invalid": true,
+  "first_saved_validator_failure": "controller metric/status failure",
+  "independent_accounting_failure": "check/ingress/HAProxy path error",
+  "freeze": false,
+  "cloud_confounder_review": "not completed; stopped at controller/accounting blockers",
+  "cleanup_complete": true,
+  "cleanup_initial_parse_errors_preserved": [
+    "owned_AMW_role_UAMI_FIC",
+    "owned_image",
+    "AKS_role_and_ARM_inventory"
+  ],
+  "owned_cleanup_recovery": "cleanup-recovery.json",
+  "paid_attempt_retries": 0,
+  "unused_calibration": 1,
+  "unused_attempts_expire_on_close": true,
+  "no_extra_campaign": true,
+  "Environment_deadline": "2026-11-05T01:30:00Z",
+  "Foundation_Bootstrap_deadline": "2026-11-05T15:33:00Z",
+  "additional_retention": false,
+  "whole_environment_teardown": false,
+  "billing_GET": 0,
+  "campaign23_variable_estimate_usd": 5,
+  "planning_projection_usd": 305.3567,
+  "new_numeric_cap": false,
+  "actual_cost": "unknown; no billing query",
+  "P9_acceptance": "not met",
+  "actual_mechanism": {
+    "source_sha": "076bc8a3dbd09e8192057e19df8b6cc5cb55274d",
+    "scope": "partial actual observation; invalid calibration, not measured acceptance",
+    "new_UID_count": 1,
+    "observed_Ready_to_joint_seconds": 94.18449662486091,
+    "joint_offset": 149.87017724988982,
+    "traffic_reference_end_offset": 168.9157220418565,
+    "both_UID_increment_end_offset": 189.2156897080131,
+    "both_UID_increment_before_mitigation_end": true,
+    "snapshot_count": 24,
+    "snapshot_max_seconds": 19.263981375144795,
+    "query_count": 118,
+    "sentinel_count": 378,
+    "all_sentinel_semantic": true,
+    "run_end_complete": true
+  },
+  "controller_clocks": [
+    {
+      "snapshot_at_offset": 73.83133137482218,
+      "snapshot_end_offset": 91.99664083286189,
+      "HPA_GET_request_offset": 78.76286462484859,
+      "HPA_GET_end_offset": 79.17560179182328,
+      "HPA_reason": "FailedGetExternalMetric",
+      "HPA_status_hash_bound": true,
+      "HPA_last_transition_utc": "2026-11-03T14:12:21Z",
+      "AMW_status": "observed",
+      "AMW_request_offset": 90.80068495799787,
+      "AMW_response_offset": 90.93793520797044,
+      "resource_status": "initializing-new-pod"
+    }
+  ],
+  "accounting": {
+    "source_sha": "076bc8a3dbd09e8192057e19df8b6cc5cb55274d",
+    "strict_source_replay": "check/ingress/HAProxy path error",
+    "HAProxy_log_delta": 3036,
+    "ingress_raw_log_delta": 3139,
+    "HAProxy400_CR_Tw_minus1": 0,
+    "HAProxy_status_counts": {
+      "503": 2001,
+      "200": 1035
+    },
+    "HAProxy_termination_counts": {
+      "--": 3036
+    },
+    "queue_ms_nonzero": 0,
+    "server_dispatch_delta": 3139,
+    "backend_response_delta": 3139,
+    "log_counter_completeness": [
+      {
+        "pid": 8,
+        "rows": 3065,
+        "unique_counters": 3065,
+        "minimum": 0,
+        "maximum": 3167,
+        "gaps": 103,
+        "duplicates": 0
+      }
+    ],
+    "first_path_observation": {
+      "target_ingress_request_at": 1936692.387274083,
+      "target_ingress_end": 1936694.365615958,
+      "haproxy_request_at": 1936694.742763833,
+      "haproxy_end": 1936695.14841
+    },
+    "last_path_observation": {
+      "target_ingress_request_at": 1937132.680857333,
+      "target_ingress_end": 1937135.69816525,
+      "haproxy_request_at": 1937136.079581041,
+      "haproxy_end": 1937136.575444666
+    },
+    "unknown_rows_filtered": false,
+    "minus1_synthesized_to_zero": false
+  },
+  "recovery_diagnostic": {
+    "source_sha": "076bc8a3dbd09e8192057e19df8b6cc5cb55274d",
+    "scope": "source recovery replay with optimistic observation coverage only; not full validity or recovered claim",
+    "status": "not recovered within observation window",
+    "qualifying_windows": 0,
+    "failure_counts": {
+      "release-not-converged": 7,
+      "semantic-failure": 21,
+      "retry": 20,
+      "driver-lag": 360,
+      "issue-command-slo": 639
+    },
+    "campaign": {
+      "scheduled": 2100,
+      "issued": 2100,
+      "unissued": 0,
+      "failed": 1045,
+      "attempts": 3100,
+      "driver_lag_max_seconds": 1.6248360828030854
+    },
+    "all_operations": {
+      "scheduler_dispatch": {
+        "n": 2100,
+        "p50": 0.011588770896196365,
+        "p95": 0.034029082860797644,
+        "max": 0.0696560419164598
+      },
+      "worker_queue": {
+        "n": 2100,
+        "p50": 0.03264906257390976,
+        "p95": 0.43960887496359646,
+        "max": 1.6039113327860832
+      },
+      "driver_total": {
+        "n": 2100,
+        "p50": 0.047126021003350616,
+        "p95": 0.45873699989169836,
+        "max": 1.6248360828030854
+      },
+      "issue_command": {
+        "n": 3016,
+        "p50": 0.053301457897759974,
+        "p95": 1.1358701668214053,
+        "max": 1.6133239169139415
+      },
+      "issue_commands_above_0_2s": 811
+    },
+    "recovery_operations": {
+      "scheduler_dispatch": {
+        "n": 900,
+        "p50": 0.014138499973341823,
+        "p95": 0.03996133292093873,
+        "max": 0.05953158298507333
+      },
+      "worker_queue": {
+        "n": 900,
+        "p50": 0.034031374962069094,
+        "p95": 0.5780318328179419,
+        "max": 1.6039113327860832
+      },
+      "driver_total": {
+        "n": 900,
+        "p50": 0.051681249984540045,
+        "p95": 0.6049673329107463,
+        "max": 1.6248360828030854
+      },
+      "issue_command": {
+        "n": 884,
+        "p50": 0.3104431250831112,
+        "p95": 1.2091419589705765,
+        "max": 1.6133239169139415
+      },
+      "issue_commands_above_0_2s": 639
+    },
+    "release_command_offset": 240.01038608280942,
+    "converged_offset": 305.8985329999123,
+    "threshold_seconds": 0.2
+  },
+  "runtime_versions": {
+    "source_sha": "076bc8a3dbd09e8192057e19df8b6cc5cb55274d",
+    "AKS_version": "1.36.4",
+    "managed_Istio_revision": "asm-1-30",
+    "KEDA_image": "mcr.microsoft.com/oss/v2/kedacore/keda:2.19.0-25",
+    "KEDA_actual_apply_pod_image_IDs": [
+      "mcr.microsoft.com/oss/v2/kedacore/keda@sha256:8d89d84aaa2c1e675e000fbb773dd00ca4a3295529c57a2bc419dec6c5daf3de"
+    ],
+    "HAProxy_pin": "docker.io/library/haproxy:3.4.6-alpine@sha256:7af8255207ee9964ccb4eec8ce4b7a40b777769665e3ae83897fb01b24d8a43a",
+    "HAProxy_actual_runtime_image_ID": "docker.io/library/haproxy@sha256:7af8255207ee9964ccb4eec8ce4b7a40b777769665e3ae83897fb01b24d8a43a",
+    "app_owned_digest": "sha256:156c3b9ee8ca31aea0929ca01584db65b92002fc2214c6c73145e2d3fe599a11",
+    "Envoy_versions": [
+      "3bf722f59561ef9747835e543c0b648eb4ab1237/1.38.6/Modified/RELEASE/BoringSSL"
+    ],
+    "azure_cli": {
+      "azure-cli": "2.91.0",
+      "azure-cli-core": "2.91.0",
+      "azure-cli-telemetry": "1.1.0",
+      "extensions": {}
+    },
+    "kubectl_client": "v1.36.4",
+    "docker": "29.9.2/29.9.2",
+    "timeout": "timeout (GNU coreutils) 9.12",
+    "python": "3.15.0",
+    "credential_mode": "dedicated native Entra-user ExecCredential; no admin certificate or login change"
+  },
+  "owned_cleanup": {
+    "source_sha": "076bc8a3dbd09e8192057e19df8b6cc5cb55274d",
+    "initial_handler_errors_preserved": [
+      "owned_AMW_role_UAMI_FIC",
+      "owned_image",
+      "AKS_role_and_ARM_inventory"
+    ],
+    "cause": "empty successful delete output and lowercase manifest unknown CLI response parsing",
+    "normal_initialize_calibration_or_KEDA_repeated": false,
+    "AMW_role_absent": true,
+    "AKS_temporary_role_absent": true,
+    "UAMI_absent": true,
+    "FIC_absent": true,
+    "owned_image_lookup": "manifest unknown",
+    "owned_image_digest": "sha256:156c3b9ee8ca31aea0929ca01584db65b92002fc2214c6c73145e2d3fe599a11",
+    "local_tag_absent": true,
+    "original_Owner2_preserved": true,
+    "original_34_ID_inventory_equal": true,
+    "fixed_nodes": 2,
+    "previous_stable_Secret_native_and_forward_positive_evidence_reused": true,
+    "cleanup_errors": [],
+    "complete": true,
+    "retention_extended": false,
+    "whole_teardown": false
+  }
+}

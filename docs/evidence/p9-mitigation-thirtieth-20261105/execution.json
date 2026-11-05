@@ -1,0 +1,156 @@
+{
+ "paid_source_sha": "2224f1098b1465b3c8a90e8fb758608e365529a1",
+ "authority_url": "https://github.com/imcherry5778-labs/github-capacity-cascade-platform/issues/47#issuecomment-6633485342",
+ "independent_source_gate": "https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/49#pullrequestreview-5770057985",
+ "state": "CLOSED/invalid (calibration1 saved-validator HPA warning recurrence; NO-GO; corrected second calibration impossible in this source-bound ledger)",
+ "paid_source_unchanged": true,
+ "operator_template_sha256": {
+  "driver-template.py": "bc9def5b5a8efa3489b4337875fa009de59acfb7879f39c0b09fc1f5dcc7b292",
+  "test_campaign_sequence.py": "05ba0608375f32fa8d94c3f18036572688dd11df10694b99ce54114b16e2bcf0",
+  "test_cadence_replay.py": "a82f31a392c1533dc1a99a333df4270d77e8d68f2fb1a11a93df79e55516faa1",
+  "publish.py": "925d4691d047a519e795cdb38f1b0902a1cad0d6b00dc88467e1a1b147a4f157"
+ },
+ "operator_instance_sha256": {
+  "driver.py": "04388c8b2cd0be5d002283f9ae0555efe80195516b64042c2468fe21f857bd90",
+  "preflight.py": "97d7b021f74ecc9195cce79774cb99f38b74d1850dc0e99c0c5e3737656fbc27",
+  "launch.py": "4f5078be2e8c7465ecb90b4e78ca2915ef9f2bf6afa2516133394a3708ab8dec",
+  "send.sh": "91ecf1e58d38a792ac68a110e66c4f74488a78934ca90fdb3633e56c436ea067"
+ },
+ "owned_image_manifest_digest": "sha256:0382c0d554681ff894f7ec3b9fc34218335213a0f2c26cca6bd705befa1dfadd",
+ "plan_sha256": "d54088542f9c61080ffc3f83ac27d51d99703dcfc13001f6416fb85959f52dcc",
+ "counts": {
+  "normal_initial": 1,
+  "normal_final": 1,
+  "initialize": 1,
+  "healthy": 1,
+  "calibration": 1,
+  "measured": {
+   "C0": 0,
+   "C1": 0,
+   "C2": 0,
+   "C3": 0
+  },
+  "KEDA_apply": 1,
+  "KEDA_restore": 1,
+  "cloud_mutations": 17
+ },
+ "results": {
+  "preflight": "all read-only gates PASS (34 IDs, Owner 2, nodes 2, AKS Running, KEDA/OIDC/WI, previous residual absent, remaining 38922s > 8045s); KEDA-form GET 4726 bytes HTTP200 vector (transport only)",
+  "operator_tests": "sealed test_campaign_sequence/test_cadence_replay/test_c0_order OK on 2224f109",
+  "initial_normal": "SUCCESS",
+  "C0_fixture": "Service-first DNS gate; HAProxy after DNS",
+  "initialize": "SUCCESS (ingress28=authorization28, target30, auxiliary13; source gate passed)",
+  "KEDA": "native workload identity; exact ScaledObject-owned HPA positive (ScalingActive True/ValidMetricFound)",
+  "C3_preflight": "PASS (3 healthy + 3 fault joint, current HPA UID, HAProxy memory/OOM/restart)",
+  "calibration1": {
+   "process_exit": 0,
+   "run": "completed (run_end completed, no monitor/run failure, 27 snapshots, max gap 21.45s)",
+   "window_utc": [
+    "2026-11-04T14:56:59Z",
+    "2026-11-04T15:05:39Z"
+   ],
+   "demand": {
+    "scheduled": 2400,
+    "issued": 2400,
+    "unissued": 0,
+    "driver_lag_max_seconds": 1.258
+   },
+   "saved_validator": "INVALID: invalid HPA/KEDA warning provenance or recurrence",
+   "warnings": [
+    {
+     "object": "HPA p9-proxy",
+     "reason": "FailedGetExternalMetric",
+     "count_progression": [
+      1,
+      2
+     ],
+     "first_offset_s": 88.5,
+     "last_offset_s": 104.5
+    },
+    {
+     "object": "HPA p9-proxy",
+     "reason": "FailedComputeMetricsReplicas",
+     "count_progression": [
+      1,
+      2
+     ],
+     "first_offset_s": 88.5,
+     "last_offset_s": 104.5
+    },
+    {
+     "object": "ScaledObject p9-proxy",
+     "reason": "KEDAScalerFailed",
+     "count_progression": [
+      1,
+      2
+     ],
+     "first_offset_s": 91.5,
+     "last_offset_s": 106.5
+    }
+   ],
+   "warmup_episode": "new target first inventory snapshot4 (+57.4s) to first fully observed signal snapshot7 (+131.0s); count1 at snapshot6, count2 at snapshot7, unchanged through snapshot26; offsets vs first signal evaluation",
+   "rejected_by": "2224f109 kept exact HPA FailedGetExternalMetric/FailedComputeMetricsReplicas count1; the KEDA 1->2 growth itself was within the new rule",
+   "informational_cadence_not_freeze": {
+    "scrape_upper_seconds": 15.0,
+    "ingestion_upper_seconds": 51.967,
+    "controller_upper_seconds": 38.395,
+    "formula_seconds": 316.087,
+    "mitigation_seconds": 300,
+    "controller_between_update_gaps": "24 gaps; one 38.4s, others 18.9-29.0s",
+    "note": "run invalid; not a freeze input; would exceed mitigation"
+   }
+  },
+  "second_calibration": "not started: correcting the HPA rule changes the paid source; scripts/azure-mitigation.py approval gate binds every run-ledger row to identity source_sha, so a corrected calibration cannot share this C30 ledger without unreviewed operator/ledger rebinding (outside approval)",
+  "final_normal": "SUCCESS after CUSTOM/mesh/namespace restore (validator gate passed)"
+ },
+ "cleanup": {
+  "complete": true,
+  "errors": [],
+  "steps": [
+   "CUSTOM_remove",
+   "mesh_restore",
+   "namespace_remove",
+   "final_normal",
+   "KEDA_restore",
+   "normal_fixture",
+   "healthy_fixture",
+   "final_fixture",
+   "stable_integrity",
+   "image_remove",
+   "AMW_role_remove",
+   "UAMI_FIC_remove",
+   "AKS_role_remove",
+   "ARM_final",
+   "forward_close"
+  ],
+  "independent_readonly_recheck_utc": "2026-11-04T15:09:53Z",
+  "recheck": {
+   "resource_ids": 34,
+   "ids_unchanged": true,
+   "Owner": 2,
+   "nodes": 2,
+   "c30_UAMI_absent": true,
+   "c30_image_tag_absent": true,
+   "temporary_AKS_admin_absent": true,
+   "driver_forward_exited": true,
+   "lock_released": true
+  },
+  "scope": "Campaign30 owned cleanup only; not global zero residual"
+ },
+ "hold": {
+  "first_mutation_utc": "2026-11-04T14:41:36Z",
+  "cleanup_end_utc": "2026-11-04T15:09:27Z",
+  "approx_minutes": 28
+ },
+ "cost": "UNKNOWN (no billing data read)",
+ "cumulative": {
+  "campaign": 30,
+  "initialize_started": 27,
+  "healthy": 17,
+  "calibration_started": 13,
+  "reviewed_valid_calibration": 1,
+  "measured_each": 0,
+  "KEDA_actions": "13/13"
+ },
+ "not_reclassified": "Campaign22-29"
+}

@@ -144,8 +144,13 @@ def prom_result(payload):
     return {'status': 'observed' if any(s['values'] for s in result) else 'no-data', 'series': result}
 
 
-def http_json(url, token, timeout=60):
-    request = urllib.request.Request(url, headers={'Authorization': 'Bearer ' + token})
+def http_json(url, token, timeout=60, form=None):
+    headers = {'Authorization': 'Bearer ' + token}
+    # Prometheus/AMW documented POST form body keeps long PromQL out of server URL limits.
+    data = None if form is None else urllib.parse.urlencode(form).encode()
+    if data is not None:
+        headers['Content-Type'] = 'application/x-www-form-urlencoded'
+    request = urllib.request.Request(url, data=data, headers=headers, method='GET' if data is None else 'POST')
     # TLS verification uses the OS trust store. No redirects to another credential origin.
     class NoRedirect(urllib.request.HTTPRedirectHandler):
         def redirect_request(self, *_args, **_kwargs):

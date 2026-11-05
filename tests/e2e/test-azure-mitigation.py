@@ -48,6 +48,12 @@ def events(v=None):
     return e
 
 
+def ring_response(rows, *, dropped=0, stdout_dropped=0, started=1):
+    return ('Version: 3.4.6\nPid: 8\nStart_time_sec: ' + str(started) + '\nDroppedLogs: ' + str(stdout_dropped) +
+            '\n\nSupported events sinks\n    p9 : type=buffer, ' + str(dropped) + ' dropped, p9\n\n' +
+            '\n'.join(json.dumps(r) for r in rows) + '\n\n\nP9_RING_END')
+
+
 def bind_synthetic_snapshot_clocks(rows):
     """Construct provenance for intentionally rescheduled synthetic fixtures only.
 
@@ -60,6 +66,9 @@ def bind_synthetic_snapshot_clocks(rows):
         s['inventory_at'], s['inventory_epoch'] = s['at'], s['epoch']
         obs = s['signal']['evaluation']
         obs.update(at=s['at'], epoch=s['epoch'], timestamp_utc=m.datetime.fromtimestamp(s['epoch'], m.timezone.utc).isoformat())
+        if 'hpa_observation' in s:
+            s['hpa_observation'].update(request_at=s['at'], at=s['at'])
+            s['controller_state']['observed_at'] = s['at']
         extra += [{'record': 'signal_evaluation', **obs, 'signal_sha256': m.digest(s['signal'])},
                   {'record': 'replica_timeline', 'at': s['at'], 'epoch': s['inventory_epoch'], 'inventory_at': s['inventory_at'], 'source_sha': obs['source_sha'],
                    'pods': s['target_inventory'], 'hpa': {'status': s['guard']['hpa']}}]
@@ -171,7 +180,7 @@ class PlanTests(unittest.TestCase):
         c3 = rendered['C3']['fixtures.json']['items']
         self.assertNotIn('HorizontalPodAutoscaler', {o['kind'] for o in c3})
         self.assertEqual(next(o['spec']['maxReplicaCount'] for o in c3 if o['kind'] == 'ScaledObject'), 2)
-        self.assertEqual(len(m.schedule(v)), 2100)
+        self.assertEqual(len(m.schedule(v)), 2400)
         with self.assertRaises(ValueError): m.render(identity, v, 'C4')
 
     def test_exact_hostname_and_resource_boundary_reused(self):
@@ -217,8 +226,8 @@ class PlanTests(unittest.TestCase):
             with self.assertRaises(ValueError): m.execution_gate(identity, v, approval(), [entry | {'phase': 'calibration'}] * 3, now)
 
     def test_extended_retention_keeps_initialization_run_drain_and_rollback_reserves(self):
-        deadline = m.datetime(2026, 11, 5, 1, 30, tzinfo=m.timezone.utc)
-        old_deadline = m.datetime(2026, 11, 2, 1, 30, tzinfo=m.timezone.utc)
+        deadline = m.datetime(2026, 11, 8, 1, 30, tzinfo=m.timezone.utc)
+        old_deadline = m.datetime(2026, 11, 5, 1, 30, tzinfo=m.timezone.utc)
         self.assertEqual(m.DEADLINE, deadline)
         self.assertEqual(deadline - old_deadline, m.timedelta(days=3))
         identity = t8.identity()
@@ -238,7 +247,7 @@ class PlanTests(unittest.TestCase):
                         gate(identity, v, approved, [], boundary - m.timedelta(microseconds=1))
                         for now in (boundary, boundary + m.timedelta(microseconds=1),
                                     deadline - m.timedelta(microseconds=1), deadline, deadline + m.timedelta(microseconds=1),
-                                    m.datetime(2026, 11, 5, 15, 33, tzinfo=m.timezone.utc)):
+                                    m.datetime(2026, 11, 8, 15, 33, tzinfo=m.timezone.utc)):
                             with self.subTest(now=now), self.assertRaisesRegex(ValueError, 'insufficient retention time'):
                                 gate(identity, v, approved, [], now)
             command.assert_not_called()
@@ -373,6 +382,46 @@ class CompleteEvidenceTests(unittest.TestCase):
         (Path(directory) / 'events.jsonl').write_text(''.join(json.dumps(r) + '\n' for r in rows))
         return rows
 
+    def native_interval_run(self, directory, keep, duration):
+        """Synthetic run re-timed to native-like collection: kept snapshots every ~20s, each lasting `duration`."""
+        rows = self.fixture(directory)
+        out = []
+        for r in rows:
+            if r['record'] == 'snapshot':
+                if not keep(r['at']): continue
+                r = copy.deepcopy(r); r['end'] = r['at'] + (duration if r['at'] > 0 else 0)
+            out.append(r)
+        bind_synthetic_snapshot_clocks(out)
+        Path(directory, 'events.jsonl').write_text(''.join(json.dumps(e) + '\n' for e in out))
+        return out
+
+    def test_recovery_observation_uses_documented_35s_saved_gap(self):
+        v = plan(); last = v['mitigation_seconds'] + v['recovery_seconds'] + 5
+        native = lambda at: at == -5 or at % 20 == 15 or at == last  # 20s adjacent end gaps (> old 15s, <= 35s)
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.object(m, 'path_accounting', side_effect=lambda *_: {'admitted_checks': [], 'checks': len(m.schedule(v))}):
+            rows = self.native_interval_run(directory, native, 15)
+            snaps = [e for e in rows if e['record'] == 'snapshot']
+            gaps = [b['end'] - a['end'] for a, b in zip(snaps, snaps[1:]) if a['at'] > 0]
+            self.assertTrue(gaps and max(gaps) <= 35 and sum(g > 15 for g in gaps) > len(gaps) // 2)
+            result = m.validate(directory)
+            self.assertEqual(result['recovery']['status'], 'recovered')  # 3 consecutive 10s windows, all other gates good
+        # >35s is invalid; too-short collections lose window endpoint anchors; recorded gaps never become observations.
+        cases = {'gap-over-35s': (lambda at: native(at) and not (335 <= at <= 375), 15, False, 'final/missing observation gap'),
+                 'missing-endpoint-anchor': (native, 5, False, None),
+                 'snapshot-gap-event': (native, 15, True, None)}
+        for name, (keep, duration, gap, error) in cases.items():
+            with self.subTest(name), tempfile.TemporaryDirectory() as directory, \
+                    patch.object(m, 'path_accounting', side_effect=lambda *_: {'admitted_checks': [], 'checks': len(m.schedule(v))}):
+                rows = self.native_interval_run(directory, keep, duration)
+                if gap:  # one recorded gap in every recovery window
+                    rows[-1:-1] = [{'record': 'snapshot_gap', 'at': float(a)} for a in range(v['mitigation_seconds'], last, 10)]
+                    Path(directory, 'events.jsonl').write_text(''.join(json.dumps(e) + '\n' for e in rows))
+                if error:
+                    with self.assertRaisesRegex(ValueError, error): m.validate(directory)
+                else:
+                    self.assertEqual(m.validate(directory)['recovery']['status'], 'not recovered within observation window')
+
     def test_validator_requires_cloud_review_and_rejects_real_drift(self):
         # Path conservation is tested above with full raw snapshots. Here only
         # that independent path collector is stubbed to exercise complete demand,
@@ -471,7 +520,8 @@ class CollectorQueryTests(unittest.TestCase):
         self.assertEqual(request.call_count, 1)
         self.assertEqual(request.call_args.kwargs['timeout'], 3)
         url = m.urllib.parse.urlsplit(request.call_args.args[0])
-        self.assertEqual(m.urllib.parse.parse_qs(url.query), {'query': [m.collector_query(r.v)]})
+        self.assertEqual((url.path, url.query), ('/api/v1/query', ''))
+        self.assertEqual(request.call_args.kwargs['form'], {'query': m.collector_query(r.v)})
         self.assertEqual((events[0]['at'], events[1]['at'], obs['elapsed_seconds']), (100, 102, 2))
         self.assertNotIn('synthetic-bearer', json.dumps(events))
         guarded, diagnostic = m.extract_collector_query(rows, r.v)
@@ -518,6 +568,67 @@ class CollectorQueryTests(unittest.TestCase):
         self.assertEqual(captured[-1]['error_code'], 'prometheus_request_failed')
         self.assertNotIn('synthetic-only', json.dumps(captured))
 
+    def test_campaign25_http414_long_collector_query_real_http_post_form(self):
+        """Unpatched urllib path against a local URL-limited server; never Azure evidence."""
+        import http.server
+        limit = 4096  # Below the Campaign24-accepted 4395-byte collector GET URL.
+        seen, payload = [], {'status': 'success', 'data': {'resultType': 'vector', 'result': self.envelope(guarded=None)}}
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *_args): pass
+            def reply(self, code, body=b'', headers=()):
+                self.send_response(code)
+                for key, value in headers: self.send_header(key, value)
+                self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body)
+            def record(self, body):
+                seen.append({'method': self.command, 'target': self.path, 'body': body,
+                             'content_type': self.headers.get('Content-Type'), 'authorization': self.headers.get('Authorization')})
+            def do_GET(self):
+                self.record(None)
+                if len(self.path) > limit: self.reply(414)
+                else: self.reply(200, json.dumps(payload).encode(), [('Content-Type', 'application/json')])
+            def do_POST(self):
+                self.record(self.rfile.read(int(self.headers['Content-Length'])))
+                if self.path.startswith('/redirect/'): self.reply(307, headers=[('Location', '/api/v1/query')])
+                else: self.reply(200, json.dumps(payload).encode(), [('Content-Type', 'application/json')])
+        server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close); self.addCleanup(server.shutdown)
+        base = 'http://127.0.0.1:%d' % server.server_address[1]
+        r, events, obs = LiveFixture().runtime, [], {}
+        r.v = r.v | {'prometheus': base}
+        r.emit, r.prom_token, r.collection_deadline.at = events.append, 'synthetic-bearer', time.monotonic() + 30
+        query = m.collector_query(r.v)
+        with tarfile.open(ROOT / 'docs/evidence/p9-mitigation-twenty-fifth-20261104/raw-evidence.tar.gz') as archive:
+            ledger = [json.loads(line) for line in archive.extractfile('initialization-ledger.jsonl').read().splitlines()]
+        self.assertEqual([(e['query_sha256'], e['http_status']) for e in ledger if e['record'] == 'prometheus_query_error'],
+                         [(m.digest(query), 414)])  # The archived failure is this exact canonical query.
+        # Pre-fix GET serialization reproduces Campaign25 414 on the real request path.
+        with self.assertRaises(m.urllib.error.HTTPError) as rejected:
+            m.p8.p7.http_json(base + '/api/v1/query?' + m.urllib.parse.urlencode({'query': query}), 'synthetic-bearer', timeout=5)
+        self.assertEqual(rejected.exception.code, 414); rejected.exception.close()
+        rows = m.Runtime.prom(r, query, observation=obs)
+        post = seen[-1]
+        self.assertEqual((post['method'], post['target']), ('POST', '/api/v1/query'))
+        self.assertEqual((post['content_type'], post['authorization']), ('application/x-www-form-urlencoded', 'Bearer synthetic-bearer'))
+        self.assertGreater(len(post['body']), limit)
+        self.assertEqual(m.urllib.parse.parse_qs(post['body'].decode('ascii'), keep_blank_values=True, strict_parsing=True), {'query': [query]})
+        self.assertEqual((rows, obs['http_status'], obs['query_sha256']), (payload['data']['result'], 200, m.digest(query)))
+        self.assertEqual(m.extract_collector_query(rows, r.v)[0], [])  # Same strict envelope; no fabricated zero.
+        for key in ('rate', 'active', 'timestamp', 'samples'):  # Same transport for every Runtime.prom caller.
+            m.Runtime.prom(r, m.signal_queries(r.v)[key])
+            self.assertEqual((seen[-1]['method'], seen[-1]['target'], seen[-1]['body']),
+                             ('POST', '/api/v1/query', m.urllib.parse.urlencode({'query': m.signal_queries(r.v)[key]}).encode()))
+        # Existing GET callers (P7/P8 query_range) keep no body or form content type.
+        m.p8.p7.http_json(base + '/api/v1/query_range?query=up', 'synthetic-bearer', timeout=5)
+        self.assertEqual((seen[-1]['method'], seen[-1]['body'], seen[-1]['content_type']), ('GET', None, None))
+        # A redirect never replays the bearer/body to another target.
+        count, r.v = len(seen), r.v | {'prometheus': base + '/redirect'}
+        with self.assertRaises(m.urllib.error.HTTPError) as redirected:
+            m.Runtime.prom(r, query)
+        self.assertEqual((redirected.exception.code, len(seen), events[-1]['http_status']), (307, count + 1, 307))
+        redirected.exception.close()
+        self.assertNotIn('synthetic-bearer', json.dumps(events))
+
     def test_saved_validation_rejects_missing_tampered_envelope_clocks_and_zero(self):
         with tempfile.TemporaryDirectory() as directory:
             rows = CompleteEvidenceTests().fixture(directory)
@@ -557,8 +668,6 @@ class CollectorQueryTests(unittest.TestCase):
         self.assertEqual(response['payload']['status'], 'success')
         self.assertEqual(response['payload']['data'], {'resultType': 'vector', 'result': []})
         v = manifest['plan']
-        with patch.object(m, 'RATE_WINDOW', '1m'):
-            self.assertEqual(response['query_sha256'], m.digest(m.scale_query(v)))
         self.assertNotEqual(response['query_sha256'], m.digest(m.scale_query(v)))
         self.assertTrue(any(e['record'] == 'monitor_failure' for e in events))
         lifecycle = m.TargetLifecycle('C3', {t['uid'] for t in manifest['baseline']['targets']}, v)
@@ -585,13 +694,16 @@ class CollectorQueryTests(unittest.TestCase):
         tests = []
         # 5s samples keep rate present when a raw sample is older than the
         # 45s freshness predicate, independently of the 2m rate window.
-        for case in ('healthy', 'zero', 'raw-stale', 'raw-absent', 'one-sample', 'up-zero', 'up-absent', 'up-extra', 'up-stale', 'inventory-absent', 'inventory-extra', 'inventory-stale', 'all-absent', 'fresh-boundary'):
+        for case in ('healthy', 'zero', 'raw-stale', 'raw-absent', 'one-sample', 'up-zero', 'up-absent', 'up-extra', 'up-stale', 'inventory-absent', 'inventory-extra', 'inventory-stale', 'inventory-too-stale', 'uid-missing', 'uid-duplicate', 'all-absent', 'fresh-boundary'):
             inputs = []
             expected = {'guarded': 2, 'rate_count': 2, 'fresh_rate_count': 2, 'raw_max_age': 0, 'inventory_count': 2,
+                        'inventory_pod_count': 2, 'inventory_uid_count': 2, 'identified_inventory_count': 2, 'matched_pod_count': 2,
+                        'matched_up_pod_count': 2,
                         'up_min': 1, 'up_count': 2, 'up_max_age': 0, 'inventory_max_age': 0, 'evaluation_epoch': 180}
             for pod in ('a', 'b'):
                 raw = '0+5x36' if case != 'zero' else '0+0x36'
                 up, info = '1+0x36', '1+0x36'
+                uid = 'uid-' + pod
                 if pod == 'a':
                     if case == 'raw-stale': raw = '0+5x26'
                     elif case == 'fresh-boundary': raw = '0+5x27'
@@ -602,23 +714,33 @@ class CollectorQueryTests(unittest.TestCase):
                     elif case == 'up-stale': up = '1+0x26'
                     elif case == 'inventory-absent': info = None
                     elif case == 'inventory-stale': info = '1+0x26'
+                    elif case == 'inventory-too-stale': info = '1+0x17'
+                    elif case == 'uid-missing': uid = ''
+                    elif case == 'uid-duplicate': uid = 'uid-shared'
+                if case == 'uid-duplicate' and pod == 'b': uid = 'uid-shared'
                 for name, more, values in ((c['overflow'], {'job': c['job'], c['cluster_label']: c['cluster']}, raw),
-                                           ('up', {'job': c['job']}, up), ('kube_pod_info', {}, info)):
+                                           ('up', {'job': c['job']}, up), ('kube_pod_info', {'uid': uid}, info)):
                     if values is not None: inputs.append(series(name, pod, more, values))
             if case == 'zero': expected['guarded'] = 0
-            elif case == 'fresh-boundary': expected.update(raw_max_age=45, guarded=79 / 48)
-            elif case != 'healthy': expected.pop('guarded')
-            if case == 'raw-stale': expected.update(fresh_rate_count=1, raw_max_age=50)
-            elif case in {'raw-absent', 'one-sample'}: expected.update(rate_count=1, fresh_rate_count=1)
+            elif case == 'fresh-boundary': expected.update(raw_max_age=45, guarded=1.6458333333333335)
+            elif case not in {'healthy', 'inventory-stale'}: expected.pop('guarded')
+            if case == 'raw-stale': expected.update(fresh_rate_count=1, raw_max_age=50, matched_pod_count=1)
+            elif case in {'raw-absent', 'one-sample'}: expected.update(rate_count=1, fresh_rate_count=1, matched_pod_count=1)
             elif case == 'up-zero': expected['up_min'] = 0
-            elif case == 'up-absent': expected['up_count'] = 1
+            elif case == 'up-absent': expected.update(up_count=1, matched_up_pod_count=1)
             elif case == 'up-stale': expected['up_max_age'] = 50
-            elif case == 'inventory-absent': expected['inventory_count'] = 1
+            elif case == 'inventory-absent': expected.update(inventory_count=1, inventory_pod_count=1, inventory_uid_count=1, identified_inventory_count=1, matched_pod_count=1, matched_up_pod_count=1)
             elif case == 'inventory-stale': expected['inventory_max_age'] = 50
+            elif case == 'inventory-too-stale':
+                expected.update(inventory_max_age=95, inventory_pod_count=2, inventory_uid_count=2)
+            elif case == 'uid-missing': expected.update(inventory_uid_count=1, identified_inventory_count=1)
+            elif case == 'uid-duplicate': expected['inventory_uid_count'] = 1
             elif case in {'up-extra', 'inventory-extra'}:
                 name = 'up' if case == 'up-extra' else 'kube_pod_info'
-                inputs.append(series(name, 'extra', {'job': c['job']} if name == 'up' else {}, '1+0x36'))
+                extra_labels = {'job': c['job']} if name == 'up' else {'uid': 'uid-extra'}
+                inputs.append(series(name, 'extra', extra_labels, '1+0x36'))
                 expected['up_count' if name == 'up' else 'inventory_count'] = 3
+                if name != 'up': expected.update(inventory_pod_count=3, inventory_uid_count=3, identified_inventory_count=3, matched_pod_count=2, matched_up_pod_count=2)
             elif case == 'all-absent': inputs, expected = [], {'evaluation_epoch': 180}
             envelope = [{'labels': '{' + m.QUERY_TERM_LABEL + '="' + k + '"}', 'value': val} for k, val in expected.items()]
             tests.append({'name': case, 'interval': '5s', 'input_series': inputs, 'promql_expr_test': [
@@ -639,13 +761,16 @@ class LiveFixture:
         r.hpa_name = m.HPA if arm == 'C3' else 'hpa-app-cpu'
         objects = m.render(r.value, r.v, arm)['fixtures.json']['items']
         r.hp_config = next(o['data']['haproxy.cfg'] for o in objects if o['kind'] == 'ConfigMap' and o['metadata']['name'] == 'haproxy')
-        self.hpa = {'metadata': {'name': r.hpa_name}, 'spec': t8.hpa_spec()}
+        self.hpa = {'metadata': {'name': r.hpa_name, 'namespace': m.NS, 'uid': 'hpa'}, 'spec': t8.hpa_spec()}
         self.scaled = []
         if arm == 'C3':
             so = copy.deepcopy(next(o for o in objects if o['kind'] == 'ScaledObject'))
             so['metadata']['uid'] = 'so'
             self.scaled = [so]
             self.hpa['metadata']['ownerReferences'] = [{'kind': 'ScaledObject', 'uid': 'so', 'controller': True}]
+            self.hpa['spec']['metrics'] = [{'type': 'External', 'external': {
+                'metric': {'name': 's0-prometheus', 'selector': {'matchLabels': {'scaledobject.keda.sh/name': m.HPA}}},
+                'target': {'type': 'AverageValue', 'averageValue': '500m'}}}]
         self.policy, self.listeners, filters, _ = t8.gateway_fixture()
         filters[-1]['typed_config'].update(http_service={'server_uri': {'cluster': 'haproxy.' + m.NS + '.svc.cluster.local'},
             'authorization_request': {'headers_to_add': [{'key': 'authorization', 'value': 'p4-check-without-credentials'}]}})
@@ -690,6 +815,7 @@ class LiveFixture:
 
     def k(self, *args):
         if 'logs' in args: return ''
+        if m.HAPROXY_LOG_CLI in args: return ring_response([])
         if 'stats/prometheus' in args:
             uid = next(p['metadata']['uid'] for p in self.pods if p['metadata']['name'] == args[3])
             if uid in self.no_admin: return ''
@@ -754,6 +880,15 @@ class LiveFixture:
             metric['timestamp'] = guard['timestamp_utc']
         guard['admission'] = m.p8.admission(self.runtime.value, self.pods)
         guard['hpa'].update(currentReplicas=len(self.pods), desiredReplicas=len(self.pods))
+        if self.runtime.arm == 'C3':
+            next(c for c in guard['hpa']['conditions'] if c['type'] == 'ScalingActive')['reason'] = 'ValidMetricFound'
+            guard['hpa']['currentMetrics'] = [{'type': 'External', 'external': {
+                'metric': self.hpa['spec']['metrics'][0]['external']['metric'], 'current': {'averageValue': '0'}}}]
+            if getattr(self.runtime.collection_deadline, 'hpa_observation', None) is None:
+                self.runtime.collection_deadline.hpa_observation = {
+                    'request_at': time.monotonic(), 'at': time.monotonic(), 'source_sha': self.runtime.value['source_sha'],
+                    'status_sha256': m.digest(guard['hpa']), 'spec_sha256': m.digest(self.hpa['spec']),
+                    'metadata': copy.deepcopy(self.hpa['metadata'])}
         return guard
 
     def collect(self, at, released=False):
@@ -769,6 +904,19 @@ class SignalClockTests(unittest.TestCase):
     def setUp(self):
         env = patch.dict(os.environ, {'FORGEJO_URL': 'https://forgejo.example.com'}, clear=True)
         env.start(); self.addCleanup(env.stop)
+
+    def test_monitor_validation_stage_marker_is_fixed_field_only(self):
+        """Campaign28: attribute signal vs resources validation without recording exception text."""
+        for stage, target in (('lifecycle.signal', 'signal'), ('lifecycle.resources', 'resources')):
+            f = LiveFixture(); f.collect(0); rows = []
+            with self.subTest(stage), patch.object(m.TargetLifecycle, target, side_effect=ValueError('secret-detail /private/path')), \
+                    patch.object(m.time, 'monotonic', return_value=5), patch.object(m.time, 'time', return_value=1005), \
+                    self.assertRaisesRegex(ValueError, 'secret-detail'):
+                m.collect_snapshot(f.runtime, f.config, f.baseline, rows.append, threading.Event())
+            markers = [r for r in rows if r['record'] == 'validation_stage']
+            self.assertEqual(markers, [{'record': 'validation_stage', 'at': 5, 'stage': stage, 'error_code': 'validation_failed'}])
+            self.assertNotIn('secret-detail', json.dumps(rows)); self.assertNotIn('/private', json.dumps(rows))
+            self.assertFalse(any(r['record'] == 'snapshot' for r in rows))  # still no partial snapshot
 
     def test_live_and_full_saved_validator_use_exact_decision_instant_at_60s(self):
         f, now, captured = LiveFixture('C0'), [10.0], []
@@ -899,13 +1047,13 @@ class ResourceReadinessTests(unittest.TestCase):
         # and stale resource boundary as initial/stable/helper UIDs.
         with self.assertRaisesRegex(ValueError, 'stale resource metric'): f.collect(150)
 
-    def test_240s_candidate_has_separate_post_ready_two_uid_traffic_before_release(self):
+    def test_300s_candidate_has_separate_post_ready_two_uid_traffic_before_release(self):
         v = plan()
-        self.assertEqual((v['mitigation_seconds'], v['recovery_seconds']), (240, 180))
-        self.assertEqual(len(m.schedule(v)), 2100)
-        self.assertEqual(sum(e['kind'] == 'issue' for e in m.schedule(v)), 2016)
-        self.assertEqual(sum(e['kind'] == 'git' for e in m.schedule(v)), 84)
-        self.assertLessEqual(240 + 180 + 60, 600)
+        self.assertEqual((v['mitigation_seconds'], v['recovery_seconds']), (300, 180))
+        self.assertEqual(len(m.schedule(v)), 2400)
+        self.assertEqual(sum(e['kind'] == 'issue' for e in m.schedule(v)), 2304)
+        self.assertEqual(sum(e['kind'] == 'git' for e in m.schedule(v)), 96)
+        self.assertLessEqual(300 + 180 + 60, 600)
         f = LiveFixture(); f.rate = 1
         original = f.guard
         def guard():
@@ -917,15 +1065,16 @@ class ResourceReadinessTests(unittest.TestCase):
             return result
         f.runtime.guard = guard
         collected = []
-        for at in range(-5, 426, 5):
+        release = v['mitigation_seconds'] + 5
+        for at in range(-5, v['mitigation_seconds'] + v['recovery_seconds'] + 6, 5):
             if at == 10: f.pods.append(f.pod('new', 'ext-authz-sim-new', ready=False))
             if at == 45: f.pods[1] = f.pod('new', 'ext-authz-sim-new')
             f.missing = {'new'} if 10 <= at < 60 else set()
             f.traffic = 102 if at >= 205 else 101 if at >= 200 else 100 if at >= 50 else 0
-            if at >= 245:
+            if at >= release:
                 for p in f.pods:
                     f.holds[p['metadata']['name']], f.capacities[p['metadata']['name']] = 0, 1024
-            collected += f.collect(at, released=at >= 245)
+            collected += f.collect(at, released=at >= release)
         snapshots = [e for e in collected if e['record'] == 'snapshot']
         ready = next(s for s in snapshots if s['resource_readiness']['initialized_uids'])
         self.assertEqual(ready['end'], 195)
@@ -940,12 +1089,12 @@ class ResourceReadinessTests(unittest.TestCase):
             rows[-1:-1] = collected
             path = Path(directory, 'events.jsonl')
             path.write_text(''.join(json.dumps(e) + '\n' for e in rows))
-            with patch.object(m, 'path_accounting', side_effect=lambda *_: {'admitted_checks': [], 'checks': 2100}):
+            with patch.object(m, 'path_accounting', side_effect=lambda *_: {'admitted_checks': [], 'checks': len(m.schedule(v))}):
                 result = m.validate(directory)
                 self.assertEqual(result['scaling']['signal_to_desired_ready_traffic'][2:], [195, 205])
-                self.assertLess(result['scaling']['signal_to_desired_ready_traffic'][-1], 240)
+                self.assertLess(result['scaling']['signal_to_desired_ready_traffic'][-1], v['mitigation_seconds'])
                 self.assertEqual(result['validity'], 'pending-cloud-confounder-review')
-                self.assertEqual(result['recovery']['first_good_window'], 260)
+                self.assertEqual(result['recovery']['first_good_window'], v['mitigation_seconds'] + 20)
                 # Startup counters are retained in accounting but cannot be
                 # post-ready proof. Neither can traffic on just one UID.
                 for case in ('startup-only', 'one-uid-only'):
@@ -988,17 +1137,41 @@ class ResourceReadinessTests(unittest.TestCase):
             end_state = completed.resources(s['guard'], s['target_inventory'], s['signal'], s['end'])
         self.assertEqual(end_state['status'], 'observed')
         self.assertLess(end_state['observed_at'] - completed.ready_since[uid], 75)
-        for case in ('missing', 'stale', 'reverse', 'changed-same-timestamp', 'future', 'invalid'):
+        for case in ('missing', 'stale', 'reverse-stale', 'changed-same-timestamp', 'future', 'invalid'):
             guard = copy.deepcopy(snapshots[7]['guard'])
             metric = next(p for p in guard['pod_metrics'] if p['metadata']['name'] == next(p['name'] for p in snapshots[7]['target_inventory'] if p['uid'] == uid))
             if case == 'missing': guard['pod_metrics'].remove(metric)
             elif case == 'stale': guard['timestamp_utc'] = (m.p8.p7.utc(guard['timestamp_utc']) + m.timedelta(seconds=200)).isoformat()
-            elif case == 'reverse': metric['timestamp'] = snapshots[4]['guard']['pod_metrics'][-1]['timestamp']
+            elif case == 'reverse-stale':  # a backstep older than 2x its window stays stale after completion
+                metric['timestamp'] = (m.p8.p7.utc(guard['timestamp_utc']) - m.timedelta(seconds=2 * m.p8.metric_window(metric['window']) + 1)).isoformat()
             elif case == 'changed-same-timestamp': metric['window'] = '1s'
             elif case == 'future': metric['timestamp'] = '2099-01-01T00:00:00Z'
             else: metric['containers'][0]['usage']['cpu'] = 'NaN'
             with self.subTest(case=case), self.assertRaises(ValueError):
                 copy.deepcopy(life).resources(guard, snapshots[7]['target_inventory'], snapshots[7]['signal'], snapshots[7]['at'] + 1)
+        # Campaign28: native metrics-server replicas return older cached exports (10s backstep observed).
+        def new_metric(guard):
+            name = next(p['name'] for p in snapshots[7]['target_inventory'] if p['uid'] == uid)
+            return next(p for p in guard['pod_metrics'] if p['metadata']['name'] == name)
+        def shifted(index, seconds):
+            guard = copy.deepcopy(snapshots[index]['guard'])
+            metric = new_metric(guard); metric['timestamp'] = (high + m.timedelta(seconds=seconds)).isoformat()
+            return guard
+        after = copy.deepcopy(life); high = after.resource_samples[uid]
+        state = after.resources(shifted(7, -10), snapshots[7]['target_inventory'], snapshots[7]['signal'], snapshots[7]['at'] + 1)
+        self.assertEqual((state['status'], after.resource_samples[uid]), ('observed', high))  # fresh backstep: non-advancing, high water kept
+        # Before the latch: a backstep or same timestamp never latches and never resets high water; a real advance is required.
+        before = m.TargetLifecycle('C3', initial, manifest['plan'])
+        for s in snapshots[:7]:
+            before.inventory(s['target_inventory'], s['at'], s['epoch'] - (s['end'] - s['at']))
+            before.resources(s['guard'], s['target_inventory'], s['signal'], s['at'])
+        high = before.resource_samples[uid]
+        for seconds in (-10, 0):
+            state = before.resources(shifted(7, seconds), snapshots[7]['target_inventory'], snapshots[7]['signal'], snapshots[7]['at'])
+            self.assertEqual((state['status'], state['pending_uids'], before.resource_samples[uid]), ('initializing-new-pod', [uid], high))
+            self.assertNotIn(uid, before.resource_observed)
+        state = before.resources(snapshots[7]['guard'], snapshots[7]['target_inventory'], snapshots[7]['signal'], snapshots[7]['at'])
+        self.assertEqual(state['status'], 'observed')
         self.assertEqual(archive.read_bytes(), original)
         with tempfile.TemporaryDirectory() as d, tarfile.open(archive) as raw:
             raw.extractall(d, filter='data')
@@ -1095,7 +1268,7 @@ class ResourceReadinessTests(unittest.TestCase):
             window = {'start': '2026-11-03T00:00:00Z', 'end': '2026-11-03T00:06:00Z'}
             intervals = [{'at': 2, 'end': 3, 'pending_uids': ['new']}]
             result = {'source_sha': 'a' * 40, 'fingerprint': 'b' * 64, 'window_utc': window,
-                      'arm': 'C3', 'resource_initialization': intervals}
+                      'arm': 'C3', 'resource_initialization': intervals, 'controller_degraded_startup': []}
             path = Path(d, 'signals.json'); path.write_text('{}')
             signals = {name: {'file': path.name, 'sha256': m.hashlib.sha256(path.read_bytes()).hexdigest(),
                              'status': 'observed', 'samples': 1, 'interpretation': 'synthetic; not-ready intervals excluded',
@@ -1112,6 +1285,18 @@ class ResourceReadinessTests(unittest.TestCase):
                         self.assertEqual(m.reviewed(d)['validity'], 'valid')  # Schema-only synthetic review.
                     else:
                         with self.assertRaisesRegex(ValueError, 'cannot be confounder proof'): m.reviewed(d)
+            degraded = [{'observed_at': 2, 'hpa_uid': 'hpa', 'status': 'degraded',
+                         'reason': 'FailedGetExternalMetric', 'pending_uids': ['new']}]
+            result['controller_degraded_startup'] = degraded
+            review['excluded_resource_initialization'] = intervals
+            for excluded in (None, [], degraded):
+                obj = copy.deepcopy(review)
+                if excluded is not None: obj['excluded_controller_degradation'] = excluded
+                Path(d, 'confounder-review.json').write_text(json.dumps(obj))
+                with patch.object(m, 'validate', return_value=copy.deepcopy(result)):
+                    if excluded == degraded: self.assertEqual(m.reviewed(d)['validity'], 'valid')
+                    else:
+                        with self.assertRaisesRegex(ValueError, 'cannot be controller health/recovery proof'): m.reviewed(d)
 
 
 class ArchivedScaledObjectTests(unittest.TestCase):
@@ -1135,6 +1320,17 @@ class ArchivedScaledObjectTests(unittest.TestCase):
         if hasattr(self, 'parent_patch'): self.parent_patch.stop()
         historical = patch.object(m, 'RATE_WINDOW', '1m')
         historical.start(); self.addCleanup(historical.stop)
+        # These fixtures predate the current candidate's stricter identity and
+        # cadence guards. Replay their historical query contract explicitly.
+        def historical_query(v):
+            rates, terms = m.scale_query_parts(v)
+            return (f'sum({rates}) and on() ({terms["fresh_rate_count"]} == {terms["inventory_count"]}) '
+                    f'and on() ({terms["up_min"]} == 1) '
+                    f'and on() ({terms["up_count"]} == {terms["inventory_count"]}) '
+                    f'and on() ({terms["up_max_age"]} <= {v["freshness_seconds"]}) '
+                    f'and on() ({terms["inventory_max_age"]} <= {v["freshness_seconds"]})')
+        historical_scale = patch.object(m, 'scale_query', side_effect=historical_query)
+        historical_scale.start(); self.addCleanup(historical_scale.stop)
         with patch.dict(os.environ, {'FORGEJO_URL': 'https://forgejo.example.com'}):
             f = LiveFixture('C3')
         r = f.runtime
@@ -1383,7 +1579,8 @@ class CollectionGateTests(unittest.TestCase):
             path.write_text(''.join(json.dumps(r) + '\n' for r in rows))
             with patch.object(m, 'path_accounting', side_effect=lambda *_: {'admitted_checks': [], 'checks': len(m.schedule(plan()))}):
                 result = m.validate(directory)
-                self.assertEqual(result['recovery']['first_good_window'], 290)
+                # First good window: after the synthetic readiness proof (290) AND the first 10s window after convergence.
+                self.assertEqual(result['recovery']['first_good_window'], max(290, -(-result['recovery']['converged'] // 10) * 10))
                 self.assertEqual(result['scaling']['signal_to_desired_ready_traffic'][-1], 290)
                 self.assertEqual(result['scaling']['signal_to_desired_ready_traffic'][2], 280)
                 self.assertFalse(any(w['good'] for w in result['recovery']['windows'] if w['start'] < 280))
@@ -1450,6 +1647,7 @@ class CollectionGateTests(unittest.TestCase):
                                 e.update(copy.deepcopy(warm), at=at, end=end, epoch=epoch, inventory_at=at, inventory_epoch=epoch)
                                 e['resource_readiness']['observed_at'] = at
                                 e['signal']['pods'][0]['timestamp'] = epoch
+                        bind_synthetic_snapshot_clocks(changed)
                     elif case == 'series-timeout':
                         # Ready at185 with no series through270 exceeds75s.
                         for e in changed:
@@ -1617,7 +1815,7 @@ class CollectionGateTests(unittest.TestCase):
                         calls.append('stats')
                         return stats(actual)
                     def logs(*args):
-                        if 'logs' in args:
+                        if 'logs' in args or m.HAPROXY_LOG_CLI in args:
                             advance(.375); calls.append('logs')
                         return k(*args)
                     def query(expression, **kwargs):
@@ -1711,14 +1909,15 @@ class CollectionGateTests(unittest.TestCase):
                             result['stats'][0]['value'] = -1
                     return result
                 def command(*args):
-                    if 'logs' in args:
+                    if 'logs' in args or m.HAPROXY_LOG_CLI in args:
                         advance(.375); calls.append(('log', args[3], args[-1]))
                     elif 'http://127.0.0.1:8404/stats;csv' in args:
                         advance(4.5); calls.append(('haproxy',))
                         if case in {'boundary', 'overrun'}: times[main] = origin[0] + (30 if case == 'boundary' else 30.001)
                         fields = list(m.p8.p4.HAPROXY_FIELDS)
                         return '# pxname,svname,status,' + ','.join(fields) + '\n' + '\n'.join(
-                            'ext_authz,' + name + ',no check,' + ','.join('0' for _ in fields) for name in ('app', 'BACKEND'))
+                            px + ',' + name + ',no check,' + ','.join('0' for _ in fields)
+                            for px, name in (('ext_authz', 'app'), ('ext_authz', 'BACKEND'), ('check', 'FRONTEND')))
                     else:
                         advance(cost); calls.append(('k', *args))
                         if case == 'invalid-native' and 'ext-authz-sim-new' in args and 'stats/prometheus' in args: return ''
@@ -1844,6 +2043,7 @@ class CollectionGateTests(unittest.TestCase):
         for case in ('hostname', 'provider', 'selector', 'controller', 'image', *failures):
             with self.subTest(case=case), tempfile.TemporaryDirectory() as directory:
                 f = LiveFixture('C0')
+                f.runtime.haproxy = lambda: {'frontend': {'stot': 0, 'scur': 0}}
                 real_config = f.runtime.configuration
                 drift_at = []
                 def drift(config, **kwargs):
@@ -4311,13 +4511,15 @@ class Campaign22BoundaryTests(unittest.TestCase):
         changed[-1]['haproxy_logs'] = first['haproxy_logs'] + [r for r in hp if r not in candidates]
         with self.assertRaisesRegex(ValueError, 'path error'): m.path_accounting('C3', changed)
 
-    def test_real_recovery_has_independent_command_slo_and_driver_failures(self):
-        # Optimistic coverage isolates demand/command boundaries; not a full run revalidation.
+    def test_real_recovery_latency_is_reported_p7_benchmark_not_functional_gate(self):
+        # HYPOTHETICAL current-rule predicate under optimistic coverage only. The archived C22 run stays CLOSED/invalid
+        # (controller/accounting tests above); its historical report is not reclassified or rewritten.
         result = m.recovery(self.manifest['plan'], self.rows, lambda *_: True)
-        self.assertEqual(result['status'], 'not recovered within observation window')
-        self.assertEqual(sum(w['good'] for w in result['windows']), 0)
-        self.assertTrue(all(w['failure_counts']['issue-command-slo'] > 0 for w in result['windows']))
-        self.assertEqual(sum(w['failure_counts'].get('issue-command-slo', 0) for w in result['windows']), 674)
+        self.assertEqual(result['status'], 'recovered')  # functional predicate only; not a historical outcome
+        bench = result['p7_benchmark']
+        self.assertEqual((bench['status'], bench['issue_command_seconds']['samples'], bench['issue_command_seconds']['over_threshold']), ('fail', 864, 674))
+        self.assertGreater(bench['former_p9_strict_driver_lag_diagnostic']['max'], 1.5)
+        self.assertFalse(any({'issue-command-slo', 'driver-lag'} & set(w['failure_counts']) for w in result['windows']))
         self.assertGreater(result['campaign']['driver_lag_max_seconds'], 1.5)
         self.assertEqual(result['campaign']['scheduler_dispatch_lag_seconds'], [])  # Missing historical submission clock stays unknown.
 
@@ -4345,7 +4547,7 @@ class Campaign22BoundaryTests(unittest.TestCase):
         runtime.value, runtime.hpa_name = {'source_sha': 'a' * 40}, m.HPA
         runtime.collection_deadline = threading.local()
         emitted = []; runtime.emit = emitted.append
-        failed = {'metadata': {'uid': 'synthetic', 'resourceVersion': '42', 'generation': 1},
+        failed = {'spec': t8.hpa_spec(), 'metadata': {'uid': 'synthetic', 'resourceVersion': '42', 'generation': 1},
                   'status': {'currentMetrics': [], 'conditions': [{'type': 'ScalingActive', 'status': 'False', 'reason': 'FailedGetExternalMetric'}]}}
         args = ('-n', m.NS, 'get', 'hpa', m.HPA, '-o', 'json')
         with patch.object(m.p8.Runtime, 'j', return_value=failed) as api, patch.object(m.time, 'monotonic', side_effect=[10, 11]):
@@ -4400,6 +4602,799 @@ class Campaign22BoundaryTests(unittest.TestCase):
                 self.assertEqual(sum(c.args == args for c in get.call_args_list), 3)  # Existing timeline/configuration/guard GETs only.
 
 
+class Campaign23BoundaryTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.archive = ROOT / 'docs/evidence/p9-mitigation-twenty-third-20261103/raw-evidence.tar.gz'
+        cls.original = m.hashlib.sha256(cls.archive.read_bytes()).hexdigest()
+        assert cls.original == 'd1e340eb44c7b01d15c884d3b6b5952bc096fbd3172b98bd8b0eb93df521666f'
+        with tarfile.open(cls.archive) as raw:
+            cls.manifest = json.load(raw.extractfile('calibration-C3-1/configuration.json'))
+            cls.rows = [json.loads(line) for line in raw.extractfile('calibration-C3-1/events.jsonl')]
+        cls.snapshots = [e for e in cls.rows if e['record'] == 'snapshot']
+
+    @classmethod
+    def tearDownClass(cls):
+        assert m.hashlib.sha256(cls.archive.read_bytes()).hexdigest() == cls.original
+
+    def test_actual_earlier_hpa_is_still_invalid_not_later_amw_success(self):
+        with self.assertRaisesRegex(ValueError, 'controller metric/status failure'):
+            m.common_guards(self.snapshots, self.manifest['baseline'], 'C3', self.manifest['plan'])
+        failed = [s for s in self.snapshots if s['signal']['status'] == 'observed' and
+                  any(c['type'] == 'ScalingActive' and c['status'] == 'False' for c in s['guard']['hpa']['conditions'])]
+        self.assertEqual(len(failed), 1)
+        self.assertAlmostEqual(failed[0]['signal']['query_observation']['at'] - failed[0]['hpa_observation']['at'], 11.76233341614716)
+        self.assertNotIn('controller_state', failed[0])
+
+    def test_actual_103_log_rows_remain_missing_no_400_filter(self):
+        first, last = self.snapshots[0], self.snapshots[-1]
+        rows = last['haproxy_logs'][len(first['haproxy_logs']):]
+        ingress = sum(len(rs) - len(first['logs']['proxies']['ingress'][uid]) for uid, rs in last['logs']['proxies']['ingress'].items())
+        self.assertEqual((len(rows), ingress), (3036, 3139))
+        self.assertFalse(any(r['status'] == 400 or r['queue_ms'] == -1 for r in rows))
+        with self.assertRaisesRegex(ValueError, 'path error'): m.path_accounting('C3', self.snapshots)
+
+    def test_actual_recovery_latency_preserved_as_p7_benchmark(self):
+        # Only the redacted public identity placeholder is replaced for this pure schedule/latency predicate
+        # (optimistic coverage, no binding revalidation). C23 stays CLOSED/invalid by its accounting negative above.
+        v = self.manifest['plan'] | {'identity_client_id': plan()['identity_client_id']}
+        bench = m.recovery(v, self.rows, lambda *_: True)['p7_benchmark']
+        self.assertEqual((bench['status'], bench['issue_command_seconds']['over_threshold']), ('fail', 639))
+
+
+class C3StartupControllerTests(unittest.TestCase):
+    def setUp(self):
+        env = patch.dict(os.environ, {'FORGEJO_URL': 'https://forgejo.example.com'}, clear=True)
+        env.start(); self.addCleanup(env.stop)
+
+    def fixture(self):
+        # Entirely synthetic future-format observations; never archive edits.
+        f = LiveFixture('C3')
+        snapshots = [next(r for r in f.collect(0) if r['record'] == 'snapshot')]
+        f.pods.append(f.pod('new', 'ext-authz-sim-new'))
+        f.one_sample = {'new'}
+        snapshots.append(next(r for r in f.collect(20) if r['record'] == 'snapshot'))
+        f.one_sample.clear()
+        original = f.runtime.guard
+        def first_export():
+            guard = original()
+            next(x for x in guard['pod_metrics'] if x['metadata']['name'] == 'ext-authz-sim-new')['timestamp'] = m.datetime.fromtimestamp(1020, m.timezone.utc).isoformat()
+            return guard
+        f.runtime.guard = first_export
+        snapshots.append(next(r for r in f.collect(35) if r['record'] == 'snapshot'))
+        f.runtime.guard = original
+        snapshots += [next(r for r in f.collect(at) if r['record'] == 'snapshot') for at in (50, 65)]
+        for s in snapshots[1:3]: self.degrade(s)
+        return snapshots, f.baseline
+
+    def degrade(self, s, reason='FailedGetExternalMetric'):
+        next(c for c in s['guard']['hpa']['conditions'] if c['type'] == 'ScalingActive').update(status='False', reason=reason)
+        s['guard']['hpa']['currentMetrics'] = [{'type': ''}]
+        s['hpa_observation']['status_sha256'] = m.digest(s['guard']['hpa'])
+        s['controller_state']['status'] = 'degraded'
+        s['healthy'] = False
+
+    def pending_image_fixture(self):
+        f = LiveFixture('C3')
+        snapshots = [next(r for r in f.collect(0) if r['record'] == 'snapshot')]
+        pending = f.pod('new', 'ext-authz-sim-new', ready=False)
+        pending['status']['containerStatuses'] = [
+            {'name': 'app', 'imageID': '', 'ready': False, 'restartCount': 0}]
+        f.pods.append(pending)
+        snapshots.append(next(r for r in f.collect(20) if r['record'] == 'snapshot'))
+        f.pods[-1] = f.pod('new', 'ext-authz-sim-new')
+        snapshots += [next(r for r in f.collect(at) if r['record'] == 'snapshot') for at in (35, 50, 65)]
+        return snapshots, f.baseline
+
+    def test_pending_empty_image_id_is_unknown_until_actual_ready_image(self):
+        snapshots, baseline = self.pending_image_fixture()
+        self.assertEqual(snapshots[1]['guard']['runtime_images']['new'], {'app': ''})
+        self.assertEqual(snapshots[1]['target_inventory'][-1]['phase'], 'Pending')
+        self.assertEqual(m.common_guards(snapshots, baseline, 'C3', plan()), {'target', 'new'})
+        self.assertEqual(snapshots[1]['guard']['runtime_images']['new'], {'app': ''})  # No synthesis.
+
+    def test_known_pending_ready_and_initial_image_ids_remain_immutable(self):
+        for case in ('known-pending', 'known-ready', 'ready-empty', 'ready-missing', 'initial', 'invalid-unknown'):
+            snapshots, baseline = self.pending_image_fixture()
+            expected = 'new Pod runtime image drift'
+            if case == 'known-pending': snapshots[1]['guard']['runtime_images']['new']['app'] = 'different-known-image'
+            elif case == 'known-ready': snapshots[-1]['guard']['runtime_images']['new']['app'] = 'different-known-image'
+            elif case == 'ready-empty': snapshots[-1]['guard']['runtime_images']['new']['app'] = ''
+            elif case == 'ready-missing': snapshots[-1]['guard']['runtime_images']['new'] = {}
+            elif case == 'invalid-unknown': snapshots[1]['guard']['runtime_images']['new']['app'] = None
+            else:
+                snapshots[-1]['guard']['runtime_images']['target']['app'] = 'different-known-image'
+                expected = 'runtime image/lifetime drift'
+            with self.subTest(case=case), self.assertRaisesRegex(ValueError, expected):
+                m.common_guards(snapshots, baseline, 'C3', plan())
+
+    def test_future_bounded_explicit_degradation_then_real_joint_positive(self):
+        snapshots, baseline = self.fixture()
+        self.assertEqual(snapshots[2]['signal']['status'], 'observed')
+        self.assertEqual(snapshots[2]['resource_readiness']['status'], 'initializing-new-pod')
+        self.assertEqual(m.common_guards(snapshots, baseline, 'C3', plan()), {'target', 'new'})
+        self.assertEqual([s['controller_state']['status'] for s in snapshots], ['positive', 'degraded', 'degraded', 'positive', 'positive'])
+        self.assertTrue(all(any(c['type'] == 'ScalingActive' and c['status'] == 'False' for c in s['guard']['hpa']['conditions']) for s in snapshots[1:3]))
+
+    def test_persistent_other_reason_post_initialization_and_missing_positive_invalid(self):
+        for case in ('persistent', 'other', 'initialized', 'no-positive', 'bad-metric'):
+            snapshots, baseline = self.fixture()
+            if case == 'persistent':
+                for s in snapshots[3:]: self.degrade(s)
+            elif case == 'other': self.degrade(snapshots[2], 'OtherError')
+            elif case == 'initialized': self.degrade(snapshots[-1])
+            elif case == 'no-positive': snapshots = snapshots[:3]
+            else:
+                snapshots[3]['guard']['hpa']['currentMetrics'] = [{'type': ''}]
+                snapshots[3]['hpa_observation']['status_sha256'] = m.digest(snapshots[3]['guard']['hpa'])
+                snapshots[3]['controller_state']['status'] = 'degraded'
+            with self.subTest(case=case), self.assertRaises(ValueError): m.common_guards(snapshots, baseline, 'C3', plan())
+
+    def test_uid_owner_hash_clock_and_original_budgets_remain_strict(self):
+        for case in ('uid', 'owner', 'hash', 'clock', 'resource-budget', 'amw-budget'):
+            snapshots, baseline = self.fixture(); s = snapshots[2]
+            if case == 'uid': s['hpa_observation']['metadata']['uid'] = 'other'
+            elif case == 'owner': s['hpa_observation']['metadata']['ownerReferences'][0]['uid'] = 'other'
+            elif case == 'hash': s['hpa_observation']['status_sha256'] = 'wrong'
+            elif case == 'clock': s['hpa_observation']['at'] = s['end'] + 1
+            else:
+                lifecycle = m.TargetLifecycle('C3', {'target'}, plan())
+                lifecycle.inventory(s['target_inventory'], 0, 1000)
+                if case == 'resource-budget':
+                    with self.assertRaisesRegex(ValueError, 'startup timeout'):
+                        lifecycle.resources(s['guard'], s['target_inventory'], s['signal'], 151)
+                else:
+                    lifecycle.admin(s['configuration']['targets'], s['admin_stats'], s['stats'], 0)
+                    with self.assertRaisesRegex(ValueError, 'series startup timeout'):
+                        lifecycle.signal(s['signal'], s['target_inventory'], 76, s['signal']['evaluation']['epoch'])
+                continue
+            with self.subTest(case=case), self.assertRaises(ValueError): m.common_guards(snapshots, baseline, 'C3', plan())
+
+    def test_joint_confirmation_uses_full_snapshot_end_within_150s(self):
+        snapshots, baseline = self.fixture()
+        # Ready at20, resource read at160 (+140), but mandatory collection
+        # completes at171 (+151). Earlier reads cannot meet the full joint gate.
+        s = snapshots[3]
+        s.update(at=160, end=171, inventory_at=160, inventory_epoch=1160, epoch=1171)
+        s['resource_readiness']['observed_at'] = 160
+        s['hpa_observation'].update(request_at=160, at=160)
+        s['controller_state']['observed_at'] = 160
+        s['signal']['evaluation'].update(at=160, epoch=1160,
+            timestamp_utc=m.datetime.fromtimestamp(1160, m.timezone.utc).isoformat())
+        for r in s['signal']['pods']: r['timestamp'] = 1160
+        with self.assertRaisesRegex(ValueError, 'controller joint initialization timeout'):
+            m.common_guards(snapshots[:4], baseline, 'C3', plan())
+
+
+class Campaign24BoundaryTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.archive = ROOT / 'docs/evidence/p9-mitigation-twenty-fourth-20261104/raw-evidence.tar.gz'
+        cls.original = m.hashlib.sha256(cls.archive.read_bytes()).hexdigest()
+        assert cls.original == 'f6483cb38d63e45af28b02f3b13ce066266153dc99bdcf938d2ed96253718be0'
+        with tarfile.open(cls.archive) as raw:
+            cls.manifest = json.load(raw.extractfile('calibration-C3-1/configuration.json'))
+            cls.rows = [json.loads(line) for line in raw.extractfile('calibration-C3-1/events.jsonl')]
+            cls.failure = json.load(raw.extractfile('failed-cycle-analysis.json'))
+        cls.snapshots = [e for e in cls.rows if e['record'] == 'snapshot']
+
+    @classmethod
+    def tearDownClass(cls):
+        assert m.hashlib.sha256(cls.archive.read_bytes()).hexdigest() == cls.original
+
+    def test_actual_pending_empty_ids_can_materialize_without_revalidating_run(self):
+        prefix = self.snapshots[:13]  # Stops before the independent post-startup metric Warning.
+        initial = {t['uid'] for t in self.manifest['baseline']['targets']}
+        pending = next(s for s in prefix if any(p['phase'] == 'Pending' for p in s['target_inventory']))
+        uid = next(p['uid'] for p in pending['target_inventory'] if p['uid'] not in initial)
+        before = copy.deepcopy(pending['guard']['runtime_images'][uid])
+        self.assertEqual({k: before[k] for k in ('app', 'istio-proxy')}, {'app': '', 'istio-proxy': ''})
+        self.assertTrue(before['istio-validation'])  # Known init-container ID stays frozen too.
+        self.assertEqual(m.common_guards(prefix, self.manifest['baseline'], 'C3', self.manifest['plan']), initial | {uid})
+        self.assertEqual(pending['guard']['runtime_images'][uid], before)
+
+    def test_actual_warning_history_is_deduplicated_and_inventory_age_is_separate(self):
+        m.common_guards(self.snapshots, self.manifest['baseline'], 'C3', self.manifest['plan'])
+        warnings = m.controller_metric_warnings(self.snapshots, self.manifest['baseline'], 'C3', self.manifest['plan'])
+        self.assertEqual({x['event']['reason'] for x in warnings},
+                         {'FailedGetExternalMetric', 'FailedComputeMetricsReplicas', 'KEDAScalerFailed'})
+        self.assertTrue(all(x['first_snapshot'] == 13 and x['last_snapshot'] == 19 and
+                            x['recovery_snapshot'] == 14 and x['degraded'] for x in warnings))
+        self.assertTrue(all(s['controller_state']['status'] == 'positive' for s in self.snapshots))
+
+        # Repeated immutable event history deduplicates; changed count/UID/owner,
+        # a new episode, or absence of a later joint positive remains invalid.
+        changed = copy.deepcopy(self.snapshots)
+        changed[16]['guard']['events'][-1]['count'] += 1
+        with self.assertRaisesRegex(ValueError, 'warning provenance or recurrence'):
+            m.controller_metric_warnings(changed, self.manifest['baseline'], 'C3', self.manifest['plan'])
+        changed = copy.deepcopy(self.snapshots)
+        changed[-1]['guard']['events'] = [e for e in changed[-1]['guard']['events'] if e.get('uid') != warnings[0]['event']['uid']]
+        with self.assertRaisesRegex(ValueError, 'history disappeared'):
+            m.controller_metric_warnings(changed, self.manifest['baseline'], 'C3', self.manifest['plan'])
+        changed = copy.deepcopy(self.snapshots)
+        for s in changed[14:]:
+            s['controller_state']['status'] = 'degraded'
+        with self.assertRaisesRegex(ValueError, 'lacks later independent joint positive'):
+            m.controller_metric_warnings(changed, self.manifest['baseline'], 'C3', self.manifest['plan'])
+        changed = copy.deepcopy(self.snapshots)
+        event = copy.deepcopy(changed[16]['guard']['events'][-1]); event['uid'] = 'new-event-uid'
+        changed[16]['guard']['events'].append(event)
+        with self.assertRaisesRegex(ValueError, 'new HPA/KEDA Warning episode'):
+            m.controller_metric_warnings(changed, self.manifest['baseline'], 'C3', self.manifest['plan'])
+        changed = copy.deepcopy(self.snapshots)
+        changed[16]['guard']['events'][-1]['owner']['uid'] = 'wrong-owner'
+        with self.assertRaisesRegex(ValueError, 'warning provenance or recurrence'):
+            m.controller_metric_warnings(changed, self.manifest['baseline'], 'C3', self.manifest['plan'])
+
+        v = self.manifest['plan']
+        self.assertEqual(m.inventory_freshness_seconds(v), 90)
+        parts = m.scale_query_parts(v)[1]
+        self.assertIn('<= 60', m.scale_query(v))
+        self.assertIn('<= 90', m.scale_query(v))
+        self.assertIn('inventory_uid_count', parts)
+        self.assertIn('matched_pod_count', parts)
+        failure_index = next(i for i, e in enumerate(self.rows) if e['record'] == 'monitor_failure')
+        lifecycle = m.TargetLifecycle('C3', {t['uid'] for t in self.manifest['baseline']['targets']}, self.manifest['plan'])
+        for s in (e for e in self.rows[:failure_index] if e['record'] == 'snapshot'):
+            inventory = s['target_inventory']
+            lifecycle.inventory(inventory, s['inventory_at'], s['inventory_epoch'])
+            lifecycle.admin(s['configuration']['targets'], s['admin_stats'], s['stats'], s['at'])
+            lifecycle.signal(s['signal'], inventory, s['signal']['evaluation']['at'], s['signal']['evaluation']['epoch'])
+            lifecycle.resources(s['guard'], inventory, s['signal'], s['resource_readiness']['observed_at'])
+        signal = self.failure['reconstructed_actual_signal']
+        self.assertEqual(signal['query'], [])  # No [] -> zero or startup exception.
+        operands = signal['query_diagnostics']['operands']
+        self.assertAlmostEqual(float(operands['raw_max_age'][0]['value'][1]), 20.51200008392334)
+        self.assertAlmostEqual(float(operands['up_max_age'][0]['value'][1]), 35.51200008392334)
+        self.assertAlmostEqual(float(operands['inventory_max_age'][0]['value'][1]), 61.51200008392334)
+        self.assertEqual(float(operands['inventory_count'][0]['value'][1]), 2)
+        timeline = next(e for e in reversed(self.rows[:failure_index]) if e['record'] == 'replica_timeline')
+        with self.assertRaisesRegex(ValueError, 'empty/invalid guarded scale query'):
+            lifecycle.signal(signal, timeline['pods'], signal['evaluation']['at'], signal['evaluation']['epoch'])
+        self.assertEqual(self.rows[-1]['record'], 'run_failure')
+
+    def test_demand_fidelity_keeps_two_second_bound_separate_from_recovery_slo(self):
+        m.require_complete_demand({'unissued': 0, 'driver_lag_max_seconds': 1.999})
+        for report in ({'unissued': 0, 'driver_lag_max_seconds': 2.001},
+                       {'unissued': 1, 'driver_lag_max_seconds': 0.0}):
+            with self.subTest(report=report), self.assertRaisesRegex(ValueError, 'driver demand reduction/lag invalidates comparison'):
+                m.require_complete_demand(report)
+
+
+class Campaign29WarningRecurrenceTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.archive = ROOT / 'docs/evidence/p9-mitigation-twenty-ninth-20261104/raw-evidence.tar.gz'
+        cls.original = m.hashlib.sha256(cls.archive.read_bytes()).hexdigest()
+        assert cls.original == '82eddb8e5bd0c784f3cfb01e152168cff3c485460f4ff0a223fb624f0d11e940'
+        with tarfile.open(cls.archive) as raw:
+            cls.manifest = json.load(raw.extractfile('C3-calibration1/configuration.json'))
+            rows = [json.loads(line) for line in raw.extractfile('C3-calibration1/events.jsonl')]
+        cls.snapshots = [e for e in rows if e['record'] == 'snapshot']
+        cls.origin = cls.snapshots[0]['signal']['evaluation']['epoch']
+
+    @classmethod
+    def tearDownClass(cls):
+        assert m.hashlib.sha256(cls.archive.read_bytes()).hexdigest() == cls.original
+
+    def warnings(self, snapshots):
+        return m.controller_metric_warnings(snapshots, self.manifest['baseline'], 'C3', self.manifest['plan'])
+
+    def at(self, offset):
+        return m.datetime.fromtimestamp(round(self.origin + offset), m.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+
+    def event(self, s, reason):
+        return next(e for e in s['guard']['events'] if e.get('reason') == reason)
+
+    def test_actual_repeated_keda_warmup_warning_is_bounded_and_archive_stays_invalid(self):
+        execution = json.loads((self.archive.parent / 'execution.json').read_text())
+        self.assertTrue(execution['state'].startswith('CLOSED/invalid'))  # Original classification is immutable.
+        warnings = self.warnings(self.snapshots)
+        keda = next(x for x in warnings if x['event']['reason'] == 'KEDAScalerFailed')
+        self.assertEqual((keda['event']['count'], keda['first_snapshot'], keda['last_snapshot'], keda['recovery_snapshot']), (2, 7, 27, 11))
+        self.assertEqual({k: keda['warming_episode'][k] for k in ('start_snapshot', 'observed_snapshot')},
+                         {'start_snapshot': 4, 'observed_snapshot': 7})
+        self.assertEqual(keda['warming_episode']['start_epoch'], self.snapshots[4]['inventory_epoch'])
+        self.assertEqual(keda['warming_episode']['end_epoch'], self.snapshots[7]['signal']['evaluation']['epoch'])
+        hpa = [x for x in warnings if x['event']['reason'] != 'KEDAScalerFailed']
+        self.assertEqual({(x['event']['reason'], x['event']['count']) for x in hpa},
+                         {('FailedGetExternalMetric', 1), ('FailedComputeMetricsReplicas', 1)})
+        self.assertTrue(all('warming_episode' not in x and 'first_observed' not in x for x in hpa))
+        self.assertEqual(len(m.common_guards(self.snapshots, self.manifest['baseline'], 'C3', self.manifest['plan'])), 2)
+
+    def test_native_count_growth_only_while_warming(self):
+        changed = copy.deepcopy(self.snapshots)
+        grown = self.event(changed[7], 'KEDAScalerFailed')
+        early = copy.deepcopy(grown) | {'count': 1, 'timestamp_utc': grown['first_timestamp_utc']}
+        changed[6]['guard']['events'].append(early)
+        keda = next(x for x in self.warnings(changed) if x['event']['reason'] == 'KEDAScalerFailed')
+        self.assertEqual((keda['first_snapshot'], keda['event']['count']), (6, 2))
+        self.assertEqual(keda['first_observed'], {'count': 1, 'first_timestamp_utc': grown['first_timestamp_utc'],
+                                                  'timestamp_utc': grown['first_timestamp_utc']})
+        self.assertEqual(keda['recovery_snapshot'], 11)
+
+        cases = {'after-observed': (8, {'count': 3, 'timestamp_utc': self.at(140)}),
+                 'count-regression': (8, {'count': 1, 'timestamp_utc': grown['first_timestamp_utc']}),
+                 'time-regression': (8, {'count': 3, 'timestamp_utc': self.at(110)}),
+                 'count-without-time': (8, {'count': 3}),
+                 'first-time-change': (8, {'first_timestamp_utc': self.at(104)}),
+                 'late-recurrence': (20, {'count': 3, 'timestamp_utc': self.at(300)})}
+        for case, (index, fields) in cases.items():
+            changed = copy.deepcopy(self.snapshots)
+            for s in changed[index:]:
+                self.event(s, 'KEDAScalerFailed').update(fields)
+            with self.subTest(case=case), self.assertRaisesRegex(ValueError, 'warning provenance or recurrence'):
+                self.warnings(changed)
+
+    def test_repeat_outside_native_warmup_or_without_bounded_episode_invalid(self):
+        def first_before_inventory(e): e['first_timestamp_utc'] = self.at(50)  # Before first new-Pod inventory.
+        def single_poll(e): e['first_timestamp_utc'] = e['timestamp_utc']
+        def hpa_owner(e): e['owner'] = copy.deepcopy(self.event(self.snapshots[7], 'FailedGetExternalMetric')['owner'])
+        def scaledobject_uid(e): e['owner']['uid'] = 'other-owner'
+        def missing_first(e): e.pop('first_timestamp_utc')
+        def bad_count(e): e['count'] = '2'
+        for case, mutate in {'first-before-inventory': first_before_inventory, 'count-gt-one-same-time': single_poll,
+                             'hpa-owner': hpa_owner, 'scaledobject-uid': scaledobject_uid,
+                             'missing-first': missing_first, 'non-int-count': bad_count}.items():
+            changed = copy.deepcopy(self.snapshots)
+            for s in changed[7:]:
+                mutate(self.event(s, 'KEDAScalerFailed'))
+            with self.subTest(case=case), self.assertRaisesRegex(ValueError, 'warning provenance or recurrence'):
+                self.warnings(changed)
+        # No later fully observed all-Pod signal: the warmup never ends, so no repeat is bounded.
+        changed = copy.deepcopy(self.snapshots)
+        missing = changed[6]['signal']['missing_uids']
+        for s in changed[7:]:
+            s['signal'].update(status='warming-new-pod', missing_uids=copy.deepcopy(missing))
+        with self.assertRaisesRegex(ValueError, 'warning provenance or recurrence'):
+            self.warnings(changed)
+
+    def test_hpa_repeat_bounded_like_keda_and_existing_history_guards_remain(self):
+        for reason in ('FailedGetExternalMetric', 'FailedComputeMetricsReplicas'):
+            changed = copy.deepcopy(self.snapshots)
+            for s in changed[7:]:
+                self.event(s, reason).update(count=2, first_timestamp_utc=self.at(102))
+            self.assertEqual(next(x for x in self.warnings(changed) if x['event']['reason'] == reason)['event']['count'], 2)
+            for case, fields in {'outside-warmup': {'first_timestamp_utc': self.at(50)},
+                                 'same-time': {'first_timestamp_utc': self.at(106)}}.items():
+                changed = copy.deepcopy(self.snapshots)
+                for s in changed[7:]:
+                    self.event(s, reason).update(count=2, **fields)
+                with self.subTest(reason=reason, case=case), self.assertRaisesRegex(ValueError, 'warning provenance or recurrence'):
+                    self.warnings(changed)
+        changed = copy.deepcopy(self.snapshots)
+        for s in changed[9:]:
+            self.event(s, 'FailedGetExternalMetric')['message'] = 'changed native history'
+        with self.assertRaisesRegex(ValueError, 'warning provenance or recurrence'):  # Only count/last time may grow.
+            self.warnings(changed)
+        # A reason outside its owner's repeat set keeps immutable single history.
+        changed = copy.deepcopy(self.snapshots)
+        odd = copy.deepcopy(self.event(changed[7], 'FailedGetExternalMetric')) | {'reason': 'KEDAScalerFailed', 'uid': 'hpa-keda-uid'}
+        for index, s in enumerate(changed[7:]):
+            s['guard']['events'].append(copy.deepcopy(odd) | ({'message': 'changed'} if index else {}))
+        with self.assertRaisesRegex(ValueError, 'history changed across snapshots'):
+            self.warnings(changed)
+        changed = copy.deepcopy(self.snapshots)
+        # Even inside the same bounded warmup, a second native Event UID is a new episode.
+        second = copy.deepcopy(self.event(changed[7], 'KEDAScalerFailed')) | {'uid': 'second-event-uid'}
+        for s in changed[7:]:
+            s['guard']['events'].append(copy.deepcopy(second))
+        with self.assertRaisesRegex(ValueError, 'new HPA/KEDA Warning episode'):
+            self.warnings(changed)
+        changed = copy.deepcopy(self.snapshots)
+        changed[-1]['guard']['events'] = [e for e in changed[-1]['guard']['events'] if e.get('reason') != 'KEDAScalerFailed']
+        with self.assertRaisesRegex(ValueError, 'history disappeared'):
+            self.warnings(changed)
+        # Grouping uses distinct warnings' native first times, still 15s.
+        changed = copy.deepcopy(self.snapshots)
+        for s in changed[7:]:
+            self.event(s, 'FailedGetExternalMetric').update(first_timestamp_utc=self.at(117), timestamp_utc=self.at(117))
+        with self.assertRaisesRegex(ValueError, 'independent controller Warning episodes'):
+            self.warnings(changed)
+        unknown = copy.deepcopy(self.event(self.snapshots[7], 'KEDAScalerFailed')) | {'reason': 'KEDAMetricSourceFailed', 'uid': 'other'}
+        changed = copy.deepcopy(self.snapshots)
+        for s in changed[7:]:
+            s['guard']['events'].append(copy.deepcopy(unknown))
+        with self.assertRaisesRegex(ValueError, 'warning provenance or recurrence'):
+            self.warnings(changed)
+
+    def test_repeat_requires_later_native_joint_positive(self):
+        for case in ('controller', 'resource', 'signal'):
+            changed = copy.deepcopy(self.snapshots)
+            for s in changed[8:]:
+                if case == 'controller': s['controller_state']['status'] = 'degraded'
+                elif case == 'resource': s['resource_readiness']['status'] = 'initializing-new-pod'
+                else: s['signal']['status'] = 'uninitialized'
+            with self.subTest(case=case), self.assertRaisesRegex(ValueError, 'lacks later independent joint positive'):
+                self.warnings(changed)
+
+
+class Campaign30HpaWarningRecurrenceTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.archive = ROOT / 'docs/evidence/p9-mitigation-thirtieth-20261105/raw-evidence.tar.gz'
+        cls.original = m.hashlib.sha256(cls.archive.read_bytes()).hexdigest()
+        assert cls.original == '2c81cdbf4dae98fa69fd0a1176c1451b5aecde89ffc5129677b26f02d1074385'
+        with tarfile.open(cls.archive) as raw:
+            cls.manifest = json.load(raw.extractfile('C3-calibration1/configuration.json'))
+            rows = [json.loads(line) for line in raw.extractfile('C3-calibration1/events.jsonl')]
+        cls.snapshots = [e for e in rows if e['record'] == 'snapshot']
+        cls.origin = cls.snapshots[0]['signal']['evaluation']['epoch']
+
+    @classmethod
+    def tearDownClass(cls):
+        assert m.hashlib.sha256(cls.archive.read_bytes()).hexdigest() == cls.original
+
+    def warnings(self, snapshots):
+        return m.controller_metric_warnings(snapshots, self.manifest['baseline'], 'C3', self.manifest['plan'])
+
+    def at(self, offset):
+        return m.datetime.fromtimestamp(round(self.origin + offset), m.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+
+    def test_actual_hpa_and_keda_growth_inside_warmup_is_bounded(self):
+        warnings = {x['event']['reason']: x for x in self.warnings(self.snapshots)}
+        self.assertEqual(set(warnings), {'FailedGetExternalMetric', 'FailedComputeMetricsReplicas', 'KEDAScalerFailed'})
+        for x in warnings.values():
+            # Native count 1 at snapshot6 (warming), count 2 at snapshot7 (first fully observed), then unchanged.
+            self.assertEqual((x['first_snapshot'], x['last_snapshot'], x['recovery_snapshot'], x['event']['count']), (6, 26, 9, 2))
+            self.assertEqual(x['first_observed']['count'], 1)
+            self.assertEqual({k: x['warming_episode'][k] for k in ('start_snapshot', 'observed_snapshot')},
+                             {'start_snapshot': 4, 'observed_snapshot': 7})
+        self.assertEqual(len(m.common_guards(self.snapshots, self.manifest['baseline'], 'C3', self.manifest['plan'])), 2)
+
+    def test_hpa_growth_after_observed_or_outside_warmup_invalid(self):
+        for reason in ('FailedGetExternalMetric', 'FailedComputeMetricsReplicas'):
+            for case, (index, fields) in {'after-observed': (8, {'count': 3, 'timestamp_utc': self.at(140)}),
+                                          'late': (15, {'count': 3, 'timestamp_utc': self.at(280)}),
+                                          'before-inventory': (6, {'first_timestamp_utc': self.at(40)})}.items():
+                changed = copy.deepcopy(self.snapshots)
+                for s in changed[index:]:
+                    next(e for e in s['guard']['events'] if e.get('reason') == reason).update(fields)
+                with self.subTest(reason=reason, case=case), self.assertRaisesRegex(ValueError, 'warning provenance or recurrence'):
+                    self.warnings(changed)
+
+
+class Campaign31DelayedVisibleGrowthTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.archive = ROOT / 'docs/evidence/p9-mitigation-thirty-first-20261105/raw-evidence.tar.gz'
+        cls.original = m.hashlib.sha256(cls.archive.read_bytes()).hexdigest()
+        assert cls.original == 'c1243acb6e3deeb7d0c5e59a018b22fa1685ce5b7ca6a6242a68e46750ee3853'
+        with tarfile.open(cls.archive) as raw:
+            cls.manifest = json.load(raw.extractfile('C3-measured/configuration.json'))
+            rows = [json.loads(line) for line in raw.extractfile('C3-measured/events.jsonl')]
+        cls.snapshots = [e for e in rows if e['record'] == 'snapshot']
+
+    @classmethod
+    def tearDownClass(cls):
+        assert m.hashlib.sha256(cls.archive.read_bytes()).hexdigest() == cls.original
+
+    def warnings(self, snapshots):
+        return m.controller_metric_warnings(snapshots, self.manifest['baseline'], 'C3', self.manifest['plan'])
+
+    def test_growth_written_before_observed_signal_but_visible_one_collection_later(self):
+        warnings = {x['event']['reason']: x for x in self.warnings(self.snapshots)}
+        for reason in ('FailedGetExternalMetric', 'FailedComputeMetricsReplicas'):
+            x = warnings[reason]
+            # count1 in the first observed snapshot5 (guard collected before the native update), count2 at snapshot6.
+            self.assertEqual((x['first_snapshot'], x['first_observed']['count'], x['event']['count'], x['recovery_snapshot']), (5, 1, 2, 8))
+            self.assertEqual(x['warming_episode']['observed_snapshot'], 5)
+            self.assertLess(m.p8.p7.utc(self.snapshots[5]['guard']['timestamp_utc']), m.p8.p7.utc(x['event']['timestamp_utc']))
+        self.assertEqual(warnings['KEDAScalerFailed']['event']['count'], 2)
+        self.assertEqual(len(m.common_guards(self.snapshots, self.manifest['baseline'], 'C3', self.manifest['plan'])), 2)
+
+    def test_growth_missing_from_a_later_collection_or_after_signal_invalid(self):
+        for case in ('omitted-by-later-guard', 'after-observed-signal'):
+            changed = copy.deepcopy(self.snapshots)
+            for reason in ('FailedGetExternalMetric', 'FailedComputeMetricsReplicas'):
+                early = copy.deepcopy(next(e for e in changed[5]['guard']['events'] if e.get('reason') == reason))
+                if case == 'omitted-by-later-guard':  # snapshot6 guard (after +88.8s) still shows count1
+                    changed[6]['guard']['events'] = [early if e.get('reason') == reason else e for e in changed[6]['guard']['events']]
+                else:
+                    for s in changed[6:]:
+                        next(e for e in s['guard']['events'] if e.get('reason') == reason)['timestamp_utc'] = changed[6]['signal']['evaluation']['timestamp_utc'][:19] + 'Z'
+            with self.subTest(case=case), self.assertRaisesRegex(ValueError, 'warning provenance or recurrence'):
+                self.warnings(changed)
+
+
+class HaproxyRingTests(unittest.TestCase):
+    def test_whole_campaign_capacity_includes_shared_lifetime_and_public_rows(self):
+        maximum = plan() | {'mitigation_seconds': 300, 'recovery_seconds': 240}
+        items = m.schedule(maximum)
+        self.assertEqual(sum(x['kind'] == 'issue' for x in items), 2592)
+        self.assertEqual(sum(x['kind'] == 'git' for x in items), 108)
+        b = m.haproxy_lifetime_budget(plan())
+        self.assertEqual((b['runs'], b['rows_per_run'], b['total_rows']), (6, 5400, 32667))
+        self.assertEqual(b['direct_sentinel_rows'], 0)
+        required = (b['total_rows'] + 1) * m.HAPROXY_LOG_MAXLEN
+        self.assertLess(required, m.HAPROXY_RING_BYTES)
+        self.assertGreaterEqual(required, m.HAPROXY_RING_BYTES // 2)  # Smallest power-of-two allocation.
+        for previous_runs in range(6):
+            prefix = b['initial_public_rows'] + previous_runs * b['rows_per_run']
+            capacity = m.haproxy_capacity_preflight(plan(), prefix, previous_runs + 1)
+            self.assertEqual(prefix + capacity['reserved_future_rows'], b['total_rows'])
+        with patch.object(m, 'HAPROXY_RING_BYTES', 4 * 1024 * 1024), \
+                patch.object(m.p8.subprocess, 'run') as cloud, self.assertRaisesRegex(ValueError, 'maximum campaign lifetime'):
+            m.approval_gate(t8.identity(), plan(), approval(), [])
+        cloud.assert_not_called()
+        reserve = m.haproxy_capacity_preflight(plan())['reserved_future_rows']
+        too_many = m.HAPROXY_RING_BYTES // m.HAPROXY_LOG_MAXLEN - 1 - reserve
+        with self.assertRaisesRegex(ValueError, 'remaining campaign lifetime'):
+            m.haproxy_capacity_preflight(plan(), too_many, 1)
+
+    def row(self, counter=0):
+        return {'status': 200, 'termination': '--', 'queue_ms': 0, 'connect_ms': 0, 'response_ms': 1,
+                'total_ms': 1, 'accept_time': '1793698200.007', 'request_counter': counter + 1,
+                'log_counter': counter, 'request_ms': 0, 'pid': 8}
+
+    def test_complete_ring_and_stdout_loss_are_separate(self):
+        rows = [self.row(i) for i in range(3300)]
+        actual, obs = m.haproxy_capture(ring_response(rows, stdout_dropped=103), 'hp')
+        self.assertEqual(actual, rows)
+        self.assertEqual((obs['ring_dropped'], obs['dropped_logs_total']), (0, 103))
+        self.assertEqual(m.haproxy_capture(ring_response([]), 'hp')[0], [])
+        raced = [self.row(i) | {'log_counter': 0} for i in range(4)]
+        self.assertEqual(m.haproxy_capture(ring_response(raced), 'hp')[0], raced)
+
+    def test_missing_duplicate_overwrite_wrong_pid_and_malformed_fail_closed(self):
+        rows = [self.row(i) for i in range(4)]
+        variants = [rows + [rows[-1]],
+                    [rows[0] | {'pid': 9}], [rows[0] | {'url': 'forbidden'}]]
+        for changed in variants:
+            with self.subTest(changed=changed), self.assertRaises(ValueError):
+                m.haproxy_capture(ring_response(changed), 'hp')
+        for text in (ring_response(rows, dropped=1), ring_response(rows)[:-12],
+                     ring_response(rows).replace('\n\n\nP9_RING_END', '\nnot-json\n\nP9_RING_END')):
+            with self.assertRaises(ValueError): m.haproxy_capture(text, 'hp')
+        with patch.object(m, 'HAPROXY_RING_BYTES', 4 * m.HAPROXY_LOG_MAXLEN), self.assertRaisesRegex(ValueError, 'capacity'):
+            m.haproxy_capture(ring_response(rows), 'hp')
+
+    def test_c2_queue_timeout_and_shedding_values_are_not_normalized(self):
+        rows = [self.row(0) | {'status': 429, 'termination': 'PR', 'queue_ms': -1},
+                self.row(1) | {'status': 503, 'termination': 'sQ', 'queue_ms': 250}]
+        self.assertEqual(m.haproxy_capture(ring_response(rows), 'hp')[0], rows)
+
+    def test_saved_ring_lifetime_prefix_and_digest(self):
+        def snap(rows):
+            _, obs = m.haproxy_capture(ring_response(rows), 'hp')
+            return {'configuration': {'haproxy': {'uid': 'hp'}}, 'haproxy_logs': rows, 'haproxy_log_observation': obs,
+                    'haproxy': {'frontend': {'stot': len(rows), 'scur': 0}}}
+        first, last = snap([self.row()]), snap([self.row(i) for i in range(3)])
+        m.haproxy_capture_guard([first, last])
+        for key, value in (('pod_uid', 'other'), ('pid', 9), ('start_time_sec', 2), ('rows_sha256', 'wrong')):
+            changed = copy.deepcopy(last); changed['haproxy_log_observation'][key] = value
+            with self.subTest(key=key), self.assertRaises(ValueError): m.haproxy_capture_guard([first, changed])
+        changed = snap([self.row() | {'response_ms': 2}, self.row(1)])
+        with self.assertRaisesRegex(ValueError, 'reset/rotation'): m.haproxy_capture_guard([first, changed])
+        for rows in ([self.row(i) for i in range(1, 4)], [self.row(0), self.row(2), self.row(3)]):
+            changed = snap(rows); changed['haproxy']['frontend']['stot'] = 4
+            with self.assertRaisesRegex(ValueError, 'incomplete'): m.haproxy_capture_guard([changed, changed])
+
+
+@unittest.skipUnless(os.environ.get('P9_LOCAL_HAPROXY_DOCKER') == '1', 'explicit cost-free pinned Docker test')
+class PinnedHaproxyRingTests(unittest.TestCase):
+    def test_overwrite_and_actual_cr_row_fail_closed(self):
+        import http.client
+        import socket
+        import subprocess
+        import uuid
+        name = 'p9-ring-overwrite-' + uuid.uuid4().hex[:12]
+        objects = m.render(t8.identity(), plan(), 'C0')['fixtures.json']['items']
+        cfg = next(o['data']['haproxy.cfg'] for o in objects if o['kind'] == 'ConfigMap' and o['metadata']['name'] == 'haproxy')
+        cfg = cfg.replace('size ' + str(m.HAPROXY_RING_BYTES), 'size 4096')
+        cfg = cfg.replace('ext-authz-sim.' + m.NS + '.svc.cluster.local:8080', '127.0.0.1:8081')
+        cfg += '\nfrontend local_test_backend\n  bind 127.0.0.1:8081\n  no log\n  http-request return status 200\n'
+        def command(*args):
+            return subprocess.run(args, check=True, capture_output=True, text=True, timeout=15).stdout.strip()
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / 'haproxy.cfg'; path.write_text(cfg)
+            try:
+                command('docker', 'run', '-d', '--platform', 'linux/amd64', '--name', name, '--cpus', '.25', '--memory', '256m',
+                        '-p', '127.0.0.1::8080', '-v', str(path) + ':/config/haproxy.cfg:ro', m.p8.PINS['HAPROXY_IMAGE'],
+                        'haproxy', '-W', '-db', '-f', '/config/haproxy.cfg')
+                port = int(command('docker', 'port', name, '8080/tcp').rsplit(':', 1)[1])
+                for attempt in range(40):
+                    try:
+                        command('docker', 'exec', name, 'wget', '-qO-', 'http://127.0.0.1:8404/stats'); break
+                    except subprocess.CalledProcessError:
+                        if attempt == 39: raise
+                        time.sleep(.1)
+                for _ in range(120):
+                    c = http.client.HTTPConnection('127.0.0.1', port, timeout=5)
+                    c.request('GET', '/local'); r = c.getresponse(); r.read(); self.assertEqual(r.status, 200); c.close()
+                socket.create_connection(('127.0.0.1', port), timeout=5).close()
+                time.sleep(.1)
+                raw = command('docker', 'exec', name, 'sh', '-c', m.HAPROXY_LOG_CLI)
+                rows, obs = m.haproxy_capture(raw, name)
+                native = m.Runtime.__new__(m.Runtime)
+                native.pod = lambda *_: {'metadata': {'name': name}}
+                native.k = lambda *a: command('docker', 'exec', name, *a[a.index('--') + 1:])
+                stats = m.Runtime.haproxy(native)
+                s = {'configuration': {'haproxy': {'uid': name}}, 'haproxy_logs': rows, 'haproxy_log_observation': obs, 'haproxy': stats}
+                self.assertEqual(stats['frontend']['stot'], 121)
+                self.assertLess(len(rows), 121)
+                self.assertTrue(any(r['status'] == 400 and r['termination'] == 'CR' and r['queue_ms'] == -1 for r in rows))
+                with self.assertRaisesRegex(ValueError, 'incomplete at drained frontend'): m.haproxy_capture_guard([s])
+                out = Path(os.environ['P9_LOCAL_RING_OUTPUT']); out.mkdir(parents=True, exist_ok=True)
+                m.save(out / 'overwrite.json', {'actual_test_ring_bytes': 4096, 'actual_snapshot': s,
+                       'original_source_ring_bytes': m.HAPROXY_RING_BYTES, 'expected_failure': 'incomplete at drained frontend boundary'})
+            finally: command('docker', 'rm', '-f', name)
+
+    def test_generated_all_arms_concurrent_capture_and_c2_policy(self):
+        import concurrent.futures
+        import http.client
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+        import subprocess
+        import uuid
+        class Handler(BaseHTTPRequestHandler):
+            delay = 0
+            def do_GET(self):
+                time.sleep(self.delay)
+                self.send_response(200); self.send_header('Content-Length', '0'); self.end_headers()
+            def log_message(self, *_): pass
+        class Server(ThreadingHTTPServer):
+            request_queue_size = 128
+            daemon_threads = True
+        server = Server(('0.0.0.0', 0), Handler)
+        worker = threading.Thread(target=server.serve_forever, daemon=True); worker.start()
+        out = Path(os.environ['P9_LOCAL_RING_OUTPUT'])
+        out.mkdir(parents=True, exist_ok=False)
+        summaries = []
+        def command(*args, timeout=15):
+            return subprocess.run(args, check=True, capture_output=True, text=True, timeout=timeout).stdout.strip()
+        try:
+            for arm in m.ARMS:
+                name = 'p9-ring-local-' + uuid.uuid4().hex[:12]
+                objects = m.render(t8.identity(), plan(), arm)['fixtures.json']['items']
+                cfg = next(o['data']['haproxy.cfg'] for o in objects if o['kind'] == 'ConfigMap' and o['metadata']['name'] == 'haproxy')
+                # Only DNS/port is substituted for the local stub; arm policy is unchanged.
+                cfg = cfg.replace('ext-authz-sim.' + m.NS + '.svc.cluster.local:8080',
+                                  'host.docker.internal:' + str(server.server_port))
+                Handler.delay = 0
+                with tempfile.TemporaryDirectory() as td:
+                    path = Path(td) / 'haproxy.cfg'; path.write_text(cfg)
+                    try:
+                        args = ['docker', 'run', '-d', '--platform', 'linux/amd64', '--name', name,
+                                '--cpus', '.25', '--memory', '256m', '-p', '127.0.0.1::8080',
+                                '-v', str(path) + ':/config/haproxy.cfg:ro']
+                        if m.sys.platform != 'darwin': args += ['--add-host', 'host.docker.internal:host-gateway']
+                        if arm == 'C1':
+                            # Deliberately stop draining fd@1 to reproduce the documented
+                            # transport failure, while the same in-process ring remains readable.
+                            args += ['--entrypoint', 'sh', m.p8.PINS['HAPROXY_IMAGE'], '-c',
+                                     'mkfifo /tmp/blocked; exec 3<>/tmp/blocked; exec haproxy -W -db -f /config/haproxy.cfg >&3']
+                        else:
+                            args += [m.p8.PINS['HAPROXY_IMAGE'], 'haproxy', '-W', '-db', '-f', '/config/haproxy.cfg']
+                        command(*args)
+                        port = int(command('docker', 'port', name, '8080/tcp').rsplit(':', 1)[1])
+                        for attempt in range(40):
+                            try:
+                                command('docker', 'exec', name, 'wget', '-qO-', 'http://127.0.0.1:8404/stats'); break
+                            except subprocess.CalledProcessError:
+                                if attempt == 39: raise
+                                time.sleep(.1)
+                        def get(_):
+                            c = http.client.HTTPConnection('127.0.0.1', port, timeout=8)
+                            try:
+                                c.request('GET', '/local-test-url', body=b'local-test-body', headers={'Authorization': 'local-test-value'})
+                                r = c.getresponse(); r.read(); return r.status
+                            finally: c.close()
+                        captures, times, lifetime, memory = [], [], [], []
+                        def memory_sample(stage):
+                            lines = command('docker', 'exec', name, 'cat', '/sys/fs/cgroup/memory.current',
+                                '/sys/fs/cgroup/memory.peak', '/sys/fs/cgroup/memory.max', '/sys/fs/cgroup/memory.events').splitlines()
+                            current, peak, limit = map(int, lines[:3])
+                            events = {key: int(value) for key, value in (line.split() for line in lines[3:])}
+                            self.assertEqual(limit, 256 * 1024 * 1024)
+                            self.assertLess(peak, limit)
+                            self.assertEqual(events['oom'], 0); self.assertEqual(events['oom_kill'], 0)
+                            memory.append({'stage': stage, 'current_bytes': current, 'peak_bytes': peak,
+                                           'limit_bytes': limit, 'events': events})
+                        def capture():
+                            started = time.monotonic()
+                            raw = command('docker', 'exec', name, 'sh', '-c', m.HAPROXY_LOG_CLI)
+                            times.append(time.monotonic() - started)
+                            try:
+                                rows, obs = m.haproxy_capture(raw, name)
+                            except ValueError:
+                                (out / (arm + '-failed-cli.txt')).write_text(raw)
+                                raise
+                            snap = {'configuration': {'haproxy': {'uid': name}}, 'haproxy_logs': rows, 'haproxy_log_observation': obs}
+                            if captures: m.haproxy_capture_guard([captures[-1], snap], drained=False)
+                            captures.append(snap)
+                        capture()
+                        if arm == 'C0':
+                            # C0/C1 render is identical. Deliberately retain ONE
+                            # Pod/process/config for the entire six-run envelope,
+                            # including calibration(s); no per-arm reset assumption.
+                            other = m.render(t8.identity(), plan(), 'C1')['fixtures.json']['items']
+                            self.assertEqual(next(o['data']['haproxy.cfg'] for o in other if o['kind'] == 'ConfigMap' and o['metadata']['name'] == 'haproxy').replace(
+                                'ext-authz-sim.' + m.NS + '.svc.cluster.local:8080', 'host.docker.internal:' + str(server.server_port)), cfg)
+                            b = m.haproxy_lifetime_budget(plan())
+                            memory_sample('before')
+                            statuses = [get(i) for i in range(b['initial_public_rows'])]
+                            capture()
+                            for run in range(b['runs']):
+                                capacity = m.haproxy_capacity_preflight(plan(), len(captures[-1]['haproxy_logs']), run + 1)
+                                with concurrent.futures.ThreadPoolExecutor(max_workers=32) as clients:
+                                    futures = [clients.submit(get, i) for i in range(b['rows_per_run'])]
+                                    capture()  # Large cumulative dump while concurrent load is active too.
+                                    statuses += [f.result() for f in futures]
+                                capture()
+                                native = m.Runtime.__new__(m.Runtime)
+                                native.pod = lambda *_: {'metadata': {'name': name}}
+                                native.k = lambda *a: command('docker', 'exec', name, *a[a.index('--') + 1:])
+                                frontend = m.Runtime.haproxy(native)['frontend']
+                                captures[0]['haproxy'] = {'frontend': {'stot': 0, 'scur': 0}}
+                                captures[-1]['haproxy'] = {'frontend': frontend}
+                                m.haproxy_capture_guard([captures[0], captures[-1]])
+                                self.assertEqual(frontend['stot'], len(statuses))
+                                memory_sample('run-' + str(run + 1))
+                                lifetime.append({'run': run + 1, 'capacity_preflight': capacity, 'frontend': frontend,
+                                                 'capture_index': len(captures) - 1})
+                            statuses += [get(i) for i in range(b['tail_public_rows'])]
+                            self.assertEqual(len(statuses), b['total_rows'])
+                            memory_sample('after-tail')
+                        else:
+                            with concurrent.futures.ThreadPoolExecutor(max_workers=32) as clients:
+                                futures = [clients.submit(get, i) for i in range(3300)]
+                                while not all(f.done() for f in futures):
+                                    capture(); time.sleep(.15)
+                                statuses = [f.result() for f in futures]
+                        capture()
+                        if arm != 'C2': self.assertTrue(set(statuses) <= {200, 503})
+                        if arm == 'C2':
+                            Handler.delay = 1
+                            with concurrent.futures.ThreadPoolExecutor(max_workers=48) as clients:
+                                statuses += list(clients.map(get, range(128)))
+                            capture()
+                            self.assertTrue(any(r['status'] == 429 and r['termination'] == 'PR' for r in captures[-1]['haproxy_logs']))
+                            self.assertTrue(any(r['status'] == 503 and r['termination'] == 'sQ' for r in captures[-1]['haproxy_logs']))
+                        rows = captures[-1]['haproxy_logs']
+                        native = m.Runtime.__new__(m.Runtime)
+                        native.pod = lambda *_: {'metadata': {'name': name}}
+                        native.k = lambda *a: command('docker', 'exec', name, *a[a.index('--') + 1:])
+                        frontend = m.Runtime.haproxy(native)['frontend']
+                        for snap in (captures[0], captures[-1]):
+                            snap['haproxy'] = {'frontend': {'stot': 0, 'scur': 0} if not snap['haproxy_logs'] else frontend}
+                        m.haproxy_capture_guard([captures[0], captures[-1]])
+                        self.assertEqual(len(rows), len(statuses))
+                        self.assertEqual(sorted(r['status'] for r in rows), sorted(statuses))
+                        self.assertLess(max(times), 15)
+                        self.assertNotIn('local-test-', json.dumps(rows))
+                        if arm == 'C1': self.assertGreater(captures[-1]['haproxy_log_observation']['dropped_logs_total'], 0)
+                        # Exec readiness creates no check rows.
+                        command('docker', 'exec', name, 'wget', '-qO-', 'http://127.0.0.1:8404/stats')
+                        capture(); self.assertEqual(captures[-1]['haproxy_logs'], rows)
+                        if arm == 'C0': memory_sample('final')
+                        restarts = json.loads(command('docker', 'inspect', '--format', '{{.RestartCount}}', name))
+                        oom = json.loads(command('docker', 'inspect', '--format', '{{json .State.OOMKilled}}', name))
+                        self.assertEqual(restarts, 0); self.assertIs(oom, False)
+                        m.save(out / (arm + '.json'), {'captures': captures, 'statuses': statuses, 'capture_seconds': times,
+                                                     'sequential_lifetime': lifetime, 'memory': memory})
+                        summaries.append({'arm': arm, 'requests': len(statuses), 'rows': len(rows),
+                            'counter_min': min(r['log_counter'] for r in rows), 'counter_max': max(r['log_counter'] for r in rows),
+                            'lc_duplicates': len(rows) - len({r['log_counter'] for r in rows}),
+                            'lc_gaps': len(set(range(max(r['log_counter'] for r in rows) + 1)) - {r['log_counter'] for r in rows}),
+                            'capture_count': len(captures), 'max_capture_seconds': max(times),
+                            'ring_dropped': 0, 'dropped_logs_total': captures[-1]['haproxy_log_observation']['dropped_logs_total'],
+                            'status_counts': {str(s): statuses.count(s) for s in set(statuses)},
+                            'frontend': frontend,
+                            'sequential_runs_same_container': len(lifetime), 'memory': memory,
+                            'RestartCount': restarts,
+                            'termination_counts': {s: sum(r['termination'] == s for r in rows) for s in {r['termination'] for r in rows}},
+                            'OOMKilled': oom})
+                    finally: command('docker', 'rm', '-f', name)
+        finally:
+            server.shutdown(); server.server_close(); worker.join(3)
+        m.save(out / 'summary.json', {'image': m.p8.PINS['HAPROXY_IMAGE'], 'platform': 'linux/amd64',
+            'cpu_limit': '.25', 'memory_limit': '256m', 'arms': summaries,
+            'source_file_sha256': m.hashlib.sha256((ROOT / 'scripts/azure-mitigation.py').read_bytes()).hexdigest(),
+            'test_file_sha256': m.hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+            'Azure_runtime': 'not executed', 'owned_containers_removed': True})
+
+
 class DemandRecoveryTests(unittest.TestCase):
     def test_open_loop_does_not_wait_for_previous_wave(self):
         rows = []
@@ -4417,11 +5412,11 @@ class DemandRecoveryTests(unittest.TestCase):
     def test_three_windows_with_new_issue_and_git_demand(self):
         result = m.recovery(plan(), events(), lambda *_: True)
         self.assertEqual(result['status'], 'recovered')
-        self.assertEqual(result['release_command'], 240)
-        self.assertEqual(result['converged'], 241)
-        self.assertEqual(result['first_good_window'], 250)
-        self.assertEqual(result['confirmation'], 280)
-        self.assertEqual(result['campaign']['scheduled'], 2100)
+        self.assertEqual(result['release_command'], 300)
+        self.assertEqual(result['converged'], 301)
+        self.assertEqual(result['first_good_window'], 310)
+        self.assertEqual(result['confirmation'], 340)
+        self.assertEqual(result['campaign']['scheduled'], 2400)
 
     def test_fast_denial_low_cpu_or_rejection_not_recovery(self):
         e = events()
@@ -4436,18 +5431,19 @@ class DemandRecoveryTests(unittest.TestCase):
         self.assertEqual(m.recovery(plan(), e, lambda *_: True)['status'], 'not recovered within observation window')
 
     def test_paused_reduced_missing_cancelled_git_or_lag_not_recovery(self):
-        for case in ('cancel', 'lag', 'git-fail', 'slow-command'):
+        for case in ('cancel', 'late-completion', 'git-fail', 'issue-fail', 'retry'):
             e = events()
             for row in e:
                 if row['record'] != 'operation' or row['at'] < 180:
                     continue
                 if case == 'cancel': row.update(issued=None, outcome='not-issued', attempts=[])
-                elif case == 'lag':
-                    row.update(issued=row['issued'] + 1, completed=row['completed'] + 1)
-                    row['attempts'][0]['started'] += 1; row['attempts'][0]['ended'] += 1
+                elif case == 'late-completion': row['completed'] += 10  # completion outside its fixed window
                 elif case == 'git-fail' and row['kind'] == 'git': row['attempts'][0]['semantic_result'] = False
-                elif case == 'slow-command' and row['kind'] == 'issue':
-                    row['completed'] += .2; row['attempts'][0]['ended'] += .2; row['attempts'][0]['duration_seconds'] += .2
+                elif case == 'issue-fail' and row['kind'] == 'issue': row['attempts'][0]['semantic_result'] = False
+                elif case == 'retry' and row['kind'] == 'issue':  # scoped overload retry: not a first-attempt success
+                    first = row['attempts'][0]; first.update(semantic_result=False, status=503, overload=True, error_class='http_status')
+                    row['attempts'].append(dict(first, index=2, started=first['ended'], ended=first['ended'] + .05, semantic_result=True, status=200, error_class='none'))
+                    row['completed'] = first['ended'] + .05
             with self.subTest(case=case):
                 self.assertEqual(m.recovery(plan(), e, lambda *_: True)['status'], 'not recovered within observation window')
         for change in ('missing-row', 'changed-schedule'):
@@ -4455,6 +5451,25 @@ class DemandRecoveryTests(unittest.TestCase):
             if change == 'missing-row': e.pop()
             else: e[0]['items'] = e[0]['items'][:-25]
             with self.assertRaises(ValueError): m.recovery(plan(), e, lambda *_: True)
+
+    def test_slow_command_and_lag_are_p7_and_strict_diagnostics_not_recovery_gates(self):
+        e = events()
+        for row in e:
+            if row['record'] != 'operation': continue
+            issued = row['issued'] + .4  # worker/driver lag .4s; command .31s; still completed inside its window
+            row.update(issued=issued, completed=issued + .31)
+            row['attempts'][0].update(started=issued, ended=issued + .31, duration_seconds=.31)
+        result = m.recovery(plan(), e, lambda *_: True)
+        self.assertEqual(result['status'], 'recovered')  # functional: all issued/completed in-window, first attempt semantic success
+        bench = result['p7_benchmark']
+        self.assertEqual((bench['status'], bench['issue_command_seconds']['max']), ('fail', .31))
+        self.assertGreater(bench['issue_command_seconds']['over_threshold'], 0)
+        self.assertGreater(bench['former_p9_strict_driver_lag_diagnostic']['over_threshold'], 0)
+        self.assertTrue(all(w['latency_diagnostic_counts']['p7_issue_command_over_0_2s'] == 48 for w in result['windows']))
+        report, _, _ = m.demand_report(plan(), e); m.require_complete_demand(report)
+        with self.assertRaisesRegex(ValueError, 'driver demand reduction/lag'):
+            m.require_complete_demand(report | {'driver_lag_max_seconds': 2.01})  # whole-run comparison bound unchanged
+        self.assertEqual(m.recovery(plan(), events(), lambda *_: True)['p7_benchmark']['status'], 'pass')
 
     def test_p7_command_vs_end_to_end_queue_backoff_latency(self):
         e = events(); row = next(x for x in e if x['record'] == 'operation')

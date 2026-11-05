@@ -1,0 +1,171 @@
+{
+ "paid_source_sha": "d7d963c987ed887b5de40cb22900a95870a87cf8",
+ "base_sha": "076bc8a3dbd09e8192057e19df8b6cc5cb55274d",
+ "authority_url": "https://github.com/imcherry5778-labs/github-capacity-cascade-platform/issues/47#issuecomment-6620397714",
+ "independent_source_gate": "https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/49#pullrequestreview-5761810693",
+ "reviewed_source_full_CI_run": 41748110168,
+ "state": "CLOSED/invalid (NO-GO after consumed initialize)",
+ "paid_source_unchanged": true,
+ "owned_image_manifest_digest": "sha256:6eb99f0fa9a64ef758335c5ca56aec643f14b84d5ea94f5ffaa64934049b4159",
+ "plan_sha256": "a4ecad07920d37ea43b4851a3f9d519ad1cab51aa8518e37b2308096719759c7",
+ "native_KEDA_image": "mcr.microsoft.com/oss/v2/kedacore/keda:2.19.0-25",
+ "AKS_version": "1.36.4",
+ "counts": {
+  "normal": 1,
+  "initialize": 1,
+  "healthy": 0,
+  "calibration": 0,
+  "measured": {
+   "C0": 0,
+   "C1": 0,
+   "C2": 0,
+   "C3": 0
+  },
+  "KEDA_apply": 0,
+  "KEDA_restore": 0,
+  "cloud_mutations": 10
+ },
+ "pre_mutation_gates": {
+  "read_only_preflight": "all PASS (source/remote/clean, actor/subscription, 4RG/34 IDs, Owner2, fixed2 nodes no autoscaling, KEDA/OIDC/WI enabled, quota8/10 cores, C25 UAMI/tag/temporary role absent, plan endpoint = AMW query endpoint, reserve)",
+  "existing_AMW_ServicePrincipal_reader": "one pre-existing assignment = Grafana managed identity, created before Campaign25; not a P9 residual",
+  "KEDA_GET_transport_probe": {
+   "method": "GET",
+   "full_URL_bytes": 4726,
+   "request_target_bytes": 4645,
+   "http_status": 200,
+   "envelope_status": "success",
+   "result_type": "vector",
+   "result_count": 0,
+   "query_sha256": "a2eb2e0deeb16ee7a78568a57c93ce49e9de5921d08c3acd29fa8b1aaac38c11"
+  },
+  "KEDA_GET_claim_limit": "URL-length transport only with operator Entra user token; not KEDA workload identity, scaler, HPA or control PASS"
+ },
+ "results": {
+  "normal_journey": "SUCCESS (valid warmup, 9 operations)",
+  "initialize": "FAILED readiness_resource_guard pod_not_ready_or_restarted at 17.956s, before CPU settling/healthy journey/telemetry",
+  "healthy_journey": "not started (0)",
+  "KEDA_apply": "not started",
+  "calibration": "not started",
+  "measured": "not started",
+  "retry": 0
+ },
+ "failure_diagnosis": {
+  "observed_by": "operator read-only kubectl before cleanup, 2026-11-04T02:02-02:03Z (transcribed; namespace removed afterwards)",
+  "haproxy_container": {
+   "restartCount": 3,
+   "last_termination": "Error",
+   "last_finished_utc": "2026-11-04T02:01:34Z",
+   "later_state": "Running Ready"
+  },
+  "haproxy_previous_log": "[ALERT] 'server ext_authz/app' : could not resolve address 'ext-authz-sim.p8-shared-gate.svc.cluster.local'; Failed to initialize server(s) addr; worker exit code 1",
+  "creation_order_utc": {
+   "haproxy_pod": "2026-11-04T02:01:17Z",
+   "ext_authz_sim_pod": "2026-11-04T02:01:19Z"
+  },
+  "render_order_C0": "one List apply: Deployment/haproxy (index4) precedes Service/ext-authz-sim (index7); HAProxy server line has default init-addr (startup resolution required), no resolvers",
+  "interpretation": "latent startup DNS race; strict guard correctly failed closed on restarts>0. Campaign25 same path passed readiness by timing (restart0). Causal timing of DNS propagation UNKNOWN",
+  "not_done": "no Pod deletion, no second initialize, no HAProxy config/source change under paid approval"
+ },
+ "operator_corrections_without_paid_source_change": [
+  "access: kubelogin/kubectl binaries existed only in Campaign25 private PATH; same binaries copied; temporary role not re-created"
+ ],
+ "cleanup": {
+  "path": "explicit close action -> cleanup() in same parent",
+  "steps_complete": [
+   "CUSTOM_remove",
+   "mesh_restore",
+   "namespace_remove",
+   "normal_fixture",
+   "stable_integrity",
+   "image_remove",
+   "AMW_role_remove",
+   "UAMI_FIC_remove",
+   "AKS_role_remove",
+   "ARM_final",
+   "forward_close"
+  ],
+  "not_applicable": {
+   "healthy_fixture": "healthy journey never created",
+   "KEDA_restore": "KEDA never patched"
+  },
+  "cleanup_final_complete": true,
+  "cleanup_final_errors": [],
+  "operator_parent_exit_cleanup_complete": true,
+  "PAT": {
+   "normal_delete_http_status": 204,
+   "reuse_http_status": 401,
+   "login_after_prohibit": 401
+  },
+  "forward": "cleanup_step forward_close complete=true; forward_wait stop returncode -15 intentional_stop_requested=true (details.forward_close=false is __exit__ return value)",
+  "private_registry_credential": "private Docker config.json removed and docker logout; no credsStore used",
+  "independent_post_cleanup_read_only_utc": "2026-11-04T02:05:38Z",
+  "independent_post_cleanup": {
+   "resource_ids_unchanged": true,
+   "resource_count": 34,
+   "C26_UAMI_absent": true,
+   "C26_image_tag_absent": true,
+   "temporary_AKS_admin_absent": true,
+   "Owner_assignments": 2,
+   "nodes": 2
+  },
+  "local": "driver/forward processes exited, campaign.lock released",
+  "claim_limit": "Campaign26 owned cleanup only; not a global zero-residual claim"
+ },
+ "timeline_utc": {
+  "preflight": "2026-11-04T01:57:05Z",
+  "first_mutation": "2026-11-04T01:59:28Z",
+  "normal_intent": "2026-11-04T02:00:34Z",
+  "initialize_intent": "2026-11-04T02:02:24Z",
+  "cleanup_first_step": "2026-11-04T02:03:37Z",
+  "parent_exit": "2026-11-04T02:05:04Z"
+ },
+ "cumulative_after_Campaign26": {
+  "campaign": 26,
+  "initialize_started": 23,
+  "healthy": 13,
+  "started_invalid_calibration": 9,
+  "measured": {
+   "C0": 0,
+   "C1": 0,
+   "C2": 0,
+   "C3": 0
+  },
+  "KEDA_apply_restore_actions": "9/9",
+  "derivation": "Campaign25 cumulative + Campaign26 counts; Campaign22-25 not reclassified"
+ },
+ "cost": {
+  "billing_GET": 0,
+  "resource_hold_minutes_approx": 6,
+  "actual_campaign_cost": "UNKNOWN",
+  "estimate_not_cap_or_balance": true
+ },
+ "private_unpublished_sha256": {
+  "c26-driver.py": "c063ed60716ceddb96a47615c68e74505cb3ded4584d5834bdf2623ed2375a17",
+  "preflight.py": "85d6232fd6c016e24a747af2f7c4f6158be2bae162ef1bd29b7c9e5b6050d3e3",
+  "launch.py": "66dc0e630db8bbb2f6ce1650c15b2bed016d7794549f65a380e1bcd359b71a00",
+  "send.sh": "d80e8391f6f836d8095f3728c4a0f81a76ac80f0608062be61a5439d5fadcabf",
+  "x-access-rest.py": "e9da0a6e7601b73fb33082887941e81756928a5791f314c95275181a858c343e",
+  "commands.jsonl": "5db12057dab4871dd17ccca554f1e194deeea1ee5824a7ef43e976974b19ac65",
+  "private/approval.json": "2c42aa1c9d57c490efccca82100f1eacc52cef687ae9f1744d21b3ce6b3aefc9",
+  "private/initialization-approval.json": "2c42aa1c9d57c490efccca82100f1eacc52cef687ae9f1744d21b3ce6b3aefc9",
+  "private/plan.json": "2eb9b4732aa61e0868cbd5d91d7656b24fb165348e3b583aaacec7e21ca3e4da",
+  "private/identity.json": "e3edb67041d8b963e28c259f03cc8ce621ff20c84e7271092a722c624ae44de8",
+  "private/context.json": "548956806c06fd5b48568eed1107e0c587ffc27b812844f51fed6a4df92cca29",
+  "private/build-metadata.json": "44d162af40377146e3906a0085336164b7b681d4dc421a520f3bba8144aa417f",
+  "private/build.log": "a4e817135b2907cc4c4635a0cadd6d612a3aa015bfb840156114a6102523871d",
+  "private/preflight.json": "998bfd5f840410a145e44683c430d29e230835d5aa91c55eb218cfea2221863c",
+  "private/initialization-failure.txt": "d298dd92d1b84e7054eafc2ca792e2513ef074d296167af7d0dec0cc22b3e783",
+  "private/initialize.log": "d508ae567a0aee91e82072bfe2b4cefc329c2af685b300574c1413b1bb1aba50",
+  "private/normal.log": "6e0aca27eba337e243274403094791a1ae7ebe0b484fcc668eea1bebe9e80354",
+  "private/driver.out": "5c3c87f04f75eb21b36a6b15bd688b3474a94bfff35b1fe3871ca9772f633e55",
+  "private/driver.err": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "private/forward.log": "415138ed46d91de9c56738bda7c9ed529b1b9faa2896b4c486039deedcc8582d",
+  "private/stage-failure-1793757572276013000.txt": "ba85ea89020723bf37595898eb80aa78370e3a546d65a5067d0bdc585a025389",
+  "private/stage-failure-1793757767241585000.txt": "cbb4f6194be5c337a36349a2e92a624c7f62ad7bc8e4f7a7ac7e109b5c2908e4"
+ },
+ "private_unpublished_excluded": "kubeconfig, CLI binaries, Docker buildx state, journey work/credential directories, publication salt",
+ "deadlines_kst": {
+  "environment": "2026-11-05T10:30",
+  "foundation_bootstrap": "2026-11-06T00:33"
+ }
+}

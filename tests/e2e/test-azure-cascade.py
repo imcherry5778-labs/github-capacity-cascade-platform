@@ -179,11 +179,11 @@ class SourceTests(unittest.TestCase):
                 if args[0] == 'git': return value['source_sha'] if args[-1] == 'HEAD' else ''
                 if args[0] == 'az': return json.dumps({'fqdn': 'actual.aks.example.com', 'serviceMeshProfile': {'istio': {'revisions': [value['revision']]}}, 'agentPoolProfiles': [{'enableAutoScaling': False}]})
                 return 'https://actual.aks.example.com' if 'config' in args else value['cluster_uid']
-            deadline = a.datetime(2026, 11, 5, 1, 30, tzinfo=a.timezone.utc)
+            deadline = a.datetime(2026, 11, 8, 1, 30, tzinfo=a.timezone.utc)
             microsecond = timedelta(microseconds=1)
-            for now, allowed in ((a.datetime(2026, 11, 2, 1, 30, 1, tzinfo=a.timezone.utc), True),
+            for now, allowed in ((a.datetime(2026, 11, 5, 1, 30, 1, tzinfo=a.timezone.utc), True),
                                  (deadline - microsecond, True), (deadline, False), (deadline + microsecond, False),
-                                 (a.datetime(2026, 11, 5, 15, 33, tzinfo=a.timezone.utc), False)):
+                                 (a.datetime(2026, 11, 8, 15, 33, tzinfo=a.timezone.utc), False)):
                 with self.subTest(now=now), patch.dict(os.environ, {'P8_AZURE_APPROVED': value['source_sha'], 'KUBECONFIG': str(config)}), patch.object(a.p7, 'command', side_effect=command) as mocked, patch.object(a, 'datetime', wraps=a.datetime) as clock:
                     clock.now.return_value = now
                     if allowed:

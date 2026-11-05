@@ -1,0 +1,306 @@
+{
+ "paid_source_sha": "57c64f1a48224719685ad8ee453358e0d7b2e725",
+ "authority_url": "https://github.com/imcherry5778-labs/github-capacity-cascade-platform/issues/47#issuecomment-6637904463",
+ "authority_delivery_note": "https://github.com/imcherry5778-labs/github-capacity-cascade-platform/issues/47#issuecomment-6637942879",
+ "independent_source_gate": "https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/49#pullrequestreview-5772464508",
+ "state": "CLOSED: C3 calibration reviewed valid + freeze; measured C0/C1/C2 reviewed valid; measured C3 INVALID (warning growth visibility); no comparison",
+ "paid_source_unchanged": true,
+ "operator_template_sha256": {
+  "driver-template.py": "1dfa262eba5cdfc1a8a77b687bc76fdd70b0e72bb8e01844b71e1aa20c9bf8c9",
+  "test_campaign_sequence.py": "068eb45d67684789553aa0f8554805024c959003ba6dedda61856d1464491627",
+  "test_cadence_replay.py": "80637450fc962798ab2831790b8c8e0e96fece0a3c7c8477db8d08aee6e4d47d",
+  "publish.py": "925d4691d047a519e795cdb38f1b0902a1cad0d6b00dc88467e1a1b147a4f157"
+ },
+ "operator_instance_sha256": {
+  "driver.py": "5f1a6bf17e76ea3171d747eb6ae81fbd987554ede2e095a92a9023367ee938a4",
+  "preflight.py": "a4f2d06560c0bfaf41207bf2bad92ce95b3c0df4f2cd590ec051612aea105fcb",
+  "launch.py": "b0bba9a3908d123d1efd9dbc9a0357f7d0557fe95090178249ef3f974f883b43",
+  "send.sh": "c2a59fccbe8a23b67cc233e994a825a90dbdb3cada1cba18244334ff2ede0040"
+ },
+ "owned_image_manifest_digest": "sha256:edc2b0f2eb568423ffd4701e10fd44b4da37ce9c90185738a73110e5ac37c452",
+ "plan_sha256": "ad4906c461ae2f5c7735e87794e5443a00eeaee23afe9f167526b849ef79529f",
+ "frozen_sha256": "c49620d3b95b4ec69a0a85e17919bb12d0428b0c3e48f2d11c777d7382f38218",
+ "counts": {
+  "normal_initial": 1,
+  "normal_final": 1,
+  "initialize": 1,
+  "healthy": 1,
+  "calibration": 1,
+  "freeze": 1,
+  "measured": {
+   "C0": 1,
+   "C1": 1,
+   "C2": 1,
+   "C3": 1
+  },
+  "KEDA_apply": 1,
+  "KEDA_restore": 1,
+  "cloud_mutations": 30
+ },
+ "results": {
+  "preflight": "all read-only gates PASS (34 IDs, Owner 2, nodes 2, AKS Running, KEDA/OIDC/WI, previous residual absent, remaining 26672s > 8045s); KEDA-form GET 4726 bytes HTTP200 vector (transport only)",
+  "operator_tests": "sealed test_campaign_sequence 12 / test_cadence_replay 6 / test_c0_order 3 OK on 57c64f1a",
+  "initial_normal": "SUCCESS",
+  "initialize": "SUCCESS (ingress29=authorization29=target29, auxiliary14)",
+  "KEDA": "native workload identity; exact ScaledObject-owned HPA positive",
+  "C3_preflight": "PASS",
+  "calibration_report": {
+   "cadence_observed": true,
+   "all_pod_series_observed": true,
+   "controller_ownership_verified": true,
+   "missing_required_signals": [],
+   "direct_controller_observation": {
+    "status": "observed",
+    "positive_snapshots": [
+     8,
+     9,
+     10,
+     11,
+     12,
+     13,
+     14,
+     15
+    ],
+    "from_origin_seconds": [
+     131.77449300000444,
+     288.4762672500219
+    ],
+    "warmup_snapshots": [
+     4,
+     5,
+     6
+    ],
+    "new_target_uids": 1
+   },
+   "status_change_gap_diagnostic": {
+    "scrape": 15.0,
+    "raw_age": 51.5550000667572,
+    "controller_upper": 29.04027279210277,
+    "formula": 286.7858185765799,
+    "note": "diagnostic only, not a freeze gate"
+   }
+  },
+  "freeze": "source frozen() PASS (first P9 freeze)",
+  "arms": {
+   "C3-calibration1": {
+    "local_validation": "passed_pending_confounder_review",
+    "reviewed": "valid",
+    "recovery": {
+     "status": "not recovered within observation window",
+     "recovery_seconds": null
+    },
+    "demand": {
+     "scheduled": 2400,
+     "issued": 2400,
+     "unissued": 0,
+     "failed": 1305,
+     "attempts": 3648,
+     "driver_lag_max_seconds": 1.4983682921156287
+    },
+    "accounting": {
+     "checks": 3687,
+     "target_admitted": 1134,
+     "target_rejected": 2553,
+     "admission_shed": 0,
+     "queue_timeout": 0,
+     "queue_start": 0,
+     "queue_end": 0,
+     "inflight_start": 0,
+     "inflight_end": 0,
+     "path_errors": 0
+    },
+    "scaling": "observed; audit scale ownership before autoscaling claim",
+    "window_utc": {
+     "start": "2026-11-04T18:15:23.770614+00:00",
+     "end": "2026-11-04T18:24:09.575930+00:00"
+    }
+   },
+   "C0-measured": {
+    "local_validation": "passed_pending_confounder_review",
+    "reviewed": "valid",
+    "recovery": {
+     "status": "recovered",
+     "recovery_seconds": 89.99749966687523
+    },
+    "demand": {
+     "scheduled": 2400,
+     "issued": 2400,
+     "unissued": 0,
+     "failed": 1403,
+     "attempts": 3742,
+     "driver_lag_max_seconds": 1.4972432909999043
+    },
+    "accounting": {
+     "checks": 3777,
+     "target_admitted": 1032,
+     "target_rejected": 2745,
+     "admission_shed": 0,
+     "queue_timeout": 0,
+     "queue_start": 0,
+     "queue_end": 0,
+     "inflight_start": 0,
+     "inflight_end": 0,
+     "path_errors": 0
+    },
+    "scaling": "not observed",
+    "window_utc": {
+     "start": "2026-11-04T18:32:48.107907+00:00",
+     "end": "2026-11-04T18:41:31.655697+00:00"
+    }
+   },
+   "C1-measured": {
+    "local_validation": "passed_pending_confounder_review",
+    "reviewed": "valid",
+    "recovery": {
+     "status": "recovered",
+     "recovery_seconds": 89.98701683292165
+    },
+    "demand": {
+     "scheduled": 2400,
+     "issued": 2400,
+     "unissued": 0,
+     "failed": 1282,
+     "attempts": 3709,
+     "driver_lag_max_seconds": 1.4895595421548933
+    },
+    "accounting": {
+     "checks": 3745,
+     "target_admitted": 1154,
+     "target_rejected": 2591,
+     "admission_shed": 0,
+     "queue_timeout": 0,
+     "queue_start": 0,
+     "queue_end": 0,
+     "inflight_start": 0,
+     "inflight_end": 0,
+     "path_errors": 0
+    },
+    "scaling": "not observed",
+    "window_utc": {
+     "start": "2026-11-04T18:43:11.215332+00:00",
+     "end": "2026-11-04T18:51:59.771784+00:00"
+    }
+   },
+   "C2-measured": {
+    "local_validation": "passed_pending_confounder_review",
+    "reviewed": "valid",
+    "recovery": {
+     "status": "not recovered within observation window",
+     "recovery_seconds": null
+    },
+    "demand": {
+     "scheduled": 2400,
+     "issued": 2400,
+     "unissued": 0,
+     "failed": 1523,
+     "attempts": 4005,
+     "driver_lag_max_seconds": 1.1867580830585212
+    },
+    "accounting": {
+     "checks": 4030,
+     "target_admitted": 901,
+     "target_rejected": 0,
+     "admission_shed": 0,
+     "queue_timeout": 3129,
+     "queue_start": 0,
+     "queue_end": 0,
+     "inflight_start": 0,
+     "inflight_end": 0,
+     "path_errors": 0
+    },
+    "scaling": "not observed",
+    "window_utc": {
+     "start": "2026-11-04T18:54:17.180137+00:00",
+     "end": "2026-11-04T19:03:00.749963+00:00"
+    },
+    "review_note": "HAProxy queue is the measured C2 admission policy: queue_timeout 3129 of 4030 checks; qmax 1, econ delta 1 recorded; not a competing bottleneck"
+   },
+   "C3-measured": {
+    "local_validation": "invalid",
+    "reviewed": "not reviewed (invalid)",
+    "recovery": "not computed (invalid)",
+    "invalid_reason": "saved validator: invalid HPA/KEDA warning provenance or recurrence. Exact HPA FailedGetExternalMetric/FailedComputeMetricsReplicas grew 1->2 with native last +88.8s inside the new-Pod warmup (inventory +59.0s; first fully observed signal evaluation +99.7s), but snapshot5 guard events were collected at +87.2s, so the growth first appeared in snapshot6; 57c64f1a bounded growth by snapshot index. KEDAScalerFailed count2 (+67.8..+83.8s) was allowed. Run itself completed (process_exit 0, run_end completed, no monitor/run failure). Offsets vs first signal evaluation."
+   }
+  },
+  "C0_transition_operator_recovery": {
+   "cause": "operator restored the C0 CPU HPA while replicas=2 and then reset 2->1; the new HPA default 300s scale-down stabilization reverted it (AbleToScale ScaleDownStabilized, CPU 2% of 60%), so the single Ready target 180s deadline expired before any measure intent",
+   "action": "no source/template change during C31: read-only wait until the native CPU HPA scaled to one Ready target, then the remaining measured_arm steps verbatim (reset no-op, arm_ready, measure)",
+   "events": [
+    {
+     "record": "operator_recovery",
+     "timestamp_utc": "2026-11-04T18:30:19.746613+00:00"
+    },
+    {
+     "record": "operator_recovery_wait_complete",
+     "timestamp_utc": "2026-11-04T18:31:59.464660+00:00"
+    }
+   ],
+   "measured_intent_consumed_before_recovery": false
+  },
+  "comparison": "not run: C3 measured invalid; compare requires four reviewed arms",
+  "final_normal": "SUCCESS after restore (validator gate passed)"
+ },
+ "cleanup": {
+  "complete": true,
+  "errors": [],
+  "steps": [
+   "CUSTOM_remove",
+   "mesh_restore",
+   "namespace_remove",
+   "final_normal",
+   "KEDA_restore",
+   "normal_fixture",
+   "healthy_fixture",
+   "final_fixture",
+   "stable_integrity",
+   "image_remove",
+   "AMW_role_remove",
+   "UAMI_FIC_remove",
+   "AKS_role_remove",
+   "ARM_final",
+   "forward_close"
+  ],
+  "PAT": "normal/healthy/final DELETE 204, reuse 401",
+  "independent_readonly_recheck_utc": "2026-11-04T19:17:57Z",
+  "recheck": {
+   "resource_ids": 34,
+   "ids_unchanged": true,
+   "Owner": 2,
+   "nodes": 2,
+   "c31_UAMI_absent": true,
+   "c31_image_tag_absent": true,
+   "temporary_AKS_admin_absent": true,
+   "driver_feeder_exited": true,
+   "lock_released": true
+  },
+  "scope": "Campaign31 owned cleanup only; not global zero residual"
+ },
+ "hold": {
+  "first_mutation_utc": "2026-11-04T18:05:34Z",
+  "cleanup_end_utc": "2026-11-04T19:17:32Z",
+  "approx_minutes": 72
+ },
+ "cost": "UNKNOWN (no billing data read)",
+ "cumulative": {
+  "campaign": 31,
+  "initialize_started": 28,
+  "healthy": 18,
+  "calibration_started": 14,
+  "reviewed_valid_calibration": 2,
+  "freeze": 1,
+  "measured_started": {
+   "C0": 1,
+   "C1": 1,
+   "C2": 1,
+   "C3": 1
+  },
+  "measured_reviewed_valid": {
+   "C0": 1,
+   "C1": 1,
+   "C2": 1,
+   "C3": 0
+  },
+  "KEDA_actions": "14/14"
+ },
+ "not_reclassified": "Campaign22-30"
+}

@@ -211,6 +211,18 @@ P7-W1 시작 시 Environment 기한은 **2026-10-30 10:30 KST**, Foundation/Boot
 
 문서의 보존기한과 실제 실행 gate를 구분한다. [P9 PR #41](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/41)의 다음 실행 전에는 `scripts/azure-cascade.py`와 `scripts/azure-mitigation.py`의 hard deadline을 위 Environment 기한과 맞추고 직전/정각/직후 및 initialization/run/drain/rollback reserve 경계를 검증해야 한다. 기간 변경만으로 exact-source 승인·횟수·독립 review gate를 우회하지 않는다. 이 문서 PR 자체는 실행 source를 변경하거나 P9 acceptance를 완료하지 않는다.
 
+**추가 72시간 보존 — 2026-11-05 요청 (P9-W2 Campaign32)**
+
+사용자의 [+72h 보존 승인](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/issues/47#issuecomment-6645059367)은 직전 승인 기한에 **각각 72시간을 추가**한다. 요청 시각부터 세지 않는다.
+
+| 대상 | 직전 승인 기한 (KST) | 추가 보존 기한 (KST) | 추가 보존 기한 (UTC) |
+| --- | --- | --- | --- |
+| Environment | 2026-11-05 10:30 | **2026-11-08 10:30** | `2026-11-08T01:30:00Z` |
+| Foundation/Bootstrap | 2026-11-06 00:33 | **2026-11-09 00:33** | `2026-11-08T15:33:00Z` |
+
+범위는 기존 34 resource ID·Owner2·nodes2·capacity·owned cleanup의 보존이다. 새 resource·권한·예산·자동 연장·전체 teardown·merge/P10이나 추가 campaign을 승인하지 않는다.
+`scripts/azure-cascade.py`와 `scripts/azure-mitigation.py`의 hard deadline은 위 Environment 기한으로 맞춘다. Source 기한 변경은 Azure provider/subscription TTL 변경의 증거가 아니며, 실제 TTL·lock·budget은 실행 전 native read-only로 확인한다.
+
 P8–P10은 실제 Azure controlled experiment 단계다. 각 milestone 시작 시 existing environment를 이어 쓸지 P5 source에서 재생성할지 위 공통 gate에서 결정한다.
 
 P11의 cost-free regression은 Azure 없이 실행 가능해야 한다. Final Azure evidence 또는 teardown/finalization action이 필요할 때만 위 공통 paid gate를 적용한다.

@@ -1,0 +1,47 @@
+{
+  "source_sha": "076bc8a3dbd09e8192057e19df8b6cc5cb55274d",
+  "P9_acceptance": "not met",
+  "original_source_validator_failure": "controller metric/status failure",
+  "original_public_partial_predicate_replays_equal": {
+    "controller": "controller metric/status failure",
+    "accounting": "check/ingress/HAProxy path error",
+    "demand": {
+      "scheduled": 2100,
+      "issued": 2100,
+      "unissued": 0,
+      "attempts": 3100,
+      "failed": 1045,
+      "driver_lag_max_seconds": 1.6248360828030854
+    },
+    "optimistic_recovery": "not recovered within observation window",
+    "qualifying_windows": 0
+  },
+  "private_identifiers_redacted": true,
+  "known_credential_JWT_subscription_private_path_scan": "pass",
+  "known_secret_values_in_original_raw": 0,
+  "archive_file_count": 57,
+  "archive_path_size_SHA256_roundtrip": "pass",
+  "original_raw_append_only_unchanged": true,
+  "historical_evidence_modified": false,
+  "cleanup": "actual original + targeted recovery confirmations; see cleanup-recovery.json",
+  "source_CI_reuse": "same git tree as reviewed PR48 HEAD504ae8, full run41635668371; no paid-source modification",
+  "limitations": [
+    "C3 calibration invalid, no freeze or measured C0-C3.",
+    "HPA GET clock is not scaler/AMW evaluation epoch; actual scaler cause remains unknown.",
+    "Log counter gaps identify incomplete HAProxy log stream, not the exact loss hop.",
+    "Recovery replay uses optimistic observation coverage solely to isolate command/driver failure; not a valid-run recovery claim.",
+    "No full cloud confounder review after controller/accounting blockers.",
+    "Public identifier redaction prevents independent reconstruction of original identity/render/plan binding; original hashes preserved, not re-signed.",
+    "Stable full specs and named Secret values were compared in parent memory; only digests/results published."
+  ],
+  "archive_sha256": "d1e340eb44c7b01d15c884d3b6b5952bc096fbd3172b98bd8b0eb93df521666f",
+  "owned_private_copy_cleanup": {
+    "private_directory_absent": true,
+    "one_off_operator_sources_absent": true,
+    "original_credential_free_raw_retained": true,
+    "global_Azure_cache": "preserved",
+    "parent_exit_code": 0,
+    "forward_exit_code": -15,
+    "secure_erasure_claim": false
+  }
+}

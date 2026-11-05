@@ -1,12 +1,71 @@
-# P9-W1 Mitigation & Recovery
+# P9 Mitigation & Recovery
 
 목표는 동일 fault/demand의 C0–C3 비교, continuing-demand recovery, 실제 request accounting과 P9-owned 원복 evidence다.
-P9 acceptance는 아직 미충족이다. 제22차는 CLOSED/invalid이며 새 paid campaign 승인은 없다.
-누적 campaign22 / public initialize19 / healthy10 / started-invalid calibration7 / measured 각0 / KEDA apply·restore7/7을 보존한다.
-현재 source-only 교정의 Azure 효과는 NOT VERIFIED다. Source CI나 synthetic 성공을 runtime 성공으로 승격하지 않는다.
+**현재 상태:** [제32차](evidence/p9-mitigation-thirty-second-20261105/README.md)에서 reviewed valid calibration과 freeze를 거쳤다. 그 뒤 measured C0–C3 4 arm이 모두 reviewed valid였고, source `compare()`도 valid였다. Owned cleanup도 완료했다.
+Corrective action 연결은 [P8 incident record](incidents/p8-controlled-cascade.md#p9-mitigation-결과와-corrective-action-상태)에 있다. 최종 독립 merge gate는 대기 중이다.
+아래 제22–31차 기록과 counters는 당시 상태 그대로 보존한다. [제24차](evidence/p9-mitigation-twenty-fourth-20261104/README.md)는 CLOSED/invalid였고, 당시 누적은 campaign24 / public initialize21 / healthy12 / started-invalid calibration9 / measured 각0 / KEDA apply·restore actions9/9이었다.
+Paid source `d1ed52b8ba14d77345df5b3f19ae8a599421e516`는 native post-startup Warning과 AMW inventory age61.512초의60초 guard 초과로 중단했다. Ring conservation 부분 관측과 원복은 확인했지만 valid calibration은 없다.
+[제23차](evidence/p9-mitigation-twenty-third-20261103/README.md)의 source `076bc8a3dbd09e8192057e19df8b6cc5cb55274d`와 controller·HAProxy log 결손 negative도 그대로 보존한다.
+[제25차](evidence/p9-mitigation-twenty-fifth-20261104/README.md)(`a8c86516`)는 collector GET HTTP414로,
+[제26차](evidence/p9-mitigation-twenty-sixth-20261104/README.md)(`d7d963c9`)는 HAProxy startup DNS race에 따른 initialize readiness guard 실패로 CLOSED/invalid다.
+[제27차](evidence/p9-mitigation-twenty-seventh-20261104/README.md)(`7d0221ad`)는 처음으로 reviewed valid C3 calibration을 얻었다. 그러나 관측된 보수적 cadence 3×(15+53.558+28.979)=292.611s가 mitigation290s를 넘어 freeze가 fail closed했고, measured는 0이다.
+[제28차](evidence/p9-mitigation-twenty-eighth-20261104/README.md)(`6ae73428`)는 calibration 중 monitor `validation_failed`로 CLOSED/invalid다. Read-only probe에서 metrics-server timestamp 역행(18/50)이 관측됐다. 이는 resource history guard와의 충돌 후보다.
+[제29차](evidence/p9-mitigation-twenty-ninth-20261104/README.md)(`364cfb55`)는 run 완료(unissued0, lag1.585s) 뒤 saved validator가 새 Pod warmup 중 `KEDAScalerFailed` count2를 반복 Warning으로 거부해 CLOSED/invalid다.
+[제30차](evidence/p9-mitigation-thirtieth-20261105/README.md)(`2224f109`)는 run 완료(unissued0, lag1.258s) 뒤 saved validator가 같은 warmup 안 exact HPA Warning count2를 거부해 CLOSED/invalid다. 참고 cadence는 316.087s>300s였다.
+[제31차](evidence/p9-mitigation-thirty-first-20261105/README.md)(`57c64f1a`)는 reviewed valid calibration과 첫 freeze 뒤 measured C0/C1/C2 reviewed valid, C3는 warmup 안 HPA 증가가 한 수집 늦게 보여 saved validator INVALID라 비교하지 않았다.
+제32차는 첫 시도에서 매 mutation 8045초 reserve 때문에 시작 전 NO-GO였다(cloud mutation0).
++72h 보존과 reserve 정정 뒤의 [제32차](evidence/p9-mitigation-thirty-second-20261105/README.md)(`26d9805e`)는 reviewed valid calibration·freeze, measured C0–C3가 모두 reviewed valid이고 source `compare()`도 valid다.
+현재 누적은 campaign32 / initialize 시작29 / healthy19 / calibration 시작15(reviewed valid3) / freeze2 / measured 시작 각2(reviewed valid C0·C1·C2 각2, C3 1) / compare valid1 / KEDA actions15/15이다.
+Source CI·synthetic·부분 positive를 valid calibration, measured 성과 또는 recovered로 승격하지 않는다.
 
 현재 실행 범위·보존은 [Paid Azure boundary](implementation-plan.md#paid-azure-boundary--p6p11)와 별도 실제 사용자 결정을 따른다.
-Environment 기한은 2026-11-05 10:30 KST, Foundation/Bootstrap은 11월6일00:33 KST다. 자동 연장·전체 teardown·merge/P10은 없다.
+Environment 기한은 2026-11-08 10:30 KST, Foundation/Bootstrap은 11월9일00:33 KST다([+72h 승인](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/issues/47#issuecomment-6645059367); 직전 11월5일10:30/11월6일00:33 기록은 이력으로 보존). 자동 연장·전체 teardown·merge/P10은 없다.
+
+## Campaign23 이후 cost-free candidate
+
+[독립 review](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/49#pullrequestreview-5755324677) 뒤의
+source/test 변경은 당시 **future candidate**였고 이후 exact source d1ed로 제24차를 실행했다. Campaign22·23·24 archive/실행 source/negative는 불변이다.
+제24차 cleanup 뒤의 Pending 빈 imageID 교정만 새 cost-free candidate다. 과거 manifest 재서명·valid 승격은 없으며 Campaign25 권한도 없다.
+
+- **DECIDED — C3 bounded degraded startup 기록.** 새 형식은 guard HPA GET의 source/spec/status hash,
+  HPA UID·ScaledObject owner UID와 request/response monotonic clock을 configuration에 결합한다.
+  실제 `False/FailedGetExternalMetric`는 `controller_state=degraded`로 보존한다. 새 UID가 기존 lifecycle 안에서
+  resource/AMW joint 초기화 중인 경우에만 관측 가능한 mechanism negative로 취급하며 controller health PASS가 아니다.
+  기존 admission→Ready90초, Ready→AMW75초, Ready→resource joint150초·freshness·advancing two-sample gate를 유지한다.
+  같은 HPA의 usable External current metric과 실제 `True/ValidMetricFound`가 원래 budget 안에서 joint 관측돼야 한다.
+  초기화 완료 뒤 현재 HPA False, 새로운/persistent Warning episode, 다른 error, UID/owner/hash/clock 누락·변경은 invalid다.
+  같은 native Warning UID·timestamp·count가 poll history에서 반복되면 한 번만 보존하고, count/time 변경은 invalid다.
+  예외는 같은 no-data 원인의 exact owner 반복이다: ScaledObject owner UID의 `KEDAScalerFailed`, 그리고 같은 오류가 HPA sync마다 전파된
+  exact HPA UID의 `FailedGetExternalMetric`/`FailedComputeMetricsReplicas`다. guarded query의 의도된 빈 결과와 `ignoreNullValues=false` 때문에
+  반복될 수 있다(제29차 KEDA count2, 제30차 KEDA·HPA 각 count2). 반복 범위는 native warmup episode로 한정한다: 시작은 warming UID가 처음 나온 inventory 시각,
+  끝은 그 뒤 처음 fully observed all-Pod signal evaluation이며, first<last가 모두 그 안에 있어야 한다.
+  관측 중 count/last time의 증가는 둘 다 strictly 함께 증가하고 native last가 그 observed signal 전일 때만 허용하며 first time과 나머지 field는 불변이다.
+  늦게 보인 version은 그 사이 guard 수집이 모두 native last+1s(초 단위) 전이어야 한다(제31차: guard +87.2s, event +88.8s, signal +99.7s); 그 뒤 수집이 빠뜨리면 invalid다.
+  reason/owner 짝이 다르면 count1 불변 history만 허용하며, second UID·history 유실·episode 밖 반복은 invalid다.
+  `controller_seconds`15는 서로 다른 Warning의 native first time grouping에만 쓴다.
+  그 사건은 controller reliability negative/degraded evidence로 남긴다. 이후 별도 request-clock의 same-HPA positive,
+  fresh AMW와 resource joint observation이 있어야 하며, 경고를 health PASS로 바꾸거나 원인 인과를 추정하지 않는다.
+  Earlier HPA와 later AMW를 같은 evaluation으로 합치지 않는다. Degraded 구간은 convergence/recovery proof에서 제외하고
+  `review`에도 `excluded_controller_degradation`의 정확한 구간/UID 목록을 요구한다.
+- **DECIDED — authoritative HAProxy capture.** All arms에16MiB in-process `ring@p9`와 loopback-only worker CLI8405를 쓴다.
+  Per-Pod lifetime 최대6×5400 + 정상/healthy journey3×87 + probe3×2 =32667 row를512-byte slot으로 예약한다.
+  Direct sentinel·CLI/AMW·unlogged readiness는 check frontend를 통과하지 않는다. 매 부하 전 실제 prefix와 남은 campaign 전체를 예약하며 C0/C1 Pod UID/config를 reset하지 않는다.
+  Pinned image의 BusyBox `nc`로 읽으며 Pod/CPU/memory request·limit, frontend/backend/C2 policy는 유지한다.
+  Stdout은 diagnostic이다. CLI ring drop, capacity/truncation, Pod UID/PID/start-time reset, prefix rotation,
+  duplicate request counter는 fail closed다. 부하 전에 bounded 최대 attempt를 저장할 여유를 확인한다.
+  강제 HTTP close·별도 unlogged readiness 아래 drained check frontend의 실제 `stot`와 lifetime row 수가 같아야 한다.
+  기존 ingress/target/server/BACKEND 보존식도 그대로이며 status400/CR·Tw=-1을 제거/변환하거나 누락 row를 counter로 채우지 않는다.
+  Pinned concurrent 시험에서 `%lc` 중복·gap이 완전한 row capture와 함께 나타났다. `%lc`는 유일 ID가 아니므로 raw diagnostic과
+  high-water 관측으로 보존한다. `DroppedLogs`도 process 전체 diagnostic이며 ring equality proof를 대신하지 않는다.
+- **REVALIDATE — Azure 경계.** [Pinned local proof](evidence/p9-calibration-capture-local-20261104/README.md)는
+  native AKS/AMW/HPA, 실제 collector clock·network/exec budget·Pod memory와 새로운 complete joint observation의 성공을 증명하지 않는다.
+  Actual scaler evaluation 원인과 Campaign23의 정확한 log loss hop은 UNKNOWN이다. 독립 exact-head 검토와 별도 paid 결정 전에는 실행하지 않는다.
+- **DEFERRED — cleanup parser.** Campaign23의3개 initial handler error와 targeted cleanup complete/errors=[] 기록을 보존한다.
+  그 handler는 제거된 one-off operator라 이번 source에 고칠 maintained parser가 없다. 별도 cleanup framework를 만들지 않는다.
+  다음 owned operator를 검토할 때 successful empty delete와 case-insensitive `manifest unknown`/실제 absence를 구분해야 한다.
+
+P7 issue_read 0.2초는 P7 concurrency1·5 sample의 max0.1초×2 benchmark이며 P9 recovery gate가 아니다(아래 Recovery). Worker12, wave/demand·threshold·budget은 바꾸지 않았다. Valid run의 not-recovered는 negative일 수 있고,
+Campaign23은 여전히 controller/accounting invalid다.
 P6/P7 drill, P8 전체 실험, factorial/조합 최적화, 다른 architecture 구현은 범위 밖이다.
 
 ## 비교와 동결
@@ -31,7 +90,7 @@ ARM에서 managed KEDA enabled를 확인한 것만으로 version/CRD/인증을 �
 최종 source는 승인 대상 exact HEAD, published digest, verified HTTPS hostname/native PAT,
 process-local DNS override, source/render hashes, P7 SLO hash, fault/demand/schedule와 arm delta를 묶는다.
 `freeze`는 같은 최종 plan의 reviewed calibration report 1–2개를 요구한다. Report에는
-source/plan/fixture hash와 verified HTTPS transport(DNS override 포함), `reviewed`, `missing_required_signals=[]`, 실제 cadence, all-Pod series,
+source/plan/fixture hash와 verified HTTPS transport(DNS override 포함), `reviewed`, `missing_required_signals=[]`, 직접 controller 관측(아래), all-Pod series,
 `per-pod-active-overflow-counter-rate-per-second` 의미, 아래 고정 `metric_contract`, controller ownership 검토를 기록한다.
 Boolean report는 actual calibration raw/동일 window 검토를 대신하지 않는다.
 
@@ -43,20 +102,30 @@ hostname, Argo revision과 나머지 drift 검사는 유지한다. Arm마다 ini
 
 ## 시간·부하 상한
 
-공통 후보는 mitigation240s + recovery180s, drain/마지막 수집60s를 계획한다.
-실제 scrape/ingestion/controller cadence를 calibration에서 확인하여 공통 mitigation을
-`max(120s, 3×(scrape+ingestion+controller))` 이상, 10초 배수로 **measured 전에** 고정한다.
+공통 후보는 mitigation300s + recovery180s, drain/마지막 수집60s(합계540s≤600s)를 계획한다. 300s는 계약상 최대 mitigation이다.
+300s 선택 당시 쓴 3×(scrape+raw age+HPA status 변화 간격)은 controller 상한이 아니라 진단값이다: 제24차 276.356s, 제27차 3×(15+53.558+28.979)=292.611s(당시 290s에서 freeze fail closed). PASS를 보장하지 않는다.
+Newest-sample 최초 가시성 상한(제27차 최대33.708s)은 건너뛴 sample을 덮지 못하고, raw age가 함의하는 다음 sample의 지연 하한38.558s(또는 scrape 누락)보다 작으므로 ingestion 상한으로 쓰지 않는다.
+Plan `controller_seconds`15(Warning episode grouping 정책)와 scrape/ingestion/freshness·fault/demand/guard/recovery SLO는 바꾸지 않는다. 과거 invalid raw는 새 run의 유효성 증거가 아니다. Mitigation 연장은 recovery 판정(제27차 not recovered negative)을 바꾸거나 개선한다고 주장하지 않는다.
+**정정(제30차 근거):** HPA status 변화 간격은 controller sync 상한이 아니다. Upstream HPA `updateStatusIfNeeded`는 같은 status를 쓰지 않으므로,
+변화 없는 간격을 reconciliation 부재로 해석할 수 없다. 제30차 최대38.395s(3×합316.087s)는 전부 새 Pod 의도된 warmup(monotonic +56.4…+129.9s) 안에 있었다.
+따라서 3×(scrape+raw age+status 변화 간격)≤mitigation은 freeze/acceptance gate가 아니라 calibration report의 `status_change_gap_diagnostic`으로만 남긴다.
+Freeze의 `cadence_observed`는 `direct_controller_observation`이다. Baseline 대비 새 target UID가 실제로 있어야 하고(warming snapshot은 필수가 아니며, 관측되면 그 초기화 snapshot 뒤부터 센다), release(origin+300s) 전까지
+35s 이하 간격의 **연속 3개 이상** snapshot이 각각 다음을 만족해야 한다:
+같은 HPA UID/owner/spec·status hash와 monotonic clock 결합(`controller_observation`), `controller_positive`(ScalingActive/AbleToScale True, External metric),
+exact target 전체 signal observed·per-Pod sample≥2·age≤60s, resource observed, 그 snapshot window 안 같은 UID native HPA GET, 창 안 새 HPA/KEDA Warning 없음.
+여기에 scrape 상한≤15s와 raw age≤60s도 함께 요구한다. 이는 반복 실관측이지 보장 latency나 15초 tick 합성이 아니다. Native HPA/schedule/snapshot 시각은 monotonic끼리만, sample age는 UTC epoch끼리만 비교한다.
+Source `validate`/`reviewed`/`common_guards`, 35s gap과 full confounder review는 그대로 필수다.
 코드는 mitigation≤300s, recovery120–240s, 두 구간 합계≤540s, arm 계획≤600s를 제한한다.
 Kubernetes 명령은 최대15s, 한 snapshot의 Kubernetes 수집 budget30s, Prometheus query는
 각5s다. Deadline/관측 부족은 raw로 보존하며 복구/다음 run 판단은 AGENTS.md의 복구 경계을 따른다.
 
-| 상한 | 후보420s / run | 최대로 승인 요청하는540s / run |
+| 상한 | 후보480s / run | 최대로 승인 요청하는540s / run |
 | --- | ---: | ---: |
-| Wave | 84 | 108 |
-| Issue logical operations | 2,016 | 2,592 |
-| Issue attempts (max2) | 4,032 | 5,184 |
-| Supplemental Git operations/attempts | 84 | 108 |
-| 합계 logical operations / attempts | 2,100 / 4,116 | 2,700 / 5,292 |
+| Wave | 96 | 108 |
+| Issue logical operations | 2,304 | 2,592 |
+| Issue attempts (max2) | 4,608 | 5,184 |
+| Supplemental Git operations/attempts | 96 | 108 |
+| 합계 logical operations / attempts | 2,400 / 4,704 | 2,700 / 5,292 |
 
 Calibration **총2회 이하**(C3 및 C2를 우선 후보로 삼고 C1 seed/범위는 cost-free로 고정), measured는 C0→C1→C2→C3 **각1회**, 합계 최대6회다. Calibration 자체는
 한 arm만 실행하며 조합 arm을 만들지 않는다. Candidate 변경도 두 번의 calibration budget
@@ -72,8 +141,9 @@ healthy-gate journey1회, native-deny/controlled-deny/path 확인은 각각1회�
 Scheduler는 wave 완료를 기다리지 않고 같은 monotonic offsets에 arrival을 제출한다.
 Issue12/Git1 worker와 최대49 pending으로 client backlog를 제한한다. 초과 또는 monitor 실패 시
 추가 발행을 중단하고 남은 예정 arrival을 `not-issued/cancelled`로 보존하며 fault release를 시작한다.
-이는 valid mitigation이 아니다. Comparison은 unissued0 / max driver lag≤2s를 요구한다.
-회복 window의 driver lag는 더 엄격하게≤0.2s다. 부하가 밀린 것을 완화 성과로 세지 않는다.
+이는 valid mitigation이 아니다. Comparison은 unissued0과 max driver lag≤2s를 요구하며 scheduler/worker/command 시간은 그대로 측정한다.
+회복 window의 Issue command latency는 P7 0.2s benchmark로, driver lag 0.2s는 이전 P9 strict-gate 진단으로 모든 초과를 보고하지만
+functional recovery 조건이 아니다. 완전한 otherwise-valid run의 functional 미회복은 recovery negative로 기록하며 recovered로 승격하지 않는다.
 
 ## KEDA signal과 ownership
 
@@ -94,13 +164,16 @@ Actual ORIGINAL_DST inbound cluster `inbound|8080||`, listener destination port8
 `use_all_default_tags=false`, `cluster_name` tag regex `^cluster(\.(.+);)`를 확인한다.
 Native exposition의 overflow counter/active gauge type과 label, 같은 Pod의 ingested sample을 대조한다.
 Mapping/tag/label ambiguity나 drift는 신규 Pod warmup 중에도 실패한다.
-`sum(rate(...[1m]))`의 unit은 rejected checks/s이며 raw cumulative counter를 threshold에
+현재 source `RATE_WINDOW`2m의 `sum(rate(...[2m]))`(reviewed 계약; C24/C27 raw도2m)의 unit은 rejected checks/s이며 raw cumulative counter를 threshold에
 연결하지 않는다. 후보 threshold0.5, calibration 허용0.25–1.0이다. 이는 rejection을 낮추려는
 반응 후보이며 capacity2가 SLO를 복원한다는 가정이 아니다. Gauge의 짧은 peak는 scrape가
 놓칠 수 있어 counter rate를 택했으며 high-frequency admin 관측/log와 따로 대조한다.
 
 Query는 per-Pod rate·원본 timestamp freshness·up=1 및 **kube_pod_info의 target 수와 coverage**를
-guard한다. Inventory series의 label/freshness와 target Pod들의 실제 UID/name도 대조해야 한다.
+guard한다. Raw counter와 `up`은 각각60초 이내여야 한다. KSM identity inventory는 기본 scrape30초와
+Azure ingestion30초를 반영한 90초 경계로 별도 검사하되, distinct Pod/UID·non-empty UID·raw Pod-name
+coverage와 actual Kubernetes UID/name 일치는 모두 필수다. Missing/duplicate/replaced identity는 no-data/invalid이며
+0으로 채우지 않는다. Inventory age만으로 raw/up 신선도를 대체하지 않는다.
 Empty/partial/stale/error를0으로 바꾸지 않고 `ignoreNullValues=false`, TLS verify를 사용한다.
 Collector의 기존 다섯 번째 instant query는 `p9_query_term` label로 canonical guarded 결과,
 rate/fresh-rate/inventory/up count·up minimum·raw/up/inventory maximum age와 `vector(time())`를 분리한다.
@@ -119,6 +192,8 @@ HPA metric·desired·Ready·각 target의 traffic timeline과 함께 기록한�
 전체 live target UID/inventory에는 Pending도 포함하고, runtime config/counter/log는 Ready target에서 수집한다.
 Collector와 saved-run validator는 같은 lifecycle 경계를 적용한다. 신규 C3 UID의 Pending→Ready는
 첫 관측부터 최대90초, Ready 이후 series 초기화는 `ingestion+3×scrape` 이내만 허용한다.
+신규 Pending Pod의 빈 CRI `imageID`는 미관측 값으로 보존하며 첫 nonempty ID부터 변경·재누락을 거부한다. 기존 UID와 Ready image/config 검증은 유지한다.
+신규 C3 Pod CPU sample timestamp는 high-water로만 기록한다. Native metrics-server는 이전보다 오래된 cached export를 반환할 수 있으므로(제28차), backstep은 진행·readiness로 세지 않고 high-water를 되돌리지 않으며 freshness 검사는 그대로 적용한다. Monitor 실패 시에는 `validation_stage`(lifecycle.signal / lifecycle.resources)만 고정 필드로 기록한다.
 Ready 직후 admin stat가 아직 materialize되지 않은 상태도 같은 Ready budget 안에서만 허용한다.
 구조/config invariant는 stat 유무와 독립적으로 검사한다. `Pending → Ready/no-admin-stat → 첫 계획된 traffic →
 admin/native stat → rate 최소2 samples`를 `admin_stats`의 실제 값/누락과 `warming-new-pod` not-ready/no-data로 보존한다.
@@ -216,8 +291,8 @@ Fault 유지 중 원래 SLO를 회복했다고 가정하지 않는다.
 Recovery window는 schedule origin 기준 고정된 연속10초다. 마지막 arrival은 duration−5초이며
 관측 deadline까지 계속 수집한다. 첫 fully-converged window부터 다음 조건을3개 연속 요구한다.
 
-- 매 window에 예정된 새 Issue48/Git2가 실제 발생하며 driver lag≤0.2s, 미발행/취소 없음.
-- 새 Issue 모두 **첫 attempt** semantic success, P7 단일 curl-command latency≤0.2s.
+- 매 window에 예정된 새 Issue48/Git2가 실제 발생하며 미발행/취소 없음.
+- 새 Issue 모두 **첫 attempt** semantic success(retry 없음).
 - Git read semantic success. `ls-remote`에 P7 clone/fetch latency threshold를 적용하지 않음.
 - Window 안에 completion, 필수 freshness/Pod readiness/관측 coverage가 존재함.
 
@@ -225,6 +300,9 @@ Release command, 실제 all-Pod 수렴, first-good window, confirmation/deadline
 조건 미충족은 `not recovered within observation window`다. 빠른 deny/낮은 rejection/CPU는
 recovery가 아니다. P7 command latency와 schedule→completion의 queue/backoff 포함 operation
 latency를 별도 배열로 보고하며 전체 campaign의 실패/누락 분모를 유지한다.
+P7 `initial-slo.json` issue_read 0.2s(concurrency1·5 sample max0.1s×2)는 P9 concurrency24/fault에서 검증된 지속 SLO가 아니다.
+`recovery()`는 window별 `p7_issue_command_over_0_2s`와 `former_strict_driver_lag_over_0_2s`, 전체 `p7_benchmark`(Issue command p50/p95/max·초과 수,
+pass/fail/unknown)와 별도 driver lag 진단을 보고하되 recovered 판정에 쓰지 않는다. 새 P9 latency 임계값은 정의하지 않는다.
 
 Operation/attempt/check/dispatch/admission/target rejection은 다른 단위다. C2 intentional429는
 HAProxy `PR`, queue timeout503은 `sQ` termination으로 분리하며 target503 overflow와 섞지 않는다.
@@ -267,7 +345,8 @@ CLOSED/invalid evidence다. 신규 source로 과거 manifest/hash를 재결합�
   HTTP request 수신 시간을 추가하고 target/ingress와 HAProxy log read 구간을 각각 기록한다.
   Peer/URL/header/body는 수집하지 않는다. **REVALIDATE:** 새 로그의 counter 연속성·boundary·실제 ingress mapping.
   `400` 일괄 제외, `Tw=-1`→0, residual 분모 제거 또는 equality 합성은 하지 않는다.
-- **DECIDED — recovery fail-close 유지.** optimistic observation coverage로 분리 재계산해도 good window0이다.
+- **DECIDED(당시) — recovery fail-close 유지.** 당시 규칙에서는 optimistic observation coverage로 분리 재계산해도 good window0이었다.
+  현재 functional recovery 계약은 0.2s latency를 benchmark로만 보고하므로, 아래 latency 수치는 benchmark 초과 기록이다. 제22차 run은 별도 controller/accounting 실패로 여전히 invalid다.
   Recovery Issue attempt884개 중674개가0.2초 초과, command p50 약0.343초/p95 약1.308초,
   driver lag p95 약1.331초/max1.501207초다. 모든10초 window에 command SLO 실패가 있어 driver gate만
   바꾸어도 recovered가 아니다. Issue12 worker에 wave당24 arrivals이므로 두 번째 묶음의 worker 대기가
@@ -322,7 +401,11 @@ exact-ID revoke/재사용401·token list0·fixture login 차단을 확인하며 
 같은 승인 안의 허용된 bounded recovery만 남은 승인 범위/횟수/기한·원복 reserve 안에서 수행한다. Closed campaign의 잔여 권한은 이월하지 않는다.
 
 Whole reserve는1800+실제 initialize timeout I+kill5+6×600+1800초이며 candidate I840이면8045초다.
-각 run/drain/rollback2220초와 initialize 포함3065초의 strict retention cutoff를 유지한다. 부족하면 새 위험 행동을 시작하지 않는다.
+각 run/drain/rollback2340초(300+180+60+1800)와 initialize 포함3185초(+840+kill5)의 strict retention cutoff를 유지한다. 부족하면 새 위험 행동을 시작하지 않는다.
+**정정(제32차 NO-GO 근거):** 8045초는 campaign 전체에 대해 **첫 mutation 전에 한 번** 확보하는 reservation이다. 이 reservation은 남은 전체 작업과 1800초 owned rollback을 포함한다.
+첫 진입 시에는 제31차 실측(첫 mutation→owned cleanup 종료 4318초, C0 전환 recovery 포함)+1800초도 함께 확인한다.
+이후 action마다 새로 8045초를 요구하지 않는다. 대신 각 action 전에 해당 단계의 남은 시간을 확인한다: initialize 3185초, KEDA apply·전환·두 번째 calibration은 전환600+run2340초, measure 2340초, 그 밖의 mutation과 final normal/cleanup은 1800초.
+Exact source/clean HEAD 확인은 모든 action에서 유지한다. 시간이 부족하면 해당 위험 행동을 멈추고 owned cleanup으로 종료한다.
 Owned cleanup은 CUSTOM exact UID 제거→shared CM UID/data guarded 복원→experiment controls/Secret/namespace→정상 native/TLS 검증,
 fixture 폐기·소유 image exact tag/digest/로컬 tag·forward/권한 제거 순서다. KEDA 원본 SA/rollout을 복원한 뒤 소유 role/FIC/UAMI를 제거한다.
 Argo revision/spec/Pod·기존 PVC/PV/Disk/Secret/CSI·원래 Owner와 fixed inventory 보존을 실제 evidence로 확인한다.

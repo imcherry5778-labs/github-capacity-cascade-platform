@@ -1,0 +1,50 @@
+{
+  "source_commit": "5360df5ef93647dd4e9374232440cea32c2aa23f",
+  "files": [
+    {
+      "path": "C0.json",
+      "size": 8785913,
+      "sha256": "b4e22e76985e102409437b7fd4965e8ef882aa9ec41cc0d1ae86ba026558bc86"
+    },
+    {
+      "path": "C1.json",
+      "size": 13758275,
+      "sha256": "355752f70dfee16d31a5f116f9463e7c4c72c66e7c1dfffb8572ba67b132e45c"
+    },
+    {
+      "path": "C2.json",
+      "size": 7954656,
+      "sha256": "dd77d30cf42f24003b433db3ac9867d26ac458a4241ac8bcc807fb7584d1953f"
+    },
+    {
+      "path": "C3.json",
+      "size": 21479857,
+      "sha256": "d7093ae3eb39408fa68b3dd19939c6676e8e84bf2a80ff6ab28b0048dcf1105c"
+    },
+    {
+      "path": "docker-result.txt",
+      "size": 101,
+      "sha256": "bbe80a0f5c5315dff0c5682cea0c2a9e25ae6f9d1cc30204662fddf326bb7e24"
+    },
+    {
+      "path": "lc-prototype-negative.txt",
+      "size": 6811,
+      "sha256": "bc6139c3cff75585a2a5a7a85cd9a7c0bc4c155ee80ea128213febd759be2970"
+    },
+    {
+      "path": "overwrite.json",
+      "size": 7810,
+      "sha256": "331000a214de1d508768ce7eb91b9422d76c0228a7d5a14ccfb218d109554540"
+    },
+    {
+      "path": "summary.json",
+      "size": 2952,
+      "sha256": "c5e96ca2fa1a26e32817b0289c88f6ebaefc77200320173f49d219117ac7378c"
+    },
+    {
+      "path": "unit-result.txt",
+      "size": 250,
+      "sha256": "58f0be41cf60d13dbdac8af05d6b8b339438da8879d230f81eab1d5b4c27d830"
+    }
+  ]
+}

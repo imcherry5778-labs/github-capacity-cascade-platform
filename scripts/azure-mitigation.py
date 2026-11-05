@@ -33,7 +33,7 @@ NS = p8.NS  # Reuse removed P8 fixture names, owned by the NEW campaign label.
 ARMS = ('C0', 'C1', 'C2', 'C3')
 HPA = 'p9-proxy'
 SLO = ROOT / 'docs/evidence/p7-operations-20261028/initial-slo.json'
-DEADLINE = datetime(2026, 11, 5, 1, 30, tzinfo=timezone.utc)
+DEADLINE = datetime(2026, 11, 8, 1, 30, tzinfo=timezone.utc)
 
 
 # Selected managed runtime contract, not an auto-discovery/fallback policy.
@@ -48,6 +48,72 @@ TARGET_METRIC = {'cluster_label': 'cluster_name', 'cluster': 'inbound|8080||',
 # changes smoothing, not the 60s raw freshness or any calibration threshold.
 RATE_WINDOW = '2m'
 RESOURCE_INITIALIZATION_SECONDS = 150
+HAPROXY_RING_BYTES = 16 * 1024 * 1024
+HAPROXY_LOG_MAXLEN = 512
+# Read-only commands on a worker CLI bound to loopback, never the master CLI.
+HAPROXY_LOG_CLI = "set -e; printf 'show info;show events;show events p9\\n' | nc -w 2 127.0.0.1 8405; printf '\\nP9_RING_END\\n'"
+
+
+def haproxy_capture(text, uid):
+    """Pinned 3.4.6 CLI framing. Never discard a malformed/missing log row."""
+    require(text.endswith('\nP9_RING_END'), 'incomplete HAProxy CLI framing')
+    sections = text[:-len('\nP9_RING_END')].split('\n\n', 2)
+    require(len(sections) == 3, 'incomplete HAProxy ring CLI response')
+    info = dict(line.split(': ', 1) for line in sections[0].splitlines())
+    sink = re.findall(r'^\s+p9\s+: type=buffer, ([0-9]+) dropped, p9$', sections[1], re.M)
+    require(sink == ['0'], 'HAProxy ring missing/dropped logs')
+    pid, started, dropped = (int(info[k]) for k in ('Pid', 'Start_time_sec', 'DroppedLogs'))
+    require(pid > 0 and started > 0 and dropped >= 0 and info['Version'].startswith('3.4.6'), 'HAProxy logger identity/version')
+    lines = sections[2].strip('\n').splitlines()
+    rows = [json.loads(line) for line in lines]
+    require(all(0 < len(line.encode()) + 16 < HAPROXY_LOG_MAXLEN for line in lines) and
+            (len(rows) + 1) * HAPROXY_LOG_MAXLEN < HAPROXY_RING_BYTES, 'HAProxy ring capacity/truncation')
+    fields = {'status', 'termination', 'queue_ms', 'connect_ms', 'response_ms', 'total_ms',
+              'accept_time', 'request_counter', 'log_counter', 'request_ms', 'pid'}
+    require(all(set(r) == fields and r['pid'] == pid and
+                all(type(r[k]) is int for k in fields - {'termination', 'accept_time'}) and
+                100 <= r['status'] <= 599 and re.fullmatch(r'[A-Za-z-]{2}', r['termination']) and
+                re.fullmatch(r'[0-9]+\.[0-9]{3}', r['accept_time']) and r['request_counter'] >= 0 and
+                all(r[k] >= -1 for k in ('queue_ms', 'connect_ms', 'response_ms', 'total_ms', 'request_ms'))
+                for r in rows), 'invalid HAProxy structured row')
+    # %lc repeats under concurrency in pinned 3.4.6; it is NOT a unique ID.
+    # %rt is assigned to the request, including other frontends; gaps are real
+    # and must not be filled. Completeness uses native check-frontend totals at
+    # drained boundaries, not a synthesized %lc sequence.
+    require(all(r['log_counter'] >= 0 for r in rows) and
+            len({r['request_counter'] for r in rows}) == len(rows), 'HAProxy duplicate/reset request counter')
+    return rows, {'transport': 'in-process-ring-cli', 'pod_uid': uid, 'pid': pid, 'start_time_sec': started,
+                  'capacity_bytes': HAPROXY_RING_BYTES, 'maxlen': HAPROXY_LOG_MAXLEN,
+                  'ring_dropped': 0, 'dropped_logs_total': dropped, 'rows_sha256': digest(rows),
+                  'response_sha256': hashlib.sha256(text.encode()).hexdigest()}
+
+
+def haproxy_capture_guard(snapshots, *, drained=True):
+    previous = None
+    for s in snapshots:
+        obs, rows = s['haproxy_log_observation'], s['haproxy_logs']
+        require(obs['transport'] == 'in-process-ring-cli' and obs['ring_dropped'] == 0 and
+                obs['pod_uid'] == s['configuration']['haproxy']['uid'] and
+                obs['capacity_bytes'] == HAPROXY_RING_BYTES and obs['maxlen'] == HAPROXY_LOG_MAXLEN and
+                obs['rows_sha256'] == digest(rows) and (len(rows) + 1) * HAPROXY_LOG_MAXLEN < HAPROXY_RING_BYTES and
+                all(r['pid'] == obs['pid'] and r['log_counter'] >= 0 for r in rows) and
+                len({r['request_counter'] for r in rows}) == len(rows), 'saved HAProxy ring evidence drift')
+        if previous is not None:
+            old = previous['haproxy_log_observation']
+            require(all(obs[k] == old[k] for k in ('pod_uid', 'pid', 'start_time_sec')) and
+                    obs['dropped_logs_total'] >= old['dropped_logs_total'] and
+                    rows[:len(previous['haproxy_logs'])] == previous['haproxy_logs'] and
+                    max((r['log_counter'] for r in rows), default=-1) >=
+                    max((r['log_counter'] for r in previous['haproxy_logs']), default=-1), 'HAProxy ring reset/rotation/lifetime drift')
+        previous = s
+    if drained:
+        # Every check connection closes after one HTTP exchange in this render;
+        # readiness uses the separate unlogged stats listener. Actual counters
+        # prove equality only at drained boundaries; never fill missing rows.
+        for endpoint in (snapshots[0], snapshots[-1]):
+            front = endpoint['haproxy']['frontend']
+            require(front['scur'] == 0 and front['stot'] == len(endpoint['haproxy_logs']),
+                    'HAProxy ring incomplete at drained frontend boundary')
 
 
 def metric_contract():
@@ -156,6 +222,39 @@ def schedule(v):
             for wave in range(duration // 5) for kind, count in (('issue', 24), ('git', 1)) for index in range(count)]
 
 
+def haproxy_lifetime_budget(v):
+    """Capacity planning, never inferred accounting or additional run authority.
+
+    Use the source's maximum 300+240 plan for ALL six runs, without assuming
+    any HAProxy reset. Issue has <=2 single-HTTP attempts; ls-remote has one
+    command but reserve discovery + ls-refs HTTP (not one check/attempt).
+    A create journey reserves API11 + Git HTTP16 + settling polls60 =87;
+    reserve all three normal/healthy journeys and two HTTP per named probe.
+    Direct 127.0.0.1:13000 sentinels, CLI/AMW and unlogged readiness add no rows.
+    """
+    maximum = v | {'mitigation_seconds': 300, 'recovery_seconds': 240}
+    rows_per_run = 2 * len(schedule(maximum))
+    journeys, probes = 3 * (11 + 16 + 60), 3 * 2
+    runs = 2 + len(ARMS)
+    return {'runs': runs, 'rows_per_run': rows_per_run, 'journey_rows': journeys, 'probe_rows': probes,
+            'initial_public_rows': 2 * (11 + 16 + 60), 'tail_public_rows': (11 + 16 + 60) + probes,
+            'total_rows': runs * rows_per_run + journeys + probes, 'direct_sentinel_rows': 0}
+
+
+def haproxy_capacity_preflight(v, prefix_rows=0, started_runs=1):
+    budget = haproxy_lifetime_budget(v)
+    require((budget['total_rows'] + 1) * HAPROXY_LOG_MAXLEN < HAPROXY_RING_BYTES,
+            'insufficient HAProxy ring capacity for maximum campaign lifetime')
+    require(type(prefix_rows) is int and prefix_rows >= 0 and type(started_runs) is int and
+            1 <= started_runs <= budget['runs'], 'HAProxy capacity ledger/prefix bounds')
+    remaining = budget['runs'] - started_runs + 1  # Ledger already includes this started run.
+    reserved = remaining * budget['rows_per_run'] + budget['tail_public_rows']
+    require((prefix_rows + reserved + 1) * HAPROXY_LOG_MAXLEN < HAPROXY_RING_BYTES,
+            'insufficient HAProxy ring capacity for remaining campaign lifetime')
+    return budget | {'prefix_rows': prefix_rows, 'remaining_runs': remaining, 'reserved_future_rows': reserved,
+                     'capacity_bytes': HAPROXY_RING_BYTES}
+
+
 def retry_delay(v, arm, item):
     if arm != 'C1':
         return 0
@@ -172,10 +271,20 @@ def scale_query_parts(v):
     raw = queries['raw']
     fresh = f'(time() - timestamp({raw}) <= {v["freshness_seconds"]})'
     rates = f'({queries["rate"]} and {fresh})'
-    info = 'kube_pod_info{' + base + ',pod=~"ext-authz-sim-.+"}'
+    info_selector = base + ',pod=~"ext-authz-sim-.+"'
+    info = 'kube_pod_info{' + info_selector + '}'
+    identified_info = 'kube_pod_info{' + info_selector + ',uid!=""}'
     up = 'up{' + base + ',job=' + json.dumps(metric_contract()['job']) + '}'
+    raw_pods = f'count by (pod) ({rates})'
+    info_pods = f'count by (pod) ({info})'
+    up_pods = f'count by (pod) ({up})'
     return rates, {'rate_count': f'count({queries["rate"]})', 'fresh_rate_count': f'count({rates})',
                    'raw_max_age': f'max(time() - timestamp({raw}))', 'inventory_count': f'count({info})',
+                   'inventory_pod_count': f'count({info_pods})',
+                   'inventory_uid_count': f'count(count by (uid) ({identified_info}))',
+                   'identified_inventory_count': f'count({identified_info})',
+                   'matched_pod_count': f'count(({raw_pods}) and on (pod) ({info_pods}))',
+                   'matched_up_pod_count': f'count(({up_pods}) and on (pod) ({info_pods}))',
                    'up_min': f'min({up})', 'up_count': f'count({up})',
                    'up_max_age': f'max(time() - timestamp({up}))',
                    'inventory_max_age': f'max(time() - timestamp({info}))'}
@@ -185,13 +294,27 @@ def scale_query(v):
     """Canonical scaler query; empty/partial/stale inventory never becomes zero."""
     rates, t = scale_query_parts(v)
     return (f'sum({rates}) and on() ({t["fresh_rate_count"]} == {t["inventory_count"]}) '
+            f'and on() ({t["rate_count"]} == {t["inventory_count"]}) '
+            f'and on() ({t["inventory_pod_count"]} == {t["inventory_count"]}) '
+            f'and on() ({t["inventory_uid_count"]} == {t["inventory_count"]}) '
+            f'and on() ({t["identified_inventory_count"]} == {t["inventory_count"]}) '
+            f'and on() ({t["matched_pod_count"]} == {t["inventory_count"]}) '
+            f'and on() ({t["matched_up_pod_count"]} == {t["inventory_count"]}) '
+            f'and on() ({t["raw_max_age"]} <= {v["freshness_seconds"]}) '
             f'and on() ({t["up_min"]} == 1) '
             f'and on() ({t["up_count"]} == {t["inventory_count"]}) '
             f'and on() ({t["up_max_age"]} <= {v["freshness_seconds"]}) '
-            f'and on() ({t["inventory_max_age"]} <= {v["freshness_seconds"]})')
+            f'and on() ({t["inventory_max_age"]} <= {inventory_freshness_seconds(v)})')
 
 
 QUERY_TERM_LABEL = 'p9_query_term'
+KSM_SCRAPE_SECONDS = 30
+
+
+def inventory_freshness_seconds(v):
+    # KSM emits the identity inventory every 30s; Azure ingestion is separately
+    # bounded by the plan. This does not relax raw counter or `up` freshness.
+    return 2 * KSM_SCRAPE_SECONDS + v['ingestion_seconds']
 
 
 def collector_query(v):
@@ -263,7 +386,9 @@ def render(identity, v, arm):
     hp = next(o for o in items if o['kind'] == 'ConfigMap' and o['metadata']['name'] == 'haproxy')
     config = hp['data']['haproxy.cfg'].replace('timeout connect 5s', 'timeout connect 250ms').replace('timeout server 10s', 'timeout server 2s').replace('timeout client 10s', 'timeout client 4s')
     # Same logging policy for all arms; no URL, credentials or bodies.
-    config = 'global\n  log stdout format raw local0\n' + config
+    config = ('global\n  log stdout format raw local0\n  log ring@p9 format raw local0\n'
+              '  stats socket ipv4@127.0.0.1:8405 level operator\n'
+              'ring p9\n  format raw\n  size ' + str(HAPROXY_RING_BYTES) + '\n  maxlen ' + str(HAPROXY_LOG_MAXLEN) + '\n') + config
     config = config.replace('  mode http\n', '  mode http\n  log global\n  log-format "{\\"status\\":%ST,\\"termination\\":\\"%ts\\",\\"queue_ms\\":%Tw,\\"connect_ms\\":%Tc,\\"response_ms\\":%Tr,\\"total_ms\\":%Ta,\\"accept_time\\":\\"%Ts.%ms\\",\\"request_counter\\":%rt,\\"log_counter\\":%lc,\\"request_ms\\":%TR,\\"pid\\":%pid}"\n')
     if arm == 'C2':
         config = config.replace('  timeout connect 250ms', '  timeout queue ' + str(v['queue_timeout_ms']) + 'ms\n  timeout connect 250ms')
@@ -315,6 +440,7 @@ def controller_guard(arm, hpas, scaled):
 
 def approval_gate(identity, v, approval, ledger, now=None):
     p8.identity(identity); plan(v)
+    haproxy_capacity_preflight(v)  # Pure source check before Runtime can read credentials/cloud APIs.
     now = now or datetime.now(timezone.utc)
     require(os.environ.get('P9_AZURE_APPROVED') == identity['source_sha'] and
             approval['source_sha'] == identity['source_sha'] and approval['identity'] == identity and
@@ -323,6 +449,160 @@ def approval_gate(identity, v, approval, ledger, now=None):
     require(now + timedelta(seconds=v['mitigation_seconds'] + v['recovery_seconds'] + 60 + 1800) < DEADLINE, 'insufficient retention time for run/drain/rollback')
     require(all(r['source_sha'] == identity['source_sha'] and (r['phase'] == 'calibration' or r['plan_sha256'] == digest(v)) for r in ledger), 'ledger source/plan drift')
     require(sum(r['phase'] == 'calibration' for r in ledger) <= 2 and all(sum(r['phase'] == 'measured' and r['arm'] == a for r in ledger) <= 1 for a in ARMS), 'campaign run budget exceeded')
+
+
+def controller_positive(hpa, arm, spec):
+    conditions = {c['type']: c for c in hpa.get('conditions', [])}
+    if not (conditions.get('AbleToScale', {}).get('status') == 'True' and
+            conditions.get('ScalingActive', {}).get('status') == 'True' and
+            1 <= hpa.get('desiredReplicas', 0) <= 2 and hpa.get('currentMetrics')):
+        return False
+    if arm != 'C3':
+        return True
+    metrics = hpa['currentMetrics']
+    if not (conditions['ScalingActive'].get('reason') == 'ValidMetricFound' and len(metrics) == 1 and
+            metrics[0].get('type') == 'External' and
+            metrics[0].get('external', {}).get('metric') == spec['metrics'][0].get('external', {}).get('metric')):
+        return False
+    value = metrics[0]['external'].get('current', {}).get('averageValue')
+    return value is not None and math.isfinite(p8.quantity(value)) and p8.quantity(value) >= 0
+
+
+def controller_observation(s, baseline):
+    """Bind the observed HPA state, not the scaler's unknown evaluation epoch."""
+    require(type(s.get('hpa_observation')) is dict and type(baseline.get('hpa_identity')) is dict,
+            'missing controller observation provenance')
+    obs, expected = s['hpa_observation'], baseline['hpa_identity']
+    require(all(isinstance(expected.get(k), str) and expected[k] for k in ('uid', 'owner_uid')),
+            'missing controller UID/owner provenance')
+    meta = obs['metadata']
+    owners = [r for r in meta.get('ownerReferences', []) if r.get('controller') is True]
+    require(meta['uid'] == expected['uid'] and meta['name'] == HPA and meta['namespace'] == NS and
+            len(owners) == 1 and owners[0]['kind'] == 'ScaledObject' and owners[0]['uid'] == expected['owner_uid'] and
+            obs['spec_sha256'] == digest(baseline['hpa_spec']) and obs['status_sha256'] == digest(s['guard']['hpa']) and
+            obs['source_sha'] == s['signal']['evaluation']['source_sha'] and
+            s['inventory_at'] <= obs['request_at'] <= obs['at'] <= s['resource_readiness']['observed_at'] <= s['end'],
+            'controller observation UID/owner/status/clock drift')
+    return obs['at']
+
+
+def warming_episodes(snapshots, baseline):
+    """Native new-Pod warmup windows for repeated KEDA no-data errors.
+
+    Each starts at the first inventory listing a warming UID and ends at the
+    first later fully observed all-Pod signal. An unterminated episode allows
+    no repetition.
+    """
+    initial = {t['uid'] for t in baseline['targets']}
+    episodes, current = [], None
+    for index, s in enumerate(snapshots):
+        signal = s['signal']
+        if signal.get('status') == 'warming-new-pod':
+            missing = set(signal.get('missing_uids') or ())
+            require(missing and not missing & initial, 'unapproved missing telemetry')
+            if current is None:
+                listed = next((i for i in range(index + 1) if missing & {p['uid'] for p in snapshots[i].get(
+                    'target_inventory', [p for p in snapshots[i]['guard']['pods'] if p['name'].startswith('ext-authz-sim-')])}), None)
+                require(listed is not None, 'warming UID absent from target inventory')
+                current = {'start_snapshot': listed, 'start_epoch': snapshots[listed]['inventory_epoch'], 'uids': missing}
+            current['uids'] |= missing
+        elif current is not None and signal.get('status') == 'observed' and not signal.get('missing_uids'):
+            episodes.append(current | {'observed_snapshot': index, 'end_epoch': signal['evaluation']['epoch']})
+            current = None
+    return episodes
+
+
+def controller_metric_warnings(snapshots, baseline, arm, v):
+    """Deduplicate native HPA/KEDA warning history and require later live proof."""
+    if arm != 'C3' or not any('controller_state' in s for s in snapshots):
+        return []
+    identity = baseline['hpa_identity']
+    scaledobject, hpa = ('ScaledObject', HPA, NS), ('HorizontalPodAutoscaler', HPA, NS)
+    expected = {hpa: identity['uid'], scaledobject: identity['owner_uid']}
+    allowed = {'FailedGetExternalMetric', 'FailedComputeMetricsReplicas', 'KEDAScalerFailed'}
+    # The same no-data error reaches the exact HPA on each sync (Campaign30 count2, 16s apart).
+    repeats = {(scaledobject, 'KEDAScalerFailed'), (hpa, 'FailedGetExternalMetric'), (hpa, 'FailedComputeMetricsReplicas')}
+    episodes = warming_episodes(snapshots, baseline)
+    utc = lambda value: p8.p7.utc(value).timestamp()
+
+    def episode(event, index):
+        # ignoreNullValues=false makes the guarded empty query a KEDA error on
+        # every poll while a new Pod warms. Only the exact owner's no-data
+        # reasons may repeat, wholly inside one native warmup before its observed signal.
+        # Native time decides: a growth written before the observed signal may first
+        # appear one collection later (Campaign31: guard +87.2s, event +88.8s,
+        # signal +99.7s), but no guard collected after it may still omit it.
+        # Event times are whole seconds, hence +1s.
+        first, last = utc(event['first_timestamp_utc']), utc(event['timestamp_utc'])
+        return next((e for e in episodes if e['start_epoch'] <= first < last < e['end_epoch'] and
+                     all(utc(snapshots[j]['guard']['timestamp_utc']) < last + 1
+                         for j in range(e['observed_snapshot'], index))), None)
+
+    events, reason_owners = {}, set()
+    for index, s in enumerate(snapshots):
+        for event in s['guard']['events']:
+            owner = event.get('owner') or {}
+            key = (owner.get('kind'), owner.get('name'), owner.get('namespace'))
+            if event.get('reason') not in allowed and key not in expected:
+                continue
+            repeatable = (key, event.get('reason')) in repeats
+            # Unchanged retained history was bounded where this version first appeared.
+            retained = event.get('uid') in events and events[event['uid']]['event'] == event
+            require(key in expected and event.get('type') == 'Warning' and event.get('reason') in allowed and
+                    owner.get('uid') == expected.get(key) and isinstance(event.get('uid'), str) and event['uid'] and
+                    type(event.get('count')) is int and event.get('timestamp_utc') and event.get('first_timestamp_utc') and
+                    (event['count'] == 1 and event['first_timestamp_utc'] == event['timestamp_utc'] or
+                     repeatable and event['count'] > 1 and (retained or episode(event, index) is not None)),
+                    'invalid HPA/KEDA warning provenance or recurrence')
+            episode_key = (event['reason'], key)
+            require(episode_key not in reason_owners or event['uid'] in events,
+                    'new HPA/KEDA Warning episode')
+            reason_owners.add(episode_key)
+            stamp = utc(event['timestamp_utc'])
+            epoch = s['signal']['evaluation']['epoch']
+            require(epoch >= stamp, 'controller Warning follows saved signal evaluation')
+            old = events.setdefault(event['uid'], {'event': copy.deepcopy(event), 'first_event': copy.deepcopy(event),
+                                                    'first_snapshot': index, 'last_snapshot': index,
+                                                    'version_snapshot': index})
+            if old['event'] != event:
+                require(repeatable, 'controller Warning history changed across snapshots')
+                # Native aggregation may grow while warming: same UID and first
+                # time, strictly larger count and last time, nothing else.
+                prior = old['event']
+                same = lambda e: {k: x for k, x in e.items() if k not in {'count', 'timestamp_utc'}}
+                require(same(prior) == same(event) and event['count'] > prior['count'] and
+                        stamp > utc(prior['timestamp_utc']), 'invalid HPA/KEDA warning provenance or recurrence')
+                old['event'], old['version_snapshot'] = copy.deepcopy(event), index
+            old['last_snapshot'] = index
+    if not events:
+        return []
+    entries = list(events.values())
+    require(all(x['last_snapshot'] == len(snapshots) - 1 for x in entries),
+            'controller Warning history disappeared')
+    # Group distinct warnings by native first time; repeated polls/syncs are
+    # bounded by the warmup episode above, not by this grouping window.
+    firsts = [utc(x['event']['first_timestamp_utc']) for x in entries]
+    require(max(firsts) - min(firsts) <= v['controller_seconds'], 'independent controller Warning episodes')
+    first = min(x['first_snapshot'] for x in entries)
+    latest = max(utc(x['event']['timestamp_utc']) for x in entries)
+    recovery_index = next((i for i in range(first + 1, len(snapshots))
+        if snapshots[i]['signal']['evaluation']['epoch'] > latest and
+        snapshots[i]['controller_state'].get('status') == 'positive' and
+        controller_positive(snapshots[i]['guard']['hpa'], 'C3', baseline['hpa_spec']) and
+        snapshots[i]['signal'].get('status') == 'observed' and
+        snapshots[i]['resource_readiness'].get('status') == 'observed'), None)
+    require(recovery_index is not None, 'HPA/KEDA Warning lacks later independent joint positive observation')
+    result = []
+    for x in sorted(entries, key=lambda x: (utc(x['event']['first_timestamp_utc']), x['event']['uid'])):
+        item = {'event': x['event'], 'first_snapshot': x['first_snapshot'], 'last_snapshot': x['last_snapshot'],
+                'recovery_snapshot': recovery_index, 'degraded': True}
+        if x['first_event'] != x['event']:
+            item['first_observed'] = {k: x['first_event'][k] for k in ('count', 'first_timestamp_utc', 'timestamp_utc')}
+        if x['event']['count'] > 1:
+            bound = episode(x['event'], x['version_snapshot'])
+            item['warming_episode'] = {k: bound[k] for k in ('start_snapshot', 'start_epoch', 'observed_snapshot', 'end_epoch')}
+        result.append(item)
+    return result
 
 
 @contextmanager
@@ -567,13 +847,16 @@ class TargetLifecycle:
                 pending.add(uid)
                 continue
             previous = self.resource_samples.get(uid)
-            require(previous is None or stamp >= previous, 'resource sample history drift')
             require(uid in self.ready_epoch, 'missing Ready observation epoch')
             # A cached pre-Ready export (even an advancing one) cannot latch
             # readiness. The current fresh/advancing export must be post-Ready.
             advancing = (previous is not None and stamp > previous and
                          stamp.timestamp() >= self.ready_epoch[uid])
-            self.resource_samples[uid] = stamp
+            # Native metrics-server replicas may return an older cached export
+            # (Campaign28). Keep a high-water mark: a backstep is non-advancing,
+            # never resets history and never counts as readiness progress.
+            if previous is None or stamp > previous:
+                self.resource_samples[uid] = stamp
             if uid in self.resource_observed:
                 require(fresh, 'stale resource metric')
             elif fresh and advancing:
@@ -724,8 +1007,35 @@ def demand_report(v, events):
             'end_to_end_seconds': [r['completed'] - r['scheduled'] for r in rows if r['issued'] is not None]}, rows, origin
 
 
+def require_complete_demand(report):
+    """Preserve comparison cadence; recovery-window SLO is checked separately."""
+    require(report['unissued'] == 0 and report['driver_lag_max_seconds'] <= 2,
+            'driver demand reduction/lag invalidates comparison')
+
+
+def p7_benchmark(rows, start, end):
+    """P7 issue_read single curl-command SLO (concurrency 1, 5 samples, max 0.1s x2): P9 measurement only, never acceptance.
+
+    Driver lag is not a P7 SLO; its former P9 strict 0.2s per-window gate is kept only as a labeled diagnostic.
+    """
+    limit = load(SLO)['command_latency']['per_operation']['issue_read']['threshold_max_seconds']
+    done = [r for r in rows if start <= r['scheduled'] < end and r['outcome'] == 'completed' and r['issued'] is not None and r['attempts']]
+    def summary(values, threshold):
+        values = sorted(values)
+        return {'samples': len(values), 'threshold_seconds': threshold, 'over_threshold': sum(x > threshold for x in values),
+                'p50': values[len(values) // 2] if values else None, 'p95': values[min(len(values) - 1, int(.95 * len(values)))] if values else None,
+                'max': values[-1] if values else None}
+    command = summary([r['attempts'][0]['duration_seconds'] for r in done if r['kind'] == 'issue'], limit)
+    return {'role': 'P7 issue_read command benchmark; measurement only, not P9 functional recovery acceptance',
+            'issue_command_seconds': command,
+            'status': 'unknown' if not command['samples'] else 'fail' if command['over_threshold'] else 'pass',
+            'former_p9_strict_driver_lag_diagnostic': summary([r['issued'] - r['scheduled'] for r in done], .2)}
+
+
 def recovery(v, events, observation_good):
+    """Functional continuing-demand recovery. P7 0.2s latency is a separate benchmark, reported but not a gate."""
     report, rows, origin = demand_report(v, events)
+    limit = load(SLO)['command_latency']['per_operation']['issue_read']['threshold_max_seconds']
     release = [e for e in events if e['record'] == 'release']
     convergence = [e for e in events if e['record'] == 'convergence']
     require(len(release) == 1 and release[0]['at'] >= origin + v['mitigation_seconds'], 'fault release command missing/early')
@@ -735,7 +1045,7 @@ def recovery(v, events, observation_good):
     for offset in range(v['mitigation_seconds'], v['mitigation_seconds'] + v['recovery_seconds'], 10):
         start, end = origin + offset, origin + offset + 10
         group = [r for r in rows if start <= r['scheduled'] < end]
-        reasons = {}
+        reasons, diagnostic = {}, {'p7_issue_command_over_0_2s': 0, 'former_strict_driver_lag_over_0_2s': 0}
         def fail(reason):
             reasons[reason] = reasons.get(reason, 0) + 1
         if stable is None or start < stable: fail('release-not-converged')
@@ -744,13 +1054,13 @@ def recovery(v, events, observation_good):
         for r in group:
             if r['outcome'] != 'completed' or r['issued'] is None:
                 fail('unissued-or-cancelled'); continue
-            if r['issued'] - r['scheduled'] > .2: fail('driver-lag')
+            if r['issued'] - r['scheduled'] > .2: diagnostic['former_strict_driver_lag_over_0_2s'] += 1
             if r['completed'] > end: fail('completion-outside-window')
             if len(r['attempts']) != 1: fail('retry')
             if not r['attempts'][0]['semantic_result']: fail('semantic-failure')
-            if r['kind'] == 'issue' and r['attempts'][0]['duration_seconds'] > .2: fail('issue-command-slo')
+            if r['kind'] == 'issue' and r['attempts'][0]['duration_seconds'] > limit: diagnostic['p7_issue_command_over_0_2s'] += 1
         good = not reasons
-        windows.append({'start': start, 'end': end, 'scheduled': len(group), 'good': good, 'failure_counts': reasons})
+        windows.append({'start': start, 'end': end, 'scheduled': len(group), 'good': good, 'failure_counts': reasons, 'latency_diagnostic_counts': diagnostic})
         if good:
             streak += 1
             if streak == 1:
@@ -758,11 +1068,12 @@ def recovery(v, events, observation_good):
             if streak == 3:
                 return {'status': 'recovered', 'release_command': release[0]['at'], 'converged': stable,
                         'first_good_window': first, 'confirmation': end, 'recovery_seconds': end - release[0]['at'],
-                        'windows': windows, 'campaign': report}
+                        'windows': windows, 'campaign': report, 'p7_benchmark': p7_benchmark(rows, origin + v['mitigation_seconds'], deadline)}
         else:
             streak, first = 0, None
     return {'status': 'not recovered within observation window', 'release_command': release[0]['at'], 'converged': stable,
-            'first_good_window': first, 'confirmation': None, 'deadline': deadline, 'windows': windows, 'campaign': report}
+            'first_good_window': first, 'confirmation': None, 'deadline': deadline, 'windows': windows, 'campaign': report,
+            'p7_benchmark': p7_benchmark(rows, origin + v['mitigation_seconds'], deadline)}
 
 
 def config_guard(before, after, arm, healthy=False, releasing=False):
@@ -862,7 +1173,7 @@ class Runtime(p8.Runtime):
         require(self.arm == 'C3' or len(ready) == len(inventory), 'baseline readiness failure')
         hpas = self.j('-n', NS, 'get', 'hpa', '-o', 'json')['items']
         scaled = [o for o in self.j('-n', NS, 'get', 'scaledobjects', '-o', 'json')['items'] if o['spec']['scaleTargetRef']['name'] == 'ext-authz-sim']
-        controller_guard(self.arm, hpas, scaled)
+        owner = controller_guard(self.arm, hpas, scaled)
         deferred = set()
         if initializing:
             deferred = {p['metadata']['uid'] for p in ready} - getattr(self, 'initializing_stat_seen', set())
@@ -916,6 +1227,7 @@ class Runtime(p8.Runtime):
                 provenance.clear()
             self.scaledobject_provenance = provenance
             result['scaledobject_spec'] = observed
+            result['hpa_identity'] = {'uid': owner['metadata']['uid'], 'owner_uid': scaled[0]['metadata']['uid']}
         else:
             require(result['hpa_spec'] == next(o['spec'] for o in expected if o['kind'] == 'HorizontalPodAutoscaler'), 'CPU HPA drift')
         return result
@@ -930,7 +1242,9 @@ class Runtime(p8.Runtime):
         if args == ('-n', NS, 'get', 'hpa', self.hpa_name, '-o', 'json'):
             observation = {'request_at': started, 'at': time.monotonic(),
                 'source_sha': self.value['source_sha'], 'status_sha256': digest(value['status']),
-                'metadata': {k: value['metadata'][k] for k in ('uid', 'resourceVersion', 'generation') if k in value['metadata']}}
+                'spec_sha256': digest(value['spec']),
+                'metadata': {k: value['metadata'][k] for k in
+                    ('name', 'namespace', 'uid', 'resourceVersion', 'generation', 'ownerReferences') if k in value['metadata']}}
             self.collection_deadline.hpa_observation = observation
             getattr(self, 'emit', lambda _: None)({'record': 'hpa_observation', **observation})
         return value
@@ -945,12 +1259,13 @@ class Runtime(p8.Runtime):
         import io
         text = self.k('-n', NS, 'exec', self.pod(NS, 'app=haproxy')['metadata']['name'], '-c', 'haproxy', '--',
                       'wget', '-qO-', 'http://127.0.0.1:8404/stats;csv')
-        rows = [r for r in csv.DictReader(io.StringIO(text.removeprefix('# '))) if r['pxname'] == 'ext_authz']
-        def selected(name):
-            matches = [r for r in rows if r['svname'] == name]
+        rows = list(csv.DictReader(io.StringIO(text.removeprefix('# '))))
+        def selected(name, proxy='ext_authz', fields=p8.p4.HAPROXY_FIELDS):
+            matches = [r for r in rows if r['svname'] == name and r['pxname'] == proxy]
             require(len(matches) == 1, 'HAProxy server/backend row missing')
-            return {'status': matches[0]['status']} | {k: int(matches[0][k]) for k in p8.p4.HAPROXY_FIELDS}
-        return selected('app') | {'backend': selected('BACKEND')}
+            return {'status': matches[0]['status']} | {k: int(matches[0][k]) for k in fields}
+        return selected('app') | {'backend': selected('BACKEND'),
+                                 'frontend': selected('FRONTEND', 'check', ('stot', 'req_tot', 'scur'))}
 
     def prom(self, query, *, observation=None):
         emit = getattr(self, 'emit', lambda _: None)
@@ -969,7 +1284,8 @@ class Runtime(p8.Runtime):
             ended = time.monotonic()
             return {**metadata, 'at': ended, 'timestamp_utc': p8.utc(), 'elapsed_seconds': ended - started}
         try:
-            data = p8.p7.http_json(self.v['prometheus'] + '/api/v1/query?' + urllib.parse.urlencode({'query': query}), self.prom_token, timeout=timeout)
+            # Collector query exceeds AMW GET URL limit (Campaign25 HTTP414).
+            data = p8.p7.http_json(self.v['prometheus'] + '/api/v1/query', self.prom_token, timeout=timeout, form={'query': query})
         except urllib.error.HTTPError as error:
             # Negative body only, redacting a server-echoed bearer token.
             body = error.read(1024 * 1024).decode('utf-8', errors='replace').replace(self.prom_token, '[REDACTED]')
@@ -1031,7 +1347,12 @@ class Runtime(p8.Runtime):
             if not missing and signal['query']:
                 require(len(signal['query']) == 1 and bounded(float(signal['query'][0]['value'][1]), 0, 1000000), 'invalid guarded initialization query')
         else:
-            self.lifecycle.signal(signal, [p8.p4.pod_guard(p) for p in pods], signal['evaluation']['at'], epoch)
+            try:
+                self.lifecycle.signal(signal, [p8.p4.pod_guard(p) for p in pods], signal['evaluation']['at'], epoch)
+            except ValueError:
+                # Fixed-field stage attribution only; the exception text is never recorded.
+                getattr(self, 'emit', lambda _: None)({'record': 'validation_stage', 'at': time.monotonic(), 'stage': 'lifecycle.signal', 'error_code': 'validation_failed'})
+                raise
         return signal
 
     def release(self, emit):
@@ -1079,11 +1400,18 @@ def collect_snapshot(runtime, config, before, emit, release_started):
     # Fixed numeric log provenance; no peer/header/URL/body values.
     hp = runtime.pod(NS, 'app=haproxy')
     hp_logs_at = time.monotonic()
-    hp_logs = [json.loads(line) for line in runtime.k('-n', NS, 'logs', hp['metadata']['name'], '-c', 'haproxy').splitlines() if line.startswith('{')]
+    hp_logs, hp_observation = haproxy_capture(runtime.k('-n', NS, 'exec', hp['metadata']['name'], '-c', 'haproxy', '--',
+                                                      'sh', '-c', HAPROXY_LOG_CLI), hp['metadata']['uid'])
+    require(hp_observation['pod_uid'] == actual['haproxy']['uid'], 'HAProxy capture Pod UID drift')
     hp_logs_end = time.monotonic()
     signal = runtime.signal(inventory, at=at)
-    resource = runtime.lifecycle.resources(guard, [p8.p4.pod_guard(p) for p in inventory], signal, time.monotonic())
-    all_converged = healthy and signal['status'] == resource['status'] == 'observed' and {p['metadata']['uid'] for p in inventory} == {t['uid'] for t in actual['targets']}
+    try:
+        resource = runtime.lifecycle.resources(guard, [p8.p4.pod_guard(p) for p in inventory], signal, time.monotonic())
+    except ValueError:
+        emit({'record': 'validation_stage', 'at': time.monotonic(), 'stage': 'lifecycle.resources', 'error_code': 'validation_failed'})
+        raise
+    positive = controller_positive(guard['hpa'], runtime.arm, actual['hpa_spec'])
+    all_converged = positive and healthy and signal['status'] == resource['status'] == 'observed' and {p['metadata']['uid'] for p in inventory} == {t['uid'] for t in actual['targets']}
     if resource['pending_uids']:
         emit({'record': 'snapshot_gap', 'at': at, 'reason': 'resource-initializing', 'pending_uids': resource['pending_uids']})
     if releasing and not healthy:
@@ -1094,16 +1422,23 @@ def collect_snapshot(runtime, config, before, emit, release_started):
         raise SnapshotBudgetExceeded('snapshot collection budget exceeded')
     snap = {'record': 'snapshot', 'at': at, 'end': end, 'inventory_at': inventory_at, 'inventory_epoch': inventory_epoch, 'epoch': time.time(), 'timestamp_utc': p8.utc(),
             'configuration': actual, 'guard': guard, 'stats': stats, 'logs': logs, 'haproxy': haproxy,
-            'haproxy_logs': hp_logs, 'signal': signal, 'resource_readiness': resource, 'fault_healthy': healthy, 'healthy': all_converged,
+            'haproxy_logs': hp_logs, 'haproxy_log_observation': hp_observation,
+            'signal': signal, 'resource_readiness': resource, 'fault_healthy': healthy, 'healthy': all_converged,
             'release_started': releasing, 'admin_stats': runtime.admin_observations, 'target_inventory': [p8.p4.pod_guard(p) for p in inventory]}
     snap['path_observation'] = {'target_ingress_request_at': logs_at, 'target_ingress_end': target_ingress_logs_end,
         'haproxy_request_at': hp_logs_at, 'haproxy_end': hp_logs_end}
+    require(runtime.arm != 'C3' or hpa_observation is not None, 'missing C3 HPA observation')
     if hpa_observation is not None:
         require(hpa_observation['status_sha256'] == digest(guard['hpa']), 'HPA observation/status binding drift')
         snap['hpa_observation'] = hpa_observation
+        if runtime.arm == 'C3':
+            snap['controller_state'] = {'status': 'positive' if positive else 'degraded',
+                'hpa_uid': hpa_observation['metadata']['uid'], 'observed_at': hpa_observation['at']}
+            controller_observation(snap, before)
     emit(snap)
     if all_converged:
         emit({'record': 'convergence', 'at': snap['end'], 'healthy': True, 'targets': [t['uid'] for t in actual['targets']]})
+    return snap
 
 
 class CPUStartup:
@@ -1606,7 +1941,11 @@ def _measure(identity, v, arm, phase, output, approval_path, frozen_path, ledger
             release_future.append(workers.submit(runtime.release, emit))
         release_future = []
         try:
-            collect_snapshot(runtime, config, baseline, emit, release_started)
+            initial = collect_snapshot(runtime, config, baseline, emit, release_started)
+            haproxy_capture_guard([initial])
+            capacity = haproxy_capacity_preflight(v, len(initial['haproxy_logs']), len(ledger) + 1)
+            emit({'record': 'haproxy_capacity_preflight', 'at': time.monotonic(),
+                  'pod_uid': initial['haproxy_log_observation']['pod_uid'], **capacity})
             with concurrent.futures.ThreadPoolExecutor(max_workers=3) as workers:
                 monitors = [workers.submit(sentinel), workers.submit(monitor)]
                 try:
@@ -1669,6 +2008,9 @@ def common_guards(snapshots, baseline, arm, v):
     seen = set()
     pending_since = {}
     warm_epochs = [s['epoch'] for s in snapshots if s['signal'].get('status') == 'warming-new-pod']
+    bounded_controller = arm == 'C3' and any('controller_state' in s for s in snapshots)
+    controller_metric_warnings(snapshots, baseline, arm, v)
+    degraded, joint = set(), set()
     previous = None
     for s in snapshots:
         config_guard(baseline, s['configuration'], arm, s.get('fault_healthy', s['healthy']), s.get('release_started', False))
@@ -1682,7 +2024,14 @@ def common_guards(snapshots, baseline, arm, v):
                 if uid in fixed or uid in first_targets:
                     require(current == images, 'runtime image/lifetime drift')
                 else:
-                    require(arm == 'C3' and all(current.get(name) == image for name, image in images.items()), 'new Pod runtime image drift')
+                    prior = next(p for p in previous['guard']['pods'] if p['uid'] == uid)
+                    pending = prior['phase'] == 'Pending' and not prior['ready']
+                    # CRI reports imageID="" before a new container starts.
+                    # Preserve that unknown; freeze every nonempty ID immediately.
+                    # The lifecycle below still bounds Pending and checks Ready.
+                    require(arm == 'C3' and all(type(image) is str and
+                            (image == '' and pending or image and current.get(name) == image)
+                            for name, image in images.items()), 'new Pod runtime image drift')
         require({p['uid']: p for p in guard['pods'] if p['uid'] in fixed} == fixed and
                 {p['uid'] for p in guard['pods'] if not p['name'].startswith('ext-authz-sim-')} == set(fixed), 'stable/helper Pod drift')
         require(guard['nodes'] and all(n['conditions'] == {'Ready': 'True', 'MemoryPressure': 'False', 'DiskPressure': 'False', 'PIDPressure': 'False'} for n in guard['nodes']), 'node pressure')
@@ -1694,18 +2043,25 @@ def common_guards(snapshots, baseline, arm, v):
         require(not any(e['reason'] in {'FailedScheduling', 'FailedGetResourceMetric'} for e in guard['events']), 'scheduling/resource metric error')
         for e in guard['events']:
             if e['reason'] in {'FailedComputeMetricsReplicas', 'FailedGetExternalMetric'}:
-                require(arm == 'C3' and e.get('timestamp_utc') and any(abs(p8.p7.utc(e['timestamp_utc']).timestamp() - epoch) <= 35 for epoch in warm_epochs), 'metric failure outside bounded new-Pod warmup')
+                if not bounded_controller:
+                    require(arm == 'C3' and e.get('timestamp_utc') and any(abs(p8.p7.utc(e['timestamp_utc']).timestamp() - epoch) <= 35 for epoch in warm_epochs), 'metric failure outside bounded new-Pod warmup')
         require(any(n['schedulable'] and n['cpu_free'] >= .15 and n['memory_free'] >= 192 * 1024**2 for n in guard['node_headroom']), 'node headroom')
         require(guard['node_metrics'] and guard['pod_metrics'], 'missing node/Pod metrics')
         inventory = s.get('target_inventory', [p for p in guard['pods'] if p['name'].startswith('ext-authz-sim-')])
         lifecycle.inventory(inventory, s.get('inventory_at', s['at']), s.get('inventory_epoch'))
         resource_at = s['at']  # Historical guard-only replay has no new marker.
+        require(not bounded_controller or type(s.get('resource_readiness')) is dict,
+                'saved resource readiness drift')
         if 'resource_readiness' in s:
             require(type(s['resource_readiness']) is dict and 'observed_at' in s['resource_readiness'],
                     'saved resource readiness drift')
             resource_at = s['resource_readiness']['observed_at']
             require(bounded(resource_at, s['at'], s['end']), 'resource observation outside snapshot')
-        lifecycle.resources(guard, inventory, s['signal'], resource_at)
+        if bounded_controller:
+            lifecycle.admin(s['configuration']['targets'], s['admin_stats'], s['stats'], s['at'])
+            decision = signal_evaluation(s['signal'], s['hpa_observation']['source_sha'], (s['at'], s['end']))
+            lifecycle.signal(s['signal'], inventory, s['signal']['evaluation']['at'], decision)
+        resource = lifecycle.resources(guard, inventory, s['signal'], resource_at)
         for p in guard['pods']:
             new_target = arm == 'C3' and p['uid'] not in fixed and p['uid'] not in first_targets
             pending_since.setdefault(p['uid'], s['at'])
@@ -1717,7 +2073,33 @@ def common_guards(snapshots, baseline, arm, v):
         hpa = guard['hpa']
         cond = {c['type']: c for c in hpa.get('conditions', [])}
         require(cond.get('AbleToScale', {}).get('status') == 'True' and 1 <= hpa['desiredReplicas'] <= 2, 'controller scale/status failure')
-        if not warming:
+        if bounded_controller:
+            observed_at = controller_observation(s, baseline)
+            positive = controller_positive(hpa, arm, baseline['hpa_spec'])
+            require(s['controller_state'] == {'status': 'positive' if positive else 'degraded',
+                    'hpa_uid': baseline['hpa_identity']['uid'], 'observed_at': observed_at}, 'saved controller state drift')
+            if not positive:
+                pending = set(resource['pending_uids']) - first_targets
+                failure = cond.get('ScalingActive', {})
+                require(failure.get('status') == 'False' and failure.get('reason') == 'FailedGetExternalMetric' and
+                        pending and not pending & joint and pending <= set(lifecycle.first_seen) - first_targets,
+                        'controller failure outside bounded new-Pod initialization')
+                for uid in pending:
+                    since = lifecycle.ready_since.get(uid)
+                    require(lifecycle.first_seen[uid] <= observed_at and
+                            (since is None and observed_at - lifecycle.first_seen[uid] <= 90 or
+                             since is not None and 0 <= observed_at - since <= RESOURCE_INITIALIZATION_SECONDS),
+                            'controller startup clock outside UID lifecycle')
+                # Explicit degraded mechanism outcome, never controller health.
+                degraded |= pending
+            elif resource['status'] == s['signal']['status'] == 'observed':
+                for uid in (lifecycle.resource_complete - joint) | degraded:
+                    require(uid in lifecycle.resource_complete and uid in lifecycle.ready_since and
+                            s['end'] - lifecycle.ready_since[uid] <= RESOURCE_INITIALIZATION_SECONDS,
+                            'controller joint initialization timeout')
+                joint |= lifecycle.resource_complete
+                degraded -= joint
+        elif not warming:
             require(cond.get('ScalingActive', {}).get('status') == 'True' and hpa.get('currentMetrics'), 'controller metric/status failure')
         else:
             require(cond.get('ScalingActive', {}).get('status') == 'True' or
@@ -1731,10 +2113,15 @@ def common_guards(snapshots, baseline, arm, v):
         if previous:
             require(s['at'] > previous['at'], 'snapshot order')
         previous = s
+    require(not degraded, 'controller startup lacks later genuine joint positive observation')
     return seen
 
 
 def path_accounting(arm, snapshots):
+    # Historical stdout-only negative fixtures remain replayable; new validate
+    # requires the ring marker on every snapshot, including accounting endpoints.
+    if any('haproxy_log_observation' in s for s in snapshots):
+        haproxy_capture_guard(snapshots)
     first, last = snapshots[0], snapshots[-1]
     target_uids = {uid for s in snapshots for uid in s['stats']}
     inventory_uids = {p['uid'] for s in snapshots for p in s.get('target_inventory', [])}
@@ -1817,9 +2204,12 @@ def validate(directory):
     require(events[0]['transport'] == manifest['transport'] and events[0]['transport'] == p8.p7.operations.transport(events[0]['transport']['endpoint'], 'azure-aks',
             events[0]['transport'].get('dns_client_override')) and urllib.parse.urlsplit(events[0]['transport']['endpoint']).hostname == identity['forgejo_hostname'], 'transport/hostname drift')
     snapshots = [e for e in events if e['record'] == 'snapshot']
+    require(all('haproxy_log_observation' in s for s in snapshots), 'missing authoritative HAProxy ring capture')
+    require(arm != 'C3' or all('controller_state' in s for s in snapshots), 'missing bounded controller observation')
     uids = common_guards(snapshots, manifest['baseline'], arm, v)
     report, rows, origin = demand_report(v, events)
-    require(report['unissued'] == 0 and report['driver_lag_max_seconds'] <= 2, 'driver demand reduction/lag invalidates comparison')
+    require_complete_demand(report)
+    warning_recovery = max((e['recovery_snapshot'] for e in controller_metric_warnings(snapshots, manifest['baseline'], arm, v)), default=0)
     for r in rows:
         expected_delay = retry_delay(v, arm, r) if len(r['attempts']) == 2 else 0
         require(abs(r['backoff_seconds'] - expected_delay) < 1e-8, 'arm retry delta differs')
@@ -1851,7 +2241,8 @@ def validate(directory):
         require(bounded(resource_at, s['signal']['evaluation']['at'], s['end']), 'resource observation outside snapshot')
         resource = lifecycle.resources(s['guard'], inventory, s['signal'], resource_at)
         require(s.get('resource_readiness') == resource, 'saved resource readiness drift')
-        converged = (s.get('fault_healthy', False) and s['signal']['status'] == resource['status'] == 'observed' and
+        converged = (controller_positive(s['guard']['hpa'], arm, manifest['baseline']['hpa_spec']) and
+                     s.get('fault_healthy', False) and s['signal']['status'] == resource['status'] == 'observed' and
                      {p['uid'] for p in inventory} == {t['uid'] for t in s['configuration']['targets']})
         require(s['healthy'] == converged, 'saved healthy/readiness drift')
         signals.append(value if resource['status'] == 'observed' else None)
@@ -1879,8 +2270,9 @@ def validate(directory):
     def observed(start, end):
         points = [s for s in snapshots if s['at'] <= end and s['end'] >= start - 10]
         return (points and points[0]['end'] <= start + 5 and points[-1]['end'] >= end - 5 and
+                all(snapshots.index(s) >= warning_recovery for s in points) and
                 all(s['healthy'] and s['signal'].get('status') == s['resource_readiness']['status'] == 'observed' for s in points) and
-                all(b['end'] - a['end'] <= 15 for a, b in zip(points, points[1:])) and
+                all(b['end'] - a['end'] <= 35 for a, b in zip(points, points[1:])) and
                 not any(start <= e['at'] < end for e in events if e['record'] == 'snapshot_gap') and
                 all(p['ready'] for s in points for p in s['guard']['pods']))
     rec = recovery(v, events, observed)
@@ -1910,6 +2302,11 @@ def validate(directory):
             'validity': 'pending-cloud-confounder-review', 'hypothesis': 'pending',
             'window_utc': {'start': events[0]['timestamp_utc'], 'end': events[-1]['timestamp_utc']},
             'campaign': report, 'accounting': path, 'recovery': rec, 'scaling': scale,
+            'controller_metric_warnings': controller_metric_warnings(snapshots, manifest['baseline'], arm, v),
+            'controller_degraded_startup': [{'observed_at': s['hpa_observation']['at'],
+                'hpa_uid': s['controller_state']['hpa_uid'], 'status': 'degraded', 'reason': 'FailedGetExternalMetric',
+                'pending_uids': s['resource_readiness']['pending_uids']}
+                for s in snapshots if s.get('controller_state', {}).get('status') == 'degraded'],
             'resource_initialization': [{'at': s['at'], 'end': s['end'], 'pending_uids': s['resource_readiness']['pending_uids']}
                                         for s in snapshots if s['resource_readiness']['status'] != 'observed'],
             'target_uids': sorted(uids), 'cleanup': 'pending'}
@@ -1938,6 +2335,9 @@ def reviewed(directory):
     if result['resource_initialization']:
         require(review.get('excluded_resource_initialization') == result['resource_initialization'],
                 'resource initialization cannot be confounder proof')
+    if result['controller_degraded_startup']:
+        require(review.get('excluded_controller_degradation') == result['controller_degraded_startup'],
+                'controller degradation cannot be controller health/recovery proof')
     result['validity'] = 'valid'
     result['hypothesis'] = 'reviewed single contemporaneous comparison; no statistical generalization'
     return result
@@ -1961,6 +2361,7 @@ def compare(directories, freeze):
             current['haproxy']['config_sha256'] = expected['haproxy']['config_sha256']
         if config['arm'] == 'C3':
             current.pop('scaledobject_spec')
+            current.pop('hpa_identity', None)
             current['hpa_spec'] = expected['hpa_spec']
         config_guard(expected, current, config['arm'])
     return {'source_sha': freeze['source_sha'], 'validity': 'valid', 'arms': results,

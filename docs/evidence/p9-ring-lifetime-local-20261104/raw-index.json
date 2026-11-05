@@ -1,0 +1,50 @@
+{
+  "source_commit": "d4beffff56c6a3966b5f26531976893db7cfe31b",
+  "files": [
+    {
+      "path": "C0.json",
+      "size": 89718252,
+      "sha256": "f6638dedfc0b4cf5eec1050f73b00784392efa475c849d3127522484134ad7b9"
+    },
+    {
+      "path": "C1.json",
+      "size": 24266037,
+      "sha256": "41091d20b852387f33ada0cdbfa52f25779289a59de57a51ce2a87ca368c12f5"
+    },
+    {
+      "path": "C2.json",
+      "size": 9313506,
+      "sha256": "a80a5cecd3acb86c05231a36afb94dbdbc66127a82ab2873af139196a6774238"
+    },
+    {
+      "path": "C3.json",
+      "size": 16669262,
+      "sha256": "55b4ee644c34799b91ac993021230c89972f476e145679656e092983bfa12a77"
+    },
+    {
+      "path": "docker-tests.txt",
+      "size": 102,
+      "sha256": "1c8408375e27e6c3f611a84457af03d46c984052fd79c02d105f7900c816c719"
+    },
+    {
+      "path": "overwrite.json",
+      "size": 7812,
+      "sha256": "0332bf95ab90d46f14bb98ac38c220fb894bf30e5f02f05ac06d67cd5e642fa4"
+    },
+    {
+      "path": "p8-tests.txt",
+      "size": 137,
+      "sha256": "5402dc0d6169cea39ec1fde473227369493aa39257bd041d99bb4ed889979c11"
+    },
+    {
+      "path": "p9-tests.txt",
+      "size": 251,
+      "sha256": "24678df115e613d7374c61a11e8cdc8ea791a2bad90e80d315053efa3e84e12f"
+    },
+    {
+      "path": "summary.json",
+      "size": 6690,
+      "sha256": "d3fe640545a158d5f0ca39cc549744b59c768a97b8858f3476d06e9ef6862183"
+    }
+  ]
+}

@@ -1,0 +1,176 @@
+{
+ "paid_source_sha": "a8c865164036cb453fa27f0d89545d58eddbb7a1",
+ "base_sha": "076bc8a3dbd09e8192057e19df8b6cc5cb55274d",
+ "authority_url": "https://github.com/imcherry5778-labs/github-capacity-cascade-platform/issues/47#issuecomment-6617584526",
+ "cost_adjudication_url": "https://github.com/imcherry5778-labs/github-capacity-cascade-platform/issues/47#issuecomment-6618120240",
+ "closure_record_url": "https://github.com/imcherry5778-labs/github-capacity-cascade-platform/issues/47#issuecomment-6618807951",
+ "state": "CLOSED/invalid",
+ "paid_source_unchanged": true,
+ "owned_image_manifest_digest": "sha256:59aab4e66f580b3a995d57fe4e0c3e4cc954a17c4b9690b2d43a5900bf6f8741",
+ "plan_sha256": "18e920b91c637ed45856f3ed15101afbfe1d79560f985816893dd5d623806b6a",
+ "native_KEDA_image": "mcr.microsoft.com/oss/v2/kedacore/keda:2.19.0-25",
+ "AKS_version": "1.36.4",
+ "counts": {
+  "normal": 1,
+  "initialize": 1,
+  "healthy": 1,
+  "calibration": 0,
+  "measured": {
+   "C0": 0,
+   "C1": 0,
+   "C2": 0,
+   "C3": 0
+  },
+  "KEDA_apply": 0,
+  "KEDA_restore": 0,
+  "cloud_mutations": 11
+ },
+ "results": {
+  "normal_journey": "SUCCESS (valid warmup, 9 operations)",
+  "healthy_journey": "SUCCESS inside initialize (30 ingress/30 authorization records)",
+  "initialize": "FAILED telemetry_signal stage, 202.281s after initialize start",
+  "calibration": "not started",
+  "measured": "not started",
+  "retry": 0
+ },
+ "failure": {
+  "timestamp_utc": "2026-11-03T23:48:44.469071+00:00",
+  "record": "prometheus_query_error",
+  "http_status": 414,
+  "reason": "URI Too Long",
+  "method": "GET",
+  "query_sha256_prefix": "a1c8abd7e001",
+  "query": "collector_query (fifth request)",
+  "prior_successful_queries": {
+   "requests": 12,
+   "http_200": 12,
+   "distinct_signal_queries": 4
+  },
+  "first_collector_call": "third telemetry poll; collector is reached only after every target Pod is observed",
+  "classified_in_ledger_as": "healthy_initialization_failure error_code unknown_failure (raw unchanged)"
+ },
+ "transport_diagnosis": {
+  "collector_GET_URL_bytes": {
+   "Campaign24_d1ed52b8": 4395,
+   "Campaign25_a8c86516": 9168
+  },
+  "Campaign24_collector_GET_responses": {
+   "requests": 27,
+   "http_200": 27
+  },
+  "scale_query_GET_URL_bytes_excluding_KEDA_time_parameter": {
+   "Campaign24_d1ed52b8": 1886,
+   "a8c86516": 4700
+  },
+  "growth_commit": "13c0b0d31bf1b9de35f9920ff906808cfcde1fd2 identity/coverage guard terms",
+  "AMW_URL_limit": "UNDOCUMENTED; observed accepted 4395 bytes and rejected 9168 bytes",
+  "why_CI_missed": "Runtime.prom tests patched http_json; local runtime does not query AMW",
+  "upstream": [
+   "https://prometheus.io/docs/prometheus/latest/querying/api/",
+   "https://learn.microsoft.com/en-us/azure/azure-monitor/metrics/prometheus-api-promql",
+   "https://github.com/kedacore/keda/blob/v2.19.0/pkg/scalers/prometheus_scaler.go"
+  ],
+  "KEDA_2.19_scaler_request": {
+   "method": "GET only (no POST option)",
+   "URL_bytes_a8c86516_including_time_parameter": 4726,
+   "status": "REVALIDATE: between observed accepted 4395 and rejected 9168; not exercised in Campaign25 (KEDA_apply 0); cannot be changed by collector transport fix"
+  },
+  "fix": "Runtime.prom sends every instant query as POST application/x-www-form-urlencoded body to /api/v1/query; PromQL text/hash unchanged; P7/P8 query_range GET unchanged"
+ },
+ "cleanup": {
+  "path": "existing parent SIGTERM -> finally cleanup() (cleanup() re-loaded at 2026-11-03T23:49:32Z operator_cleanup_readiness)",
+  "steps_complete": [
+   "CUSTOM_remove",
+   "mesh_restore",
+   "namespace_remove",
+   "normal_fixture",
+   "healthy_fixture",
+   "stable_integrity",
+   "image_remove",
+   "AMW_role_remove",
+   "UAMI_FIC_remove",
+   "AKS_role_remove",
+   "ARM_final",
+   "forward_close"
+  ],
+  "first_step_utc": "2026-11-04T00:01:32.931045+00:00",
+  "parent_exit_utc": "2026-11-04T00:03:01.938453+00:00",
+  "cleanup_final_complete": true,
+  "cleanup_final_errors": [],
+  "operator_parent_exit_cleanup_complete": true,
+  "PAT_delete_http_status": {
+   "normal": 204,
+   "healthy": 204
+  },
+  "PAT_reuse_http_status": 401,
+  "ARM_final": {
+   "resource_count": 34,
+   "Owner_assignments": 2,
+   "fixed_nodes": 2,
+   "resource_ids_unchanged": true
+  },
+  "forward_close_detail_false": "cleanup-final details.forward_close stores the context-manager __exit__ return value (False = no exception suppression); cleanup_step forward_close complete=true and forward_wait stop returncode -15 intentional_stop_requested=true are the close proof",
+  "post_handoff_local_check_utc": "2026-11-04T00:33:03Z",
+  "post_handoff_local_check": "campaign.lock acquirable, original driver/forward PIDs absent, 0 owned driver/port-forward processes",
+  "claim_limit": "Campaign25 owned cleanup path only; NOT a global zero-residual claim; no post-cleanup Azure/AKS read in this cost-free session"
+ },
+ "operator_corrections_without_paid_source_change": [
+  "image_publish: private Docker auth config did not preserve native daemon endpoint",
+  "image_manifest_read: private Docker config needed native CLI plugin directories",
+  "pre-mutation access boundary assertion once (0 cloud mutations at that point)"
+ ],
+ "cumulative_after_Campaign25": {
+  "campaign": 25,
+  "initialize_started": 22,
+  "healthy": 13,
+  "started_invalid_calibration": 9,
+  "measured": {
+   "C0": 0,
+   "C1": 0,
+   "C2": 0,
+   "C3": 0
+  },
+  "KEDA_apply_restore_actions": "9/9",
+  "derivation": "Campaign24 cumulative + Campaign25 counts; historical Campaign22-24 not reclassified"
+ },
+ "cost": {
+  "billing_GET_this_session": 0,
+  "planning_projection_usd": 315.3567,
+  "actual_campaign_cost": "UNKNOWN",
+  "estimate_not_cap_or_balance": true
+ },
+ "private_unpublished_sha256": {
+  "c25-driver.py": "60ebcc442e558738c5392c47cb636f4371f05d2b7824fe6b8dddf69d8f16f600",
+  "refresh-cleanup.py": "124249fc2cda5dbbf6e17e1626c13d77c75f7e55c1ea4d47a3838799a891625c",
+  "prepare-next.py": "34407e3f379b204be2a4461acb2d02689f8d8fa01222f904ee07edc8069b7027",
+  "prepare-c3.py": "9f62df214dd6bfc78fda3793a30863716d1807094a11d4c2c401807c0a107869",
+  "fix-image.py": "bf78dbd350ac0b75dfcd5ccc0b29f3bbd6924688e2b54c7e2d9f05c4ce799b64",
+  "private/approval.json": "428bae9cafe3a3804c539f4ec99440129345971ba874b84565d1c9a13ac3897e",
+  "private/initialization-approval.json": "428bae9cafe3a3804c539f4ec99440129345971ba874b84565d1c9a13ac3897e",
+  "private/plan.json": "fd9aeac91e2ef93b784ecbb592bcef64c63fbd4ce0895af7acd25abd49282bc8",
+  "private/identity.json": "ffe44999314352b08f7ca3e2f488d6140287d331a6d92ab382dd4ca016ca98b3",
+  "private/context.json": "924035ec156d0ec5b4ce1115c969318fd892696d67bac23dd447796b4090994a",
+  "private/build-metadata.json": "d7d8794b08402e3fcc76d713633ffea846bace08ec63d82e00533ab8800c0108",
+  "private/preflight.json": "b9c75a5e858a51bc0e14933216c8f1422332b70c7fe372c27eea3cf1c4324c74",
+  "private/initialization-failure.txt": "7e8a5e9c4d7fcbf50a69f821ab2940eff489ad9a1cab6c5f9507ccd1411b3c90",
+  "private/initialize.log": "48194728e7ce005c79d58876f37f0536ad43aff50c616205e4c034b099b01bc4",
+  "private/normal.log": "3ab449fede3daf0653a3372e197283216bdc0a43a813c990f87da6e6c3c4af3b",
+  "private/driver-bootstrap.log": "ca9df63e0eae01d89e733b7165be6a88f10c5ce98de71851ced3eb27587bd6ab",
+  "private/forward.log": "415138ed46d91de9c56738bda7c9ed529b1b9faa2896b4c486039deedcc8582d",
+  "private/command-errors.txt": "fa071fcaaf6b615eb7b26d7b427ffe376a720ae2bf7f4b7a44993cc131dd0782",
+  "private/preflight-failure.txt": "7d07abe5b47c80aaefe5431683e96fe7958d45a82dfcc8e6d55298d94fc07265",
+  "private/preflight-failure-2.txt": "e1bebcd750cb877ceef53b40833d22203c92e39e58c2269e677be63cbb7ed0d9",
+  "private/preflight-failure-3.txt": "7beee19b89c24c9aef7701670a68b24fd46c30e393ffe5bd85a7bdc5422d173c",
+  "private/preflight-command-error-2.txt": "668330c955218b210283741588e2bd162efe73618474aa742648746a4b751bb8",
+  "private/stage-failure-1793749118458078000.txt": "1fcbb5fba5c226e519ce92a4b190067ca184b8ad21475b90ae8ee41c7b4c16cd",
+  "private/stage-failure-1793749208357701000.txt": "98095ccf86d60b7ad713ec66c071b16d42effd244d702309972656a03224cd9b",
+  "private/stage-failure-1793749256213641000.txt": "836f9e4081652299bdd2a5a6f9959f6fa4f6bf995b93b3be366364586646ee5c",
+  "private/stage-failure-1793749379244722000.txt": "204dad92b2502d5f8d94ebd8c9c20081b2a5c6b01471f58eefbb4db0bd1c1966",
+  "private/stage-failure-1793749724539168000.txt": "e4d04bb3752962060a16cd3e4d7b751312fa6b08c8cfc87cba7d82755fd4bfe3"
+ },
+ "private_unpublished_excluded": "kubeconfig, CLI binaries, Docker config, journey work/credential directories, publication salt (not hashed or published)",
+ "deadlines_kst": {
+  "environment": "2026-11-05T10:30",
+  "foundation_bootstrap": "2026-11-06T00:33"
+ }
+}

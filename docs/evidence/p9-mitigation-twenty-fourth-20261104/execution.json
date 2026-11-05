@@ -1,0 +1,105 @@
+{
+  "paid_source_sha": "d1ed52b8ba14d77345df5b3f19ae8a599421e516",
+  "authority_url": "https://github.com/imcherry5778-labs/github-capacity-cascade-platform/issues/47#issuecomment-6612271939",
+  "independent_source_gate": "https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/49#pullrequestreview-5757493662",
+  "reviewed_source_full_CI_run": 41683426951,
+  "source_CI_success_checks": 4,
+  "source_full_local_runtime": "actually executed SUCCESS; Azure acceptance separate",
+  "state": "CLOSED/invalid",
+  "counts": {
+    "normal": 1,
+    "initialize": 1,
+    "healthy": 1,
+    "calibration": 1,
+    "measured": {
+      "C0": 0,
+      "C1": 0,
+      "C2": 0,
+      "C3": 0
+    },
+    "KEDA_apply": 1,
+    "KEDA_restore": 1
+  },
+  "cumulative": {
+    "campaign": 24,
+    "initialize": 21,
+    "healthy": 12,
+    "started_invalid_calibration": 9,
+    "measured": {
+      "C0": 0,
+      "C1": 0,
+      "C2": 0,
+      "C3": 0
+    },
+    "KEDA_apply_actions": 9,
+    "KEDA_restore_actions": 9
+  },
+  "KEDA_actions_vs_restarts": {
+    "SA_apply_restore_actions": [
+      1,
+      1
+    ],
+    "actual_Pod_restarts": [
+      0,
+      0
+    ],
+    "reason": "original template already WI-labelled; identical patch no rollout; explicit TriggerAuthentication identityId worked with existing projected token",
+    "prior_restart_count_fields": "operator intent/conditional counter, corrected append-only"
+  },
+  "source_bound_image_manifest_digest": "sha256:8fab3d49d373fec107bd3110d289c169116b8cac5a290b9006e2454787820c81",
+  "calibration_intent_to_process_failure_upper_bound_seconds": 422.4321997498628,
+  "cleanup_intent_to_final_confirmation_seconds": 289.5180533330422,
+  "resource_and_safety": {
+    "existing_RG": 4,
+    "original_ARM_ID_count": 34,
+    "fixed_nodes": 2,
+    "original_Owner_count": 2,
+    "whole_reserve_seconds": 8045,
+    "Pod_cap": 4,
+    "both_requests_and_limits_CPU_m": 1500,
+    "both_requests_and_limits_memory_Mi": 2048,
+    "variable_planning_estimate_USD": 5,
+    "planning_projection_USD": 310.3567,
+    "actual_shared_cost": "UNKNOWN; billing GET0",
+    "new_numeric_cap": false,
+    "environment_hard_cutoff_KST": "2026-11-05 10:30",
+    "foundation_bootstrap_hard_cutoff_KST": "2026-11-06 00:33",
+    "extension": false,
+    "whole_teardown": false
+  },
+  "owned_cleanup": {
+    "initial_errors": [
+      "fixtures"
+    ],
+    "targeted_PATCH_negative": 422,
+    "final_complete": true,
+    "final_errors": [],
+    "PAT_reuse_HTTP": [
+      401,
+      401
+    ],
+    "token_list": [
+      0,
+      0
+    ],
+    "fixture_login_HTTP": [
+      401,
+      401
+    ],
+    "DB_records": "preserved; login prohibited",
+    "original_stable_Argo_Deployment_Pod_PVC_PV_named_Secret_UID_data": "same-parent comparison passed",
+    "original_KEDA_SA_UID_annotations_template_Ready": 2,
+    "exact_owned_image_roles_FIC_UAMI_absent": true,
+    "original_Owner2_34_IDs_fixed_nodes_preserved": true,
+    "forward": "owned TERM/wait and parent exit0",
+    "PATs_absent_and_reuse_rejected": 2,
+    "normal_PAT_DELETE_response": "accepted204/404 by initial handler; exact response not persisted; not repeated",
+    "healthy_PAT_DELETE_response": 204,
+    "raw_normal_204_string_correction": "initial operator string was not a separately saved HTTP response; actual absence is reuse401/list0",
+    "protected_credential_copies_removed": true,
+    "disposable_operator_removed": true,
+    "credential_free_original_references_local": 3,
+    "physical_secure_erasure_or_global_containment_claim": false
+  },
+  "unused_attempts": "expired on closure; no calibration2/freeze/measured/campaign25/P10/merge"
+}

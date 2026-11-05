@@ -1,0 +1,151 @@
+{
+ "paid_source_sha": "6ae7342807df86d2ffc623b298d9ef0a977cce11",
+ "base_sha": "076bc8a3dbd09e8192057e19df8b6cc5cb55274d",
+ "authority_url": "https://github.com/imcherry5778-labs/github-capacity-cascade-platform/issues/47#issuecomment-6625733645",
+ "independent_source_gate": "https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/49#pullrequestreview-5765077924",
+ "state": "CLOSED/invalid (calibration1 monitor validation_failed; NO-GO)",
+ "paid_source_unchanged": true,
+ "operator_template_sha256": {
+  "driver-template.py": "bc9def5b5a8efa3489b4337875fa009de59acfb7879f39c0b09fc1f5dcc7b292"
+ },
+ "operator_instance_sha256": {
+  "driver.py": "3c68350fc26da32313475ecf4d4a92aeae83ed6c9b20eb0d80b2be4fa2db6ae4",
+  "preflight.py": "bc8fe90c131c5febe720d0915a147049b3e5aeeb85e1d5f5379cee758bf4ac09",
+  "launch.py": "7d7e559261b49fe57da4a3a54634c8a19a861b58c26fc63385b5caf2546b0ab3",
+  "send.sh": "1a961192297bf5222ad10b0ec4eb7eed62c1492caf324c7dac9ae6bed714b815"
+ },
+ "owned_image_manifest_digest": "sha256:80e3c414525abb48f580688191db5c577d8ea95d1c6cfebc841ce58d044724f6",
+ "plan_sha256": "9989b72f5a2b603b1bbd3c563243f332e4675207a37f61f2418f8dde71789567",
+ "counts": {
+  "normal_initial": 1,
+  "normal_final": 1,
+  "initialize": 1,
+  "healthy": 1,
+  "calibration": 1,
+  "measured": {
+   "C0": 0,
+   "C1": 0,
+   "C2": 0,
+   "C3": 0
+  },
+  "KEDA_apply": 1,
+  "KEDA_restore": 1,
+  "cloud_mutations": 17
+ },
+ "results": {
+  "preflight": "all read-only gates PASS; KEDA-form GET 4726 bytes HTTP200 (transport only)",
+  "initial_normal": "SUCCESS",
+  "C0_fixture": "Service-first; DNS gate 1 lookup; HAProxy restart 0",
+  "initialize": "SUCCESS (ingress29=authorization29=target29, ready_for_keda_authentication)",
+  "KEDA": "native workload identity; exact ScaledObject-owned HPA positive",
+  "C3_preflight": "PASS on first attempt (3 healthy + 3 fault joint, current HPA UID, HAProxy memory/OOM/restart); deadline fix effective",
+  "calibration1": {
+   "process_exit": 1,
+   "local_validation": "invalid (failed/incomplete run)",
+   "monitor_failure": "validation_failed at schedule origin+269.5s (mitigation), immediately after the collector signal evaluation of a collection started at +252.8s",
+   "early_release": "source fault release at +270.0s after monitor failure",
+   "demand_at_close": {
+    "scheduled": 2400,
+    "issued": 1350,
+    "unissued": 1050,
+    "driver_lag_max_seconds": 0.301
+   },
+   "saved_snapshots": 15,
+   "saved_snapshot_guards": "common_guards, controller_metric_warnings and haproxy_capture_guard all pass on the 15 saved snapshots",
+   "failed_collection": "partial snapshot not published by source; collector guarded value 5.96 and raw/up age 52.45s (<=60) at the failing evaluation; per-Pod telemetry ages <=60s",
+   "failing_guard": "NOT recorded by source (allowlisted error_code only); next step after signal is lifecycle.resources()",
+   "cause_evidence": {
+    "read_only_probe": "metrics-server Pod-metric timestamps regressed in 18 of 50 polls over 120s (e.g. 08:24:30Z then 08:24:20Z)",
+    "consistent_with": "resources() require(stamp >= previous) \"resource sample history drift\"",
+    "limit": "strong evidence, not proof for the failed collection"
+   }
+  },
+  "second_calibration": "not started: correction requires a source change to the resources() history guard, outside this approval; a repeat would be a blind retry",
+  "freeze": "not attempted (no valid calibration)",
+  "measured": "not started"
+ },
+ "operator_notes": [
+  "c3() completion safeout line was dropped in the template refactor (output only; c3 completed and saved runtime-preflight/execution-approval)"
+ ],
+ "cleanup": {
+  "steps_complete": [
+   "CUSTOM_remove",
+   "mesh_restore",
+   "namespace_remove",
+   "final_normal",
+   "KEDA_restore",
+   "normal_fixture",
+   "healthy_fixture",
+   "final_fixture",
+   "stable_integrity",
+   "image_remove",
+   "AMW_role_remove",
+   "UAMI_FIC_remove",
+   "AKS_role_remove",
+   "ARM_final",
+   "forward_close"
+  ],
+  "cleanup_final_complete": true,
+  "errors": [],
+  "final_normal": "gate passed: valid/success, 9 operations",
+  "PAT": {
+   "normal": 204,
+   "healthy": 204,
+   "final": 204
+  },
+  "independent_post_cleanup_read_only_utc": "2026-11-04T08:28:48Z",
+  "independent_post_cleanup": {
+   "resource_ids_unchanged": true,
+   "resource_count": 34,
+   "C28_UAMI_absent": true,
+   "C28_image_tag_absent": true,
+   "temporary_AKS_admin_absent": true,
+   "Owner_assignments": 2,
+   "nodes": 2
+  },
+  "local": "driver/forward exited, campaign.lock released",
+  "claim_limit": "Campaign28 owned cleanup only; not a global zero-residual claim"
+ },
+ "timeline_utc": {
+  "preflight": "07:59:49",
+  "first_mutation": "08:00:20",
+  "initialize_intent": "08:02:51",
+  "KEDA_positive": "08:06:43",
+  "calibration_intent": "08:16:28",
+  "closure": "08:26:38",
+  "parent_exit": "08:28:26"
+ },
+ "cumulative_after_Campaign28": {
+  "campaign": 28,
+  "initialize_started": 25,
+  "healthy": 15,
+  "started_calibration": 11,
+  "reviewed_valid_calibration": 1,
+  "measured": {
+   "C0": 0,
+   "C1": 0,
+   "C2": 0,
+   "C3": 0
+  },
+  "KEDA_apply_restore_actions": "11/11"
+ },
+ "cost": {
+  "billing_GET": 0,
+  "resource_hold_minutes_approx": 28,
+  "actual_campaign_cost": "UNKNOWN"
+ },
+ "private_unpublished_sha256": {
+  "driver.py": "3c68350fc26da32313475ecf4d4a92aeae83ed6c9b20eb0d80b2be4fa2db6ae4",
+  "preflight.py": "bc8fe90c131c5febe720d0915a147049b3e5aeeb85e1d5f5379cee758bf4ac09",
+  "launch.py": "7d7e559261b49fe57da4a3a54634c8a19a861b58c26fc63385b5caf2546b0ab3",
+  "send.sh": "1a961192297bf5222ad10b0ec4eb7eed62c1492caf324c7dac9ae6bed714b815",
+  "commands.jsonl": "91545adf513c9eae8884c02f93a1ca15e158fb86dc2be74df28f3af9912d4fd7",
+  "private/driver.out": "0faafbfc7965b21ca9cb79539647af2eaf54efb9473e6375e20424e4f1923dfa",
+  "private/C3-calibration1.log": "851bb2d0a7957e8f6d33283c9337ddcf260ace8d61e6a7e9812e81030f246f02",
+  "private/C3-calibration1-validation.txt": "687fbfa0a0a43f16f3a94442c5ac01e0b95a096f7a7321896e7bfb1f01e2fe9e"
+ },
+ "deadlines_kst": {
+  "environment": "2026-11-05T10:30",
+  "foundation_bootstrap": "2026-11-06T00:33"
+ }
+}

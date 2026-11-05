@@ -1,5 +1,5 @@
 {
-  "mitigation_seconds": 240,
+  "mitigation_seconds": 300,
   "recovery_seconds": 180,
   "backoff_ms": [250, 750],
   "seed": 5778,
