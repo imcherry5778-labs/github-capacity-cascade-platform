@@ -192,7 +192,7 @@ def prometheus(pods, stamps, trajectory, namespace='shared-gate', **drop):
     for pod in pods:
         for name, key in sorted(m.MANAGED_METRICS.items()):
             if drop.get('metric') == (pod['name'], key): continue
-            result.append({'metric': {'__name__': name, 'envoy_cluster_name': 'inbound|8080||', 'job': 'p10-envoy', 'namespace': namespace,
+            result.append({'metric': {'__name__': name, 'cluster_name': 'inbound|8080||', 'cluster': 'aks-test', 'job': 'p10-envoy', 'namespace': namespace,
                                       'pod': pod['name'], 'container': 'istio-proxy', 'instance': '10.42.0.%d:15090' % len(result)},
                            'values': [[1000 + t, str(trajectory(pod['uid'], key, t))] for t in stamps[pod['uid']]]})
     return {'status': 'success', 'data': {'resultType': 'matrix', 'result': result}}
@@ -602,12 +602,13 @@ class IsolationTests(unittest.TestCase):
         calls = []
         def fetch(path, params):
             calls.append((path, params)); return prometheus(pods, stamps, trajectory)
-        selector = m.managed_selector('shared-gate')
-        self.assertIn('job="p10-envoy"', selector); self.assertIn('envoy_cluster_name="inbound|8080||"', selector)
+        selector = m.managed_selector('shared-gate', 'aks-test')
+        self.assertIn('job="p10-envoy"', selector); self.assertIn('cluster_name="inbound|8080||"', selector)
+        self.assertIn('cluster="aks-test"', selector); self.assertNotIn('envoy_cluster_name', selector)
         poll = m.poll_managed(fetch, selector, 600, clock=lambda: 125.0)
         self.assertEqual(calls, [('/api/v1/query', {'query': selector + '[600s]'})])     # raw samples, not evaluation steps
         self.assertEqual(poll['at'], 125.0)
-        rows = m.project_managed([poll], pods, CLOCK, namespace='shared-gate', scrape_seconds=15)
+        rows = m.project_managed([poll], pods, CLOCK, namespace='shared-gate', prometheus_cluster='aks-test', scrape_seconds=15)
         self.assertEqual(len(rows), 4)
         for row in rows:
             self.assertEqual({t['uid']: t['pool'] for t in row['targets']}, {p['uid']: p['pool'] for p in pods})   # inventory, not series labels
@@ -616,20 +617,20 @@ class IsolationTests(unittest.TestCase):
         self.assertAlmostEqual(rows[0]['targets'][0]['sample_at'], -12.0)           # wall 1000 -> monotonic 0
         # Late ingestion is measured per sample: a later poll never makes an earlier-visible sample fresher.
         early = {'at': 20.0, 'data': prometheus(pods, {u: [t for t in ts if t <= 3] for u, ts in stamps.items()}, trajectory)}
-        again = m.project_managed([early, poll], pods, CLOCK, namespace='shared-gate', scrape_seconds=15)
+        again = m.project_managed([early, poll], pods, CLOCK, namespace='shared-gate', prometheus_cluster='aks-test', scrape_seconds=15)
         self.assertEqual([r['at'] for r in again], [20.0, 125.0, 125.0, 125.0])
         # Harness-projected rows pass the run validator when polling observed each sample soon after it was stamped.
         polls = [{'at': 20.0, 'data': prometheus(pods, {u: [x for x in ts if x <= 18] for u, ts in stamps.items()}, trajectory)},
                  {'at': 45.0, 'data': prometheus(pods, stamps, trajectory)}]
-        a['managed_samples'] = m.project_managed(polls, pods, CLOCK, namespace='shared-gate', scrape_seconds=15)
+        a['managed_samples'] = m.project_managed(polls, pods, CLOCK, namespace='shared-gate', prometheus_cluster='aks-test', scrape_seconds=15)
         self.assertEqual([r['at'] for r in a['managed_samples']], [20.0, 20.0, 45.0, 45.0])
         self.assertEqual(m.validate(a)['status'], 'valid')
         # Too-late visibility is a freshness gap (insufficient), not a value.
-        slow = copy.deepcopy(a); slow['managed_samples'] = m.project_managed([dict(poll, at=500.0)], pods, CLOCK, namespace='shared-gate', scrape_seconds=15)
+        slow = copy.deepcopy(a); slow['managed_samples'] = m.project_managed([dict(poll, at=500.0)], pods, CLOCK, namespace='shared-gate', prometheus_cluster='aks-test', scrape_seconds=15)
         self.assertEqual(m.validate(slow)['status'], 'observation-insufficient')
         # A scrape round some Pod lacks leaves a gap; it is never filled with zero.
         gap = {pods[0]['uid']: [-12, 3, 18, 33], pods[1]['uid']: [-5, 40]}
-        thin = m.project_managed([{'at': 125.0, 'data': prometheus(pods, gap, trajectory)}], pods, CLOCK, namespace='shared-gate', scrape_seconds=15)
+        thin = m.project_managed([{'at': 125.0, 'data': prometheus(pods, gap, trajectory)}], pods, CLOCK, namespace='shared-gate', prometheus_cluster='aks-test', scrape_seconds=15)
         self.assertLess(len(thin), len(rows))
         c = copy.deepcopy(a); c['managed_samples'] = thin
         self.assertEqual(m.validate(c)['status'], 'observation-insufficient')
@@ -640,7 +641,7 @@ class IsolationTests(unittest.TestCase):
         trajectory = lambda uid, key, t: 0
         stamps = {p['uid']: [0, 15, 30] for p in pods}
         def project(response, inventory=pods, **kw):
-            return m.project_managed([{'at': 60.0, 'data': response}], inventory, CLOCK, namespace='shared-gate', scrape_seconds=15, **kw)
+            return m.project_managed([{'at': 60.0, 'data': response}], inventory, CLOCK, namespace='shared-gate', prometheus_cluster='aks-test', scrape_seconds=15, **kw)
         self.assertEqual(len(project(prometheus(pods, stamps, trajectory))), 3)
         good = lambda: prometheus(pods, stamps, trajectory)
         def edit(fn):
@@ -652,7 +653,9 @@ class IsolationTests(unittest.TestCase):
                 prometheus(pods[:1], stamps, trajectory),                                                # one Pod's series absent
                 prometheus(pods, stamps, trajectory, metric=(pods[1]['name'], 'upstream_rq_total')),     # partial scrape
                 edit(lambda rs: rs[0]['metric'].update(pod='someone-else')),                             # unmapped Pod
-                edit(lambda rs: rs[0]['metric'].update(envoy_cluster_name='outbound|8080||x')),
+                edit(lambda rs: rs[0]['metric'].update(cluster_name='outbound|8080||x')),
+                edit(lambda rs: rs[0]['metric'].update(cluster='other-cluster')),                       # another AMW cluster
+                edit(lambda rs: rs[0]['metric'].update(envoy_cluster_name='inbound|8080||')),             # unselected tag shape
                 edit(lambda rs: rs[0]['metric'].update(namespace='other')),
                 edit(lambda rs: rs[0]['metric'].update(job='other')),
                 edit(lambda rs: rs[0]['metric'].update(__name__='envoy_cluster_upstream_cx_total')),
@@ -668,7 +671,7 @@ class IsolationTests(unittest.TestCase):
         # A rewritten sample across polls (same Pod/time, different value) is invalid.
         later = prometheus(pods, stamps, lambda uid, key, t: 1 if t == 15 and key == 'upstream_rq_total' else 0)
         with self.assertRaises(ValueError):
-            m.project_managed([{'at': 60.0, 'data': good()}, {'at': 70.0, 'data': later}], pods, CLOCK, namespace='shared-gate', scrape_seconds=15)
+            m.project_managed([{'at': 60.0, 'data': good()}, {'at': 70.0, 'data': later}], pods, CLOCK, namespace='shared-gate', prometheus_cluster='aks-test', scrape_seconds=15)
 
     def test_managed_visibility_is_not_required_before_the_window(self):
         v = plan()
