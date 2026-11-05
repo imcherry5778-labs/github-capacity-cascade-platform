@@ -5,10 +5,13 @@ No Azure credentials, apply, IAM, provisioning or paid execution entrypoint.
 Transport/observation callbacks are supplied by the owned local harness. Unknown
 or incomplete evidence never becomes a positive or valid negative result.
 """
+import bisect
 import concurrent.futures
 import copy
+import csv
 import hashlib
 import importlib.util
+import io
 import json
 import math
 from pathlib import Path
@@ -28,6 +31,12 @@ CLASSES = ('critical', 'bulk')
 GUARDS = {'haproxy', 'forgejo', 'forgejo_sidecar', 'postgres', 'node', 'scheduling', 'sentinel', 'tls_native_auth', 'ingress'}
 COUNTERS = ('upstream_rq_total', 'upstream_rq_active_overflow', 'upstream_rq_pending_overflow')
 STATS = set(COUNTERS) | {'upstream_rq_active', 'upstream_rq_pending_active'}
+# Local drive/sampling happens inside one harness process and one monotonic clock. A managed
+# (Prometheus) sample is stamped by another host's wall clock; its alignment allowance is a
+# data-validity bound, not a conclusion threshold.
+MANAGED_CLOCK_TOLERANCE = 2.0
+MANAGED_CLOCK_DRIFT = 0.5
+LOCAL_TLS = 'local-http-not-applicable'
 
 
 def fixture(v):
@@ -149,17 +158,61 @@ def render(identity, v, f, arm):
     return result
 
 
-def binding(identity, v, f, invariants):
-    p8.identity(identity); plan(v); fixture(f)
+def local_identity(value):
+    # The invocation-owned disposable cluster: its k3d server container ID is the ownership marker.
+    require(type(value) is dict and set(value) == {'source_sha', 'cluster_uid', 'stable_revision', 'ext_authz_image_id'} and
+            re.fullmatch('[0-9a-f]{40}', value['source_sha']) and re.fullmatch('[0-9a-f]{64}', value['cluster_uid']) and
+            re.fullmatch('[0-9a-f]{64}', value['stable_revision']) and
+            re.fullmatch('sha256:[0-9a-f]{64}', value['ext_authz_image_id']), 'local identity')
+    return value
+
+
+def local_render(identity, v, f, arm, template, namespace='shared-gate'):
+    """Deterministic Local pool manifests derived from the live P4 target pod template.
+
+    Same pod template/image/resources/hold in both arms; only the Deployment/Service split and
+    the HAProxy backend selection differ. No HPA/KEDA/controller/node/PVC and no stable resource.
+    """
+    local_identity(identity); plan(v); fixture(f); require(arm in ARMS and type(template) is dict, 'local render input')
+    items = []
+    for pool in (('shared',) if arm == 'shared' else CLASSES):
+        labels = {'app': 'ext-authz-pool', 'p10.pool': pool}
+        pod = copy.deepcopy(template)
+        pod['metadata'] = {'labels': dict(labels), 'annotations': dict(template.get('metadata', {}).get('annotations', {}))}
+        pod['spec']['terminationGracePeriodSeconds'] = 2   # a pool only ever terminates after its demand drained
+        meta = {'name': 'ext-authz-' + pool, 'namespace': namespace, 'labels': {'p10.pair': 'owned', **labels}}
+        items += [dict(apiVersion='apps/v1', kind='Deployment', metadata=copy.deepcopy(meta),
+                       spec={'replicas': 2 if pool == 'shared' else 1, 'selector': {'matchLabels': dict(labels)}, 'template': pod}),
+                  dict(apiVersion='v1', kind='Service', metadata=copy.deepcopy(meta),
+                       spec={'selector': dict(labels), 'ports': [{'name': 'http-check', 'port': 8080, 'targetPort': 8080}]})]
+    items.append(dict(apiVersion='networking.istio.io/v1', kind='Sidecar',
+                      metadata={'name': 'p10-capacity', 'namespace': namespace, 'labels': {'p10.pair': 'owned'}},
+                      spec={'workloadSelector': {'labels': {'app': 'ext-authz-pool'}},
+                            'inboundConnectionPool': {'http': {'http2MaxRequests': v['max_requests']}}}))
+    return {'pools.json': {'apiVersion': 'v1', 'kind': 'List', 'items': items}, 'haproxy.cfg': haproxy(f, arm, namespace)}
+
+
+def binding(identity, v, f, invariants, environment='azure', template=None):
+    plan(v); fixture(f)
+    if environment == 'azure':
+        p8.identity(identity)
+        def renderer(arm): return render(identity, v, f, arm)
+    else:
+        require(environment == 'local', 'unknown environment')
+        local_identity(identity)
+        def renderer(arm): return local_render(identity, v, f, arm, template)
     keys = {'stable_revision', 'ingress_config_sha256', 'native_route_sha256', 'tls_auth_sha256',
             'target_resources_sha256', 'haproxy_image_id', 'haproxy_processes', 'haproxy_threads',
             'haproxy_maxconn', 'proxy_retries_sha256', 'sentinel_sha256', 'confounder_policy_sha256'}
     require(set(invariants) == keys and invariants['stable_revision'] == identity['stable_revision'] and
             invariants['haproxy_processes'] == invariants['haproxy_threads'] == 1 and invariants['haproxy_maxconn'] == 256 and
             all(re.fullmatch('[0-9a-f]{64}', invariants[k]) for k in keys if k.endswith('_sha256')), 'runtime invariant binding')
-    return {'source_sha': identity['source_sha'], 'identity': identity, 'fixture': f,
-            'plan_sha256': digest(v), 'schedule_sha256': digest(schedule(v)),
-            'render_sha256': {a: digest(render(identity, v, f, a)) for a in ARMS}, 'invariants': invariants}
+    result = {'source_sha': identity['source_sha'], 'identity': identity, 'fixture': f,
+              'plan_sha256': digest(v), 'schedule_sha256': digest(schedule(v)),
+              'render_sha256': {a: digest(renderer(a)) for a in ARMS}, 'invariants': invariants}
+    if environment == 'local':
+        result['template'] = template
+    return result
 
 
 def drive(v, probes, emit, *, clock=time.monotonic, wait=time.sleep, stopped=lambda: False):
@@ -260,7 +313,11 @@ def coverage(v, samples, start, end, *, managed=False):
     """
     cadence = v['scrape_seconds'] if managed else v['sample_seconds']
     max_age = v['scrape_seconds'] + v['ingestion_seconds'] if managed else 2 * v['sample_seconds']
-    if not samples or samples[0]['at'] > start or samples[-1]['at'] < end or samples[0]['sample_at'] > start or samples[-1]['sample_at'] < end:
+    # The sampled instants must bracket the window. A native sample was also *received* inside it; a managed
+    # sample only becomes visible after ingestion, so its delay is bounded by max_age below, not by the window.
+    if not samples or samples[0]['sample_at'] > start or samples[-1]['sample_at'] < end:
+        return False
+    if not managed and (samples[0]['at'] > start or samples[-1]['at'] < end):
         return False
     return all(0 <= s['at'] - s['sample_at'] <= max_age for s in samples) and all(
         0 < b['sample_at'] - a['sample_at'] <= 2 * cadence for a, b in zip(samples, samples[1:]))
@@ -303,32 +360,143 @@ def pool_guard(v, arm, samples, start, end):
                       for a, b in zip(samples, samples[1:])) / (end - start) for pool in expected}
 
 
-def managed_guard(native, managed, coverage_end):
+def clock_pair(wall=time.time, monotonic=time.monotonic):
+    """Bracketed wall/monotonic reference; call at the start and again after the last managed poll."""
+    before = wall(); mono = monotonic(); after = wall()
+    return {'wall': (before + after) / 2, 'monotonic': mono, 'uncertainty': (after - before) / 2}
+
+
+def clock_bound(clock):
+    """Validate the wall<->monotonic mapping and return the allowance for managed timestamps.
+
+    Only the harness's own wall/monotonic pairs are checked here. Skew between the collector host and the
+    harness host is not measured by any clock; it is bounded by managed_guard()'s native counter bracket.
+    """
+    require(type(clock) is dict and set(clock) == {'start', 'end'}, 'managed clock fields')
+    a, b = clock['start'], clock['end']
+    for pair in (a, b):
+        require(type(pair) is dict and set(pair) == {'wall', 'monotonic', 'uncertainty'} and
+                all(type(x) in {int, float} and math.isfinite(x) for x in pair.values()) and 0 <= pair['uncertainty'] <= .25, 'managed clock pair')
+    require(b['monotonic'] > a['monotonic'] and
+            abs((b['wall'] - a['wall']) - (b['monotonic'] - a['monotonic'])) <= MANAGED_CLOCK_DRIFT, 'wall/monotonic clock step')
+    return MANAGED_CLOCK_TOLERANCE + a['uncertainty'] + b['uncertainty']
+
+
+def to_monotonic(clock, timestamp):
+    clock_bound(clock)
+    require(type(timestamp) in {int, float} and math.isfinite(timestamp), 'managed timestamp')
+    return clock['start']['monotonic'] + (timestamp - clock['start']['wall'])
+
+
+MANAGED_METRICS = {'envoy_cluster_upstream_rq_' + k[len('upstream_rq_'):]: k for k in STATS}
+
+
+def managed_selector(namespace, job='p10-envoy', cluster='inbound|8080||'):
+    names = '|'.join(sorted(k[len('envoy_cluster_upstream_rq_'):] for k in MANAGED_METRICS))
+    return '{__name__=~"envoy_cluster_upstream_rq_(%s)",job="%s",namespace="%s",envoy_cluster_name="%s"}' % (names, job, namespace, cluster)
+
+
+def poll_managed(fetch, selector, lookback_seconds, clock=time.monotonic):
+    """One Prometheus-API query for RAW samples (a range vector keeps the actual scrape timestamps).
+
+    `fetch(path, params)` returns the parsed JSON. The caller owns authentication; none exists here.
+    `at` is when the response reached the harness, i.e. the latest moment each returned sample was visible.
+    """
+    data = fetch('/api/v1/query', {'query': '%s[%ds]' % (selector, lookback_seconds)})
+    return {'at': clock(), 'data': data}
+
+
+def project_managed(polls, pods, clock, *, namespace, scrape_seconds, cluster='inbound|8080||', job='p10-envoy'):
+    """Prometheus raw samples -> rows for managed_guard()/coverage(); Pod label -> actual Pod UID/pool.
+
+    Series carry the Pod *name* only, so identity comes from the harness's Kubernetes inventory, never
+    from the series. A scrape is one timestamp per Pod holding all five stats; absent, empty, partial,
+    unmapped or rewritten series are invalid and never zero. A round some Pod lacks is skipped, leaving a
+    coverage gap (observation-insufficient), not a value. Each sample's visibility time is the first poll
+    that returned it, so ingestion delay is measured.
+    """
+    inventory = {p['name']: p for p in pods}
+    require(pods and len(inventory) == len(pods) and all(set(p) == {'name', 'uid', 'pool'} for p in pods) and
+            len({p['uid'] for p in pods}) == len(pods), 'managed Pod inventory')
+    values, seen = {}, {}
+    for poll in polls:
+        data = poll['data']
+        require(type(data) is dict and data.get('status') == 'success' and type(data.get('data')) is dict and
+                data['data'].get('resultType') == 'matrix' and type(data['data'].get('result')) is list, 'managed query response')
+        for series in data['data']['result']:
+            labels = series['metric']
+            metric = MANAGED_METRICS.get(labels.get('__name__'))
+            require(metric and labels.get('namespace') == namespace and labels.get('job') == job and
+                    labels.get('envoy_cluster_name') == cluster, 'unexpected managed series')
+            pod = inventory.get(labels.get('pod'))
+            require(pod, 'managed series from unmapped Pod')
+            for timestamp, raw in series['values']:
+                require(type(timestamp) in {int, float} and math.isfinite(timestamp) and type(raw) is str and re.fullmatch(r'\d+', raw), 'managed sample value')
+                key = (pod['uid'], round(timestamp, 3))
+                require(values.setdefault(key, {}).setdefault(metric, int(raw)) == int(raw), 'managed sample rewritten')
+                seen[key + (metric,)] = min(seen.get(key + (metric,), poll['at']), poll['at'])
+    scrapes = {p['uid']: [] for p in pods}
+    for (uid, timestamp), stats in values.items():
+        require(set(stats) == STATS, 'partial managed scrape')
+        scrapes[uid].append(timestamp)
+    require(all(scrapes.values()), 'required managed series absent')
+    rows, used = [], set()
+    for first, uid0 in sorted((t, u) for u, ts in scrapes.items() for t in ts):
+        if (uid0, first) in used:
+            continue
+        group = {uid0: first}
+        for uid, stamps in scrapes.items():
+            near = [t for t in stamps if uid != uid0 and (uid, t) not in used and abs(t - first) <= scrape_seconds / 2]
+            if near:
+                group[uid] = min(near, key=lambda t: abs(t - first))
+        used.update(group.items() if len(group) == len(scrapes) else [(uid0, first)])
+        if len(group) == len(scrapes):
+            targets = [{'uid': p['uid'], 'pool': p['pool'], 'sample_at': to_monotonic(clock, group[p['uid']]),
+                        'stats': dict(values[(p['uid'], group[p['uid']])])} for p in pods]
+            rows.append({'at': max(seen[(p['uid'], group[p['uid']], stat)] for p in pods for stat in STATS),
+                         'sample_at': max(t['sample_at'] for t in targets), 'targets': targets})
+    return sorted(rows, key=lambda r: r['sample_at'])
+
+
+def managed_guard(native, managed, coverage_end, v, clock):
     """Harness-projected managed (PodMonitor) rows; timestamps alone are never a signal.
 
-    Every row must carry both actual native-baseline Pod UID/pool series with all five
-    stats. Absent, empty or partial series are invalid, never zero; only a structurally
-    valid series with a freshness/coverage gap is observation-insufficient (coverage()).
-    Counters are bounded by, and after the drained boundary equal to, the native counters.
+    Every row must carry both actual native-baseline Pod UID/pool series with all five stats. Absent, empty
+    or partial series are invalid, never zero; only a structurally valid series with a freshness/coverage gap
+    is observation-insufficient (coverage()). Counters are bracketed at the sample's own time by the native
+    samples (+/- the clock allowance), bounded by, and after the drained boundary equal to, the final native
+    counters.
     """
     require(managed, 'required managed signals absent')
+    tolerance = clock_bound(clock)
     identity = {t['uid']: t['pool'] for t in native[0]['targets']}
     final = {t['uid']: t['stats'] for t in native[-1]['targets']}
+    times = [s['sample_at'] for s in native]
+    require(times == sorted(times), 'native samples out of order')
+    at = {uid: [next(t for t in s['targets'] if t['uid'] == uid)['stats'] for s in native] for uid in identity}
     previous = {}
     for row in managed:
         require(type(row) is dict and set(row) == {'at', 'sample_at', 'targets'} and
                 all(type(row[k]) in {int, float} and math.isfinite(row[k]) for k in ('at', 'sample_at')), 'managed sample fields')
         targets = row['targets']
-        require(type(targets) is list and len(targets) == len(identity) and all(type(t) is dict and set(t) == {'uid', 'pool', 'stats'} for t in targets) and
+        require(type(targets) is list and len(targets) == len(identity) and
+                all(type(t) is dict and set(t) == {'uid', 'pool', 'sample_at', 'stats'} and
+                    type(t['sample_at']) in {int, float} and math.isfinite(t['sample_at']) for t in targets) and
                 {t['uid']: t['pool'] for t in targets} == identity, 'managed Pod UID/pool series missing or drifted')
+        require(row['sample_at'] == max(t['sample_at'] for t in targets), 'managed row time differs from its series')
         for t in targets:
             values = t['stats']
             require(type(values) is dict and set(values) == STATS and all(type(x) is int and x >= 0 for x in values.values()), 'missing/invalid managed stat')
-            require(values['upstream_rq_pending_overflow'] == values['upstream_rq_pending_active'] == 0, 'competing pending capacity')
+            require(values['upstream_rq_pending_overflow'] == values['upstream_rq_pending_active'] == 0 and
+                    values['upstream_rq_active'] <= v['max_requests'], 'competing pending capacity')
             old = previous.get(t['uid'], values)
             require(all(values[k] >= old[k] for k in COUNTERS), 'managed counter reset')
             require(all(values[k] <= final[t['uid']][k] for k in COUNTERS), 'managed counter beyond drained native counter')
-            require(row['sample_at'] < coverage_end or all(values[k] == final[t['uid']][k] for k in COUNTERS), 'managed/native drained counter mismatch')
+            low = bisect.bisect_right(times, t['sample_at'] - tolerance) - 1
+            high = bisect.bisect_left(times, t['sample_at'] + tolerance)
+            require(all((low < 0 or at[t['uid']][low][k] <= values[k]) and
+                        values[k] <= at[t['uid']][min(high, len(times) - 1)][k] for k in COUNTERS), 'managed value outside native bracket at its own time')
+            require(t['sample_at'] < coverage_end + tolerance or all(values[k] == final[t['uid']][k] for k in COUNTERS), 'managed/native drained counter mismatch')
             previous[t['uid']] = values
 
 
@@ -355,14 +523,131 @@ def accounting(arm, evidence, clients):
     return counts
 
 
+RING = {'status': int, 'termination': str, 'class': str, 'backend': str, 'server': str, 'request_counter': int, 'pid': int,
+        'accept_time': str, 'queue_ms': int, 'connect_ms': int, 'response_ms': int, 'total_ms': int}
+HAPROXY_COUNTERS = ('req_tot', 'hrsp_2xx', 'hrsp_4xx', 'hrsp_5xx', 'econ', 'eresp', 'wretr', 'wredis', 'cli_abrt', 'srv_abrt')
+HAPROXY_GAUGES = ('qcur', 'qmax', 'scur', 'smax')
+
+
+def parse_ring(text):
+    """Server-side class/backend/server rows of the experiment ring; any malformed row is lost evidence."""
+    rows = [json.loads(line) for line in text.splitlines() if line.strip()]
+    for r in rows:
+        require(type(r) is dict and set(r) == set(RING) and all(type(r[k]) is t for k, t in RING.items()) and
+                r['class'] in CLASSES + ('deny', '-') and re.fullmatch(r'\d+\.\d{3}', r['accept_time']) and
+                all(r[k] >= -1 for k in ('queue_ms', 'connect_ms', 'response_ms', 'total_ms')), 'HAProxy ring row fields')
+    require(len({r['request_counter'] for r in rows}) == len(rows), 'duplicate HAProxy request counter')
+    return rows
+
+
+def no_request(r):
+    """A connection closed before any request (the kubelet TCP readiness probe): HAProxy logs 400/CR without a class.
+
+    It is not a check and has no request to classify. Only this exact shape is set aside; any other row that is
+    not a classified check stays in the accounting as an escape/other.
+    """
+    return (r['class'] == '-' and r['status'] == 400 and r['termination'] == 'CR' and r['backend'] == 'check' and
+            r['server'] == '<NOSRV>' and r['queue_ms'] == r['connect_ms'] == r['response_ms'] == -1)
+
+
+def parse_haproxy_stats(text):
+    out = {'frontend': {}, 'backend': {}}
+    for row in csv.DictReader(io.StringIO(text.removeprefix('# '))):
+        side = {'FRONTEND': 'frontend', 'BACKEND': 'backend'}.get(row['svname'])
+        if side:
+            out[side][row['pxname']] = {k: int(row[k]) if row.get(k, '').isdigit() else None for k in HAPROXY_COUNTERS + HAPROXY_GAUGES}
+    return out
+
+
+def parse_haproxy_info(text):
+    info = dict(line.split(': ', 1) for line in text.splitlines() if ': ' in line)
+    keys = ('Pid', 'Start_time_sec', 'Uptime_sec', 'Nbthread', 'Nbproc', 'Maxconn', 'DroppedLogs', 'MaxconnReached')
+    require(all(k in info and info[k].isdigit() for k in keys), 'HAProxy info fields')
+    return {k: int(info[k]) for k in keys}
+
+
+def window_accounting(arm, obs):
+    """Exact-check accounting for one drained window from independent observation sources.
+
+    Class is attributed only by the HAProxy server-side ring (exact method+URL). Each other source is
+    compared at the level it can actually attribute: native HAProxy counters per backend, client-issued
+    requests per class (exact routing), app checks by operation ID (admitted only), ingress/target
+    access logs and target admission per pool. Rejected requests need no app record.
+    """
+    require(arm in ARMS, 'unknown arm')
+    pools = ('shared',) if arm == 'shared' else CLASSES
+    pool_of = lambda kind: 'shared' if arm == 'shared' else kind
+    before, after = obs['ring_before'], obs['ring_after']
+    require(after[:len(before)] == before, 'HAProxy ring rewritten or lost')
+    window = after[len(before):]
+    rows = [r for r in window if not no_request(r)]
+    ib, ia, sb, sa = obs['info_before'], obs['info_after'], obs['stats_before'], obs['stats_after']
+    def count(side, name, key, snapshot):
+        value = snapshot[side][name][key]
+        require(value is not None, 'HAProxy counter absent')
+        return value
+    def moved(side, name, key): return count(side, name, key, sa) - count(side, name, key, sb)
+    lifetime = (ib['Pid'] == ia['Pid'] and ib['Start_time_sec'] == ia['Start_time_sec'] and ia['Uptime_sec'] >= ib['Uptime_sec'] and
+                ib['Nbthread'] == ia['Nbthread'] == ib['Nbproc'] == ia['Nbproc'] == 1 and ib['Maxconn'] == ia['Maxconn'] == 256 and
+                ib['MaxconnReached'] == ia['MaxconnReached'] == 0 and {r['pid'] for r in after} <= {ia['Pid']})
+    classes, answered = {}, {}
+    for kind in CLASSES:
+        selected = [r for r in rows if r['class'] == kind]
+        queue = [r for r in selected if r['queue_ms'] > 0]
+        # The target answered 200 (admitted) or 503 (inbound active overflow) whether or not HAProxy queued it.
+        answered[kind] = [r['status'] for r in selected if r['termination'] == '--' and r['status'] in {200, 503}]
+        served = [r for r in selected if r['queue_ms'] <= 0 and r['termination'] == '--']
+        admitted = sum(r['status'] == 200 for r in served); rejected = sum(r['status'] == 503 for r in served)
+        classes[kind] = {'checks': len(selected), 'admitted': admitted, 'rejected': rejected, 'queue': len(queue),
+                         'other': len(selected) - len(queue) - admitted - rejected,
+                         'app': sum((c['operation_id'] or '').startswith(kind + '-') for cs in obs['app_checks'].values() for c in cs),
+                         'ingress': obs['client_requests'][kind],
+                         'backend': sum(r['backend'] == pool_of(kind) and r['server'] == 'pool' for r in selected),
+                         'target_total': len(answered[kind]), 'pool': pool_of(kind)}
+    escapes = sum(r['class'] not in CLASSES or r['backend'] != pool_of(r['class']) or r['server'] != 'pool' for r in rows)
+    # Native per-backend counters equal the server-side rows (no unlogged or phantom checks).
+    for pool in pools:
+        mine = [r for r in rows if r['backend'] == pool]
+        require(moved('backend', pool, 'req_tot') == len(mine) and moved('backend', pool, 'hrsp_2xx') == sum(r['status'] == 200 for r in mine) and
+                moved('backend', pool, 'hrsp_5xx') == sum(r['status'] >= 500 for r in mine) and
+                all(moved('backend', pool, k) == 0 for k in ('econ', 'eresp', 'wretr', 'wredis', 'cli_abrt', 'srv_abrt')) and
+                count('backend', pool, 'qmax', sa) == 0, 'HAProxy backend counters vs ring')
+    # The frontend counts every logged request including the no-request 400s; only the backends are check-only.
+    require(moved('frontend', 'check', 'req_tot') == len(window) and
+            moved('frontend', 'check', 'hrsp_4xx') == sum(400 <= r['status'] < 500 for r in window), 'HAProxy frontend vs ring')
+    # Pool-level target admission: access log rows are not class-attributable, so compare per pool.
+    for pool in pools:
+        logs = [r for t in obs['targets'] if t['pool'] == pool for r in obs['target_rows'][t['uid']]]
+        mine = [a for kind, a in answered.items() if pool_of(kind) == pool]
+        require(len(logs) == sum(map(len, mine)) and sum(r['status'] == 200 for r in logs) == sum(s == 200 for a in mine for s in a) and
+                sum(r['status'] == 503 and 'overflow' in r['details'] for r in logs) == sum(s == 503 for a in mine for s in a), 'target access log vs class accounting')
+    # Ingress: one access-log row per client request; every non-200 is the ext_authz rejection.
+    ingress = obs['ingress_rows']
+    require(len(ingress) == sum(obs['client_requests'].values()) == len(rows) and
+            sum(r['status'] != 200 for r in ingress) == sum(s == 503 for a in answered.values() for s in a) and
+            all(r['details'] == 'ext_authz_error' for r in ingress if r['status'] != 200), 'ingress access log vs class accounting')
+    require(sum(c['app'] for c in classes.values()) == sum(len(cs) for cs in obs['app_checks'].values()) and
+            all(c['decision'] == 'ALLOW' for cs in obs['app_checks'].values() for c in cs), 'app checks outside experiment classes')
+    queued = lambda s: sum(count('backend', p, 'qcur', s) for p in pools)
+    inflight = lambda s: sum(count('backend', p, 'scur', s) for p in pools) + count('frontend', 'check', 'scur', s)
+    return {'classes': classes, 'classifier_escapes': escapes, 'no_request_connections': len(window) - len(rows), 'dropped_logs': ia['DroppedLogs'] - ib['DroppedLogs'],
+            'counter_lifetime_unchanged': lifetime, 'frontend': moved('frontend', 'check', 'req_tot') - (len(window) - len(rows)),
+            'queue_start': queued(sb), 'queue_end': queued(sa), 'inflight_start': inflight(sb), 'inflight_end': inflight(sa),
+            'haproxy_retries': sum(moved('backend', p, k) for p in pools for k in ('wretr', 'wredis'))}
+
+
 def validate(run):
-    v = plan(run['plan']); arm = run['arm']; require(arm in ARMS, 'unknown arm')
+    v = plan(run['plan']); arm = run['arm']; environment = run['environment']
+    require(arm in ARMS and environment in {'azure', 'local'}, 'unknown arm/environment')
     require(re.fullmatch('[0-9a-f]{40}', run['source_sha']) and run['binding_sha256'] == digest(run['binding']) and
             run['binding']['plan_sha256'] == digest(v) and run['binding']['schedule_sha256'] == digest(schedule(v)) and
             run['binding']['source_sha'] == run['source_sha'] and
-            run['binding'] == binding(run['binding']['identity'], v, run['binding']['fixture'], run['binding']['invariants']), 'source/demand binding drift')
+            run['binding'] == binding(run['binding']['identity'], v, run['binding']['fixture'], run['binding']['invariants'],
+                                      environment, run['binding'].get('template')), 'source/demand binding drift')
     require(run['runtime_before'] == run['runtime_after'] == run['binding']['invariants'], 'runtime configuration drift')
-    require(run['healthy_classification'] is True and run['native_auth'] is True and run['tls'] is True, 'healthy/native-auth/TLS gate')
+    # Local HTTP is never TLS evidence: it must say so, and only Azure may assert TLS.
+    require(run['healthy_classification'] is True and run['native_auth'] is True and
+            (run['tls'] is True if environment == 'azure' else run['tls'] == LOCAL_TLS), 'healthy/native-auth/TLS gate')
     clients, start, end = client_report(v, run['events'])
     coverage_end = max(end, max(e['completed'] for e in run['events'] if e['record'] == 'operation'))
     saturated = pool_guard(v, arm, run['samples'], start, end)
@@ -379,11 +664,9 @@ def validate(run):
     require(set(guards) == GUARDS and all(g['observed'] is True and g['competing_bottleneck'] is False and
             g['start'] <= start and g['end'] >= coverage_end and re.fullmatch('[0-9a-f]{64}', g['evidence_sha256']) for g in guards.values()), 'same-window confounder guard missing/failed')
     observed = coverage(v, run['samples'], start, coverage_end)
-    if run['environment'] == 'azure':
-        managed_guard(run['samples'], run['managed_samples'], coverage_end)
+    if environment == 'azure':
+        managed_guard(run['samples'], run['managed_samples'], coverage_end, v, run['managed_clock'])
         observed = observed and coverage(v, run['managed_samples'], start, coverage_end, managed=True)
-    else:
-        require(run['environment'] == 'local', 'unknown environment')
     return {'status': 'valid' if observed else 'observation-insufficient', 'arm': arm, 'clients': clients,
             'accounting': counts, 'saturation_fraction': saturated, 'source_sha': run['source_sha'],
             'binding_sha256': run['binding_sha256']}

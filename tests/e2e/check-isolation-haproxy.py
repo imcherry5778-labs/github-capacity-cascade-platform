@@ -84,9 +84,30 @@ def run(output):
             m.require(len(checks) == 6 and sum(r['decision'] == 'ALLOW' for r in checks) == 3, 'backend dispatch count drift')
             serialized = json.dumps(checks)
             m.require(all(v not in serialized for v in ('p10-private-pat-sentinel', 'p10-cookie-sentinel', 'p10-body-sentinel')), 'credential/body retained')
+            # The harness's HAProxy observations, read from the real pinned process the same way the owned harness reads them.
+            def in_haproxy(*command): return docker('exec', hp, *command)
+            ring = m.parse_ring(in_haproxy('sh', '-c', 'echo "show events p10" | nc -w 2 127.0.0.1 8405'))
+            info = m.parse_haproxy_info(in_haproxy('sh', '-c', 'echo "show info" | nc -w 2 127.0.0.1 8405'))
+            stats = m.parse_haproxy_stats(in_haproxy('wget', '-qO-', 'http://127.0.0.1:8404/stats;csv'))
+            by_class = {k: sum(r['class'] == k for r in ring) for k in ('critical', 'bulk', 'deny', '-')}
+            malformed = [r for r in ring if r['class'] == '-']
+            m.require(by_class == {'critical': 4, 'bulk': 2, 'deny': 13, '-': 1} and len(ring) == 20 and
+                      all(r['server'] == 'pool' and r['backend'] == r['class'] for r in ring if r['class'] in m.CLASSES) and
+                      all(r['server'] == '<NOSRV>' and r['status'] == 403 for r in ring if r['class'] == 'deny') and
+                      len(malformed) == 1 and malformed[0]['status'] == 400 and malformed[0]['termination'] == 'PR', 'real ring class/backend/server rows')
+            # A request rejected before classification is not a connection without a request: it must stay accountable.
+            m.require(not any(m.no_request(r) for r in ring), 'malformed request mistaken for a no-request connection')
+            # The same counter identities the harness's window accounting relies on, against the real process.
+            m.require(stats['frontend']['check']['req_tot'] == len(ring) and
+                      stats['frontend']['check']['hrsp_4xx'] == sum(400 <= r['status'] < 500 for r in ring) and
+                      stats['backend']['critical']['req_tot'] == 4 and stats['backend']['bulk']['req_tot'] == 2 and
+                      stats['backend']['critical']['hrsp_2xx'] == 1 and stats['backend']['critical']['hrsp_4xx'] == 3 and
+                      stats['backend']['bulk']['hrsp_2xx'] == 2, 'real HAProxy counters follow the ring')
+            m.require((info['Nbthread'], info['Nbproc'], info['Maxconn'], info['DroppedLogs'], info['MaxconnReached']) == (1, 1, 256, 0, 0) and
+                      {r['pid'] for r in ring} == {info['Pid']}, 'real HAProxy process invariants')
             m.save(output, {'scope': 'pinned HAProxy classifier protocol only', 'haproxy_image': m.p8.PINS['HAPROXY_IMAGE'],
                             'source_sha': m.p8.subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
-                            'cases': records, 'app_checks': checks, 'native_auth_tls': 'not verified', 'physical_isolation': 'not verified'})
+                            'cases': records, 'app_checks': checks, 'ring_classes': by_class, 'native_auth_tls': 'not verified', 'physical_isolation': 'not verified'})
     finally:
         for container in reversed(containers):
             subprocess.run(['docker', 'rm', '-f', container], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
