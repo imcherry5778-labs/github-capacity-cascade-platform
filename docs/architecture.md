@@ -442,3 +442,9 @@ Intentional deviations:
 - small operator model
 
 이 차이를 evidence와 최종 포트폴리오에서 명시한다.
+
+## 16. P10 operation isolation
+
+P10의 확정 분류/topology/측정 경계는 [P10 implementation contract](p10-critical-bulk-isolation.md)를 따른다.
+단일 CUSTOM provider·HAProxy frontend에서 server-observed allowlisted method/path로 Critical/Bulk를 분류하고,
+shared target2개와 isolated Critical1+Bulk1개 inbound sidecar pool을 비교한다. Actor/role 보호를 주장하지 않는다.
