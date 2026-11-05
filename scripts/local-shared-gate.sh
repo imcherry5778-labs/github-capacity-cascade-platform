@@ -151,6 +151,9 @@ python3 "$validator" capture "$out" >"$out/path.json"
   export DEV_TOKEN DEV_USER ISSUE_NUMBER ISSUE_TITLE MAIN_SHA
   python3 "$ROOT/scripts/local-isolation-check.py" "$out"
   python3 "$ROOT/scripts/shared-gate-saturation.py" run "$out"
+  # P10 paired load runs after P4 saturation, which it must not disturb: the harness restores the fixture and proves it.
+  # Its checkpoints/result are separate evidence; the P4 lifecycle phase list stays unchanged.
+  python3 "$ROOT/scripts/local-isolation-pair.py" run "$out"
 )
 phase saturation
 
