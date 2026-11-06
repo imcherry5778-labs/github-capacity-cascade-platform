@@ -1,6 +1,6 @@
 # P11 — Regression & Final Evidence
 
-상태: **P11-W1 cost-free regression + teardown read-only preflight 완료 / W2(Azure finalization) 미승인·미실행 / P11 acceptance 미완료**.
+상태: **P11-W1 cost-free regression + teardown read-only preflight + destroy guard source 교정 / W2(Azure finalization) 미승인·미실행 / P11 acceptance 미완료**.
 
 W1은 Azure·DNS·GitHub setting mutation, Terraform plan/apply/destroy, 유료 실행, credential·RBAC 확대, 데이터 삭제·백업을 하지 않았다.
 기준 source는 clean synced `main` `3e732bb8330d450f1a479dd14bfd688da1e6a3b4`이며 tree `46d618b8…`는 [PR #59](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/59) exact HEAD `8715c0eb`의 tree와 같다.
@@ -29,7 +29,14 @@ Scope limitation은 각 milestone 문서 그대로다. P10은 one pair이며 sta
 
 Evidence 보존 관련 관측:
 
-- **P10 Azure raw는 repository 밖에만 있다.** `p10nov06`, `p10nov06b`는 operator Mac의 `/private/tmp` 아래 0700 private store다(MEASURED). macOS `/tmp`는 재부팅 시 지워질 수 있다. PR #59에는 sha256 prefix만 남아 있어, raw가 사라지면 acceptance 재검증이 불가능해진다. P8/P9 raw는 repository `raw-evidence.tar.gz`와 primary checkout의 ignored `.tmp/`에 있다.
+- **P10 Azure raw는 repository 밖에 있다.** Campaign provenance의 private store 두 개(`p10nov06` 80 files, `p10nov06b` 59 files)는 원래 operator Mac의 휘발성 temp directory에만 있었다. P8/P9 raw는 repository `raw-evidence.tar.gz`와 primary checkout의 ignored `.tmp/`에 있다.
+  - **Durable private copy (MEASURED, 2026-11-06):** 두 store를 primary Mac checkout의 ignored `.tmp/p11-p10-raw-retained/`에 non-destructive copy했다. Directory는 0700, file은 0600이며 Git tracking은 없다(`git status` clean). Destination이 비어 있는지 확인한 뒤 overwrite 없이 복사했다. 원본은 옮기거나 지우지 않았다.
+  - **검증:**
+    - PR #59의 sha256 prefix 7개가 일치한다: `ledger.jsonl` `30c4e773…`, `result.json` `6f509057…`, `restoration.json` `0ce30a2c…`, measured-isolated/shared `run.json` `b2789ddd…`/`8af7cd08…`, `preflight-2.json` `23166444…`, `fixture-revocation.json` `1305fe6b…`.
+    - `p10nov06` ledger `00a7d3f5…`도 일치하고, `p10nov06b`에 보존된 이전 campaign 80-file manifest 대비 80/80 OK다.
+    - Copy 전체 sha256은 원본과 80/80, 59/59 일치한다.
+    - Copy 전후 원본 content와 mode/mtime은 불변이다.
+  - Copy 옆에 0600 manifest를 두었다(`p10nov06.sha256` `be3c21a7…`, `p10nov06b.sha256` `c2a24439…`). Raw는 공개하지 않는다. 이것은 evidence retention이며 Azure data backup이 아니다.
 - **P1–P4 Local runtime artifact는 GitHub retention을 따른다.** Current tree의 run [42165987399](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/actions/runs/42165987399) artifact는 2026-11-20T05:24–05:45Z에 만료된다. Digest는 다음과 같다.
   - operation `70573529…`
   - shared-gate `c1d3348e…`
@@ -61,7 +68,7 @@ Evidence 보존 관련 관측:
   - 원인: `local-isolation-pair.py` snapshot이 ring과 frontend stats를 별도 `kubectl exec`로 읽는다. Kubelet probe `400/CR` 1건이 before ring read와 stats read 사이에 기록돼 window ring이 counter delta보다 1 row 많았다(`req_tot` 771 vs ring 772, `hrsp_4xx` 12 vs 13). `main`에 잠재한 측정 race이며 docs diff와 무관하다.
   - 교정: counter 앞뒤 ring이 같을 때만 snapshot을 채택한다(최대 3회, 아니면 fail closed). Validator 조건은 바꾸지 않았다.
   - 같은 패턴은 `azure-isolation.py` snapshot에도 있다. W2에는 Azure campaign이 없으므로 수정하지 않고 limitation으로 남긴다.
-- **IaC 동결:** `00b603f..3e732bb` 사이 `infra/terraform`, `scripts/azure-execution.py`, `.github/workflows/azure-execution.yml` diff가 없다. Destroy가 쓸 Terraform source·gate는 마지막 성공 dispatch와 같다.
+- **IaC 동결:** `00b603f..3e732bb` 사이 `infra/terraform`, `scripts/azure-execution.py`, `.github/workflows/azure-execution.yml` diff가 없다. Terraform source는 마지막 성공 dispatch와 같다. `scripts/azure-execution.py`는 이 PR에서 destroy guard만 추가한다(§3 Terraform state).
 
 ## 3. W2 teardown preflight (read-only)
 
@@ -96,10 +103,20 @@ P10 임시 role/assignment 잔존은 없다.
 ### Terraform state / ownership
 
 - **Foundation/Environment:** remote state(`tfstate` container)다. Shared Key off, public blob off, blob soft-delete·versioning off(MEASURED). Operator user는 blob data-plane 권한이 없어 직접 조회하지 못한다. 이는 PR #30 이후 알려진 경계이며 권한을 확대하지 않았다. 접근 경로는 CI OIDC(`azure` Environment, `main`만)뿐이다.
-  - 마지막 성공 dispatch의 environment state는 32 address다.
+  - 마지막 성공 dispatch의 state address는 environment **34**, foundation **2**다(MEASURED: run 40614665503 `environment:apply` 34 planned/34 state, run 40426082431 `foundation:plan` 2). Source에 선언된 resource 수(environment 34, foundation 2)와 같다.
+    - 정정: 이 PR 초안은 log를 잘라 읽어 environment를 32로 잘못 적었다.
+  - **Destroy guard (SOURCE, 이 PR):** 기존 destroy는 source allowlist와 action vocabulary만 검사했고, 빈 plan·부분 plan·no-op도 apply할 수 있었다. 이제 `scripts/azure-execution.py`가 다음을 강제한다.
+    1. Destroy approval에 `destroy_expected_state_counts`(예: `{"environment": 34, "foundation": 2}`)가 있어야 한다. 양의 정수이며 key는 `foundation`/`environment`만 허용하고, 대상 stack이 포함돼야 한다.
+    2. Saved plan 직후, apply 전에 fresh `terraform state list`를 실행한다. 그 결과는 중복이 없고, source address 안에 있으며, 승인 count와 정확히 같아야 한다.
+    3. Plan은 applyable·complete·non-errored여야 한다. 변경은 모두 `managed`이고 address 집합이 live state와 정확히 같아야 하며(누락·추가·중복 없음), action은 모두 `["delete"]`여야 한다.
+    4. 불일치하면 fixed code(`STATE_INVENTORY`/`DESTROY_SET`/`DESTROY_ACTION`/`PLAN_STATUS`/`RESOURCE_CHANGES`)만 출력하고 apply하지 않는다. State address나 provider payload는 출력하지 않는다.
+    - Plan/apply/rotation 경로는 바꾸지 않았다. Cost-free mock test로만 검증했으며, 실제 remote state 대상 동작은 W2 dispatch 전까지 **not verified**다.
   - Repository variable `P6_CAMPAIGN_APPROVAL`과 secret `P6_EXECUTION_CONFIG_B64`가 존재한다(값 미조회).
   - Approval gate는 다음을 모두 요구한다: approved `source_sha`=dispatch SHA=current `main`, merged PR, ≤10h·같은 KST 날짜 window, budget ≤ USD 50, config digest, operation별 predecessor evidence.
-- **Bootstrap:** Fedora primary checkout의 local state다(사용자 보고: 0600, serial 13, instance 12). W1 Mac에서 Fedora SSH는 publickey 거부로 **독립 확인하지 못했다(UNKNOWN)**. 복사·재생성·reset은 하지 않았다. Fedora의 Terraform 1.16.7 존재도 UNKNOWN이다.
+- **Bootstrap:** Fedora primary checkout의 local state다. W1 Mac에서는 Fedora SSH가 publickey 거부로 막혀, 아래는 orchestrator의 독립 read-only 관측이다.
+  - `terraform.tfstate`: 0600, 27,725 bytes, serial 13, resource instance 12, state `terraform_version` 1.16.6. Primary checkout은 clean `main`이다.
+  - Fedora system `terraform`은 v1.17.0이고, cached `.tmp/bin/terraform`은 v1.16.6이다. Current `bootstrap/versions.tf`는 정확히 `= 1.16.7`을 요구한다.
+  - **W2 bootstrap destroy 전에 1.16.7 binary가 준비돼야 한다(blocker).** W1에서는 state 조작·도구 설치·복사·재생성·reset을 하지 않았다.
 
 ### DNS (MEASURED)
 
@@ -107,13 +124,14 @@ P10 임시 role/assignment 잔존은 없다.
 - `.xyz` TLD는 Azure NS 4개(`ns{1..4}-08.azure-dns.*`)로 delegate하며 TTL은 3600이다. 1.1.1.1과 8.8.8.8도 같은 응답이다.
 - Azure zone record set은 apex NS/SOA와 `forgejo` A(→ AKS external ingress IP) 3개뿐이다. MX/TXT/CAA는 없다.
 - 대체 DNS로 Cloudflare `roxy`/`tom`이 양쪽 다 `aa` authoritative SOA/NS로 응답한다. Apex A/AAAA/MX/TXT/CAA와 `forgejo`·`_dmarc` record는 없다. Mail 의존성은 관측되지 않았다.
-- **UNKNOWN:** Cloudflare 계정상 zone 상태(active/pending/moved)와 관리 권한, Gabia NS 변경 권한·처리 시간. Gabia FAQ는 안정화에 1–2일이 걸릴 수 있다고 안내한다.
+- **Cloudflare zone 상태 (orchestrator 독립 read-only API):** `imcherry5778.xyz`는 status **`moved`**(active 아님), type `full`, assigned NS `roxy`/`tom`, DNS record 0이다. 따라서 Gabia delegation을 Cloudflare로 되돌린 뒤 zone이 **`active`로 돌아오는 것**을 확인해야 한다. 그 뒤 authoritative·recursive 확인까지 끝나야 Azure zone/Foundation/Bootstrap을 삭제할 수 있다.
+- **UNKNOWN:** Gabia NS 변경 권한·처리 시간. Gabia FAQ는 안정화에 1–2일이 걸릴 수 있다고 안내한다.
 
 ### Data preservation
 
 - **Azure 쪽 보존 필요 데이터: 없음(INFERENCE).** Forgejo PVC·PostgreSQL에는 fixture data만 있고, claim은 repository evidence와 PR record로 추적된다. KV secret은 environment 전용이다. AMW/LAW 데이터는 필요한 query 결과가 이미 evidence에 있다.
 - 추가 backup·export는 권장하지 않는다. Destroy하면 PVC disk(MC RG), PG PITR, ACR image가 함께 사라진다.
-- **보존 필요: P10 Azure raw.** Repository 밖의 Mac `/private/tmp` private store다. Teardown 뒤에는 재생성할 수 없다. W2 전에 durable private 위치(예: primary checkout ignored `.tmp/`)로 옮길지 결정이 필요하다. 이것은 local 작업이며 W1에서는 수행하지 않았다.
+- **보존 필요였던 P10 Azure raw:** Teardown 뒤에는 재생성할 수 없어 durable private copy를 만들고 검증했다(§1). 남은 보존 작업은 없다.
 
 ### Cost (MEASURED, 실제 청구서 아님)
 
@@ -129,7 +147,13 @@ P10 임시 role/assignment 잔존은 없다.
 1. **Platform/DNS record:** Argo autosync 정지. Writer가 정지된 뒤 Azure zone의 `forgejo` A record를 exact하게 삭제한다. AKS 삭제로 ingress IP가 해제된 뒤 남는 dangling A record를 막기 위해서다. 별도 PVC backup은 하지 않는다.
 2. **`environment:destroy`:** `azure-execution` dispatch로 fresh `plan -destroy` → apply한다. AKS 삭제와 함께 MC RG(PVC disk 포함)가, AMW 삭제와 함께 `MA_` RG가 사라질 것으로 예상한다(INFERENCE, 사후 실측).
 3. **Environment RG residual:** Smart Detection action group과 alert rule은 Terraform state 밖이라 남을 것으로 예상한다(INFERENCE). Bootstrap provider는 기본 `features {}`(`prevent_deletion_if_contains_resources=true`)라 이 residual이 있으면 bootstrap RG 삭제가 실패한다(fail-safe). Exact-ID 삭제 승인이 필요하다.
-4. **DNS gate:** 사용자가 Gabia NS를 Cloudflare `roxy`/`tom`으로 복구한다. 그 뒤 TLD delegation, 각 Cloudflare NS의 authoritative 응답, recursive resolver 응답을 TTL 대기 후 확인한다. 미완료나 불일치가 있으면 foundation을 삭제하지 않고 cleanup incomplete로 보고한다.
+4. **DNS gate (W2 승인 직후 먼저 시작):** 사용자가 Gabia NS를 Cloudflare `roxy`/`tom`으로 복구한다. 전환 중에도 Azure NS와 zone은 유지한다(Cloudflare zone이 비어 있으므로 cache가 섞여 있는 동안 `forgejo`만 다르게 해석된다). 그 뒤 다음을 TTL 대기 후 확인한다.
+   - Cloudflare zone이 `moved` → `active`
+   - TLD delegation
+   - 각 Cloudflare NS의 authoritative 응답
+   - 독립 recursive resolver 응답
+
+   미완료나 불일치가 있으면 Azure zone·foundation·bootstrap을 삭제하지 않고 cleanup incomplete로 보고한다.
 5. **`foundation:destroy`:** DNS gate 확인 뒤 실행한다. KV는 soft-delete 7일이고 purge는 하지 않는다. 이름 예약만 남고 비용은 없다.
 6. **Bootstrap destroy:** Fedora에서 같은 operator가 최신 local state로 실행한다. 순서: downstream state가 비었는지 확인 → CI FIC/identity/RBAC, state account, RG 3개 삭제.
 7. **Finalization:** subscription 전체 RG/resource, role assignment, deleted KV, DNS delegation, 실제 cost를 대조한다. `NetworkWatcherRG`는 Azure 자동 생성이며 비용이 없는 별도 판단 대상이다.
@@ -137,16 +161,19 @@ P10 임시 role/assignment 잔존은 없다.
 ### Retention
 
 Environment 기한은 **2026-11-08 10:30 KST**, Foundation/Bootstrap 기한은 **2026-11-09 00:33 KST**다. 자동 연장·자동 삭제는 없다.
-Gabia 전환이 1–2일 걸리면 Foundation/Bootstrap 기한 안에 DNS gate가 끝나지 않을 수 있다. 그 경우 zone/foundation/bootstrap 보존 연장이 별도로 필요하다. 이 보존은 비용이 작다.
+Gabia 전환이 1–2일 걸리면 Foundation/Bootstrap 기한 안에 DNS gate가 끝나지 않을 수 있다. 그래서 DNS 전환을 W2 승인 직후 environment destroy보다 먼저(또는 병행해) 시작한다. 그래도 기한을 넘기면 zone/foundation/bootstrap 보존 연장이 별도로 필요하다. 이 보존은 비용이 작다. 자동 연장은 없다.
 
 ## 4. Gap 분류
 
 **P11 acceptance blocker:**
 
 1. Azure lifecycle 미종료(W2 승인 필요)
-2. P10 Azure raw의 휘발성 보관 위치
+2. Fedora에 bootstrap이 요구하는 Terraform 1.16.7 binary가 없음(W2 bootstrap destroy 전 준비)
+3. Cloudflare zone `moved` → `active` 복귀가 Azure zone/Foundation/Bootstrap 삭제의 선행 조건
 
-**Unknown, W2 실행 전에 확인할 것:** Fedora state·도구, Cloudflare zone 상태, Gabia 권한·처리 시간, Smart Detection residual 실제 여부.
+해소됨: P10 Azure raw의 휘발성 보관(durable verified copy, §1), destroy plan 전체 집합 guard 부재(이 PR source, CI 대기).
+
+**Unknown, W2 실행 전에 확인할 것:** Gabia 권한·처리 시간, Smart Detection residual 실제 여부, destroy guard의 실제 remote state 동작.
 
 **Blocker 아님:** `azure-isolation.py` 동일 snapshot race(재실행 계획 없음), Local CI artifact 만료(gate 재생성 가능), Mac host 도구 부재, `eastus` Network Watcher(범위 밖).
 
@@ -154,12 +181,13 @@ Gabia 전환이 1–2일 걸리면 Foundation/Bootstrap 기한 안에 DNS gate�
 
 Go 조건을 만족하는 W2는 다음을 **명시적으로** 승인받아야 한다. W1의 read-only 결과는 승인이 아니다.
 
-1. **Source binding:** 이 PR merge 뒤의 `main` SHA. `P6_CAMPAIGN_APPROVAL` repository variable 갱신(GitHub mutation)도 포함한다. Window ≤10h·같은 KST 날짜, budget ≤ USD 50.
-2. **Platform 정지와 Azure DNS `forgejo` A record exact 삭제.**
-3. **`environment:destroy` dispatch 1회.** Fresh plan의 destroy 대상이 environment state address(32)와 일치할 때만 apply한다. 실패하면 재시도하지 않고 state/lock/residual을 진단한다.
-4. **Environment RG의 Terraform 외 residual exact-ID 삭제.** Smart Detection action group·alert rule이 실제로 남은 경우에 한한다.
-5. **Gabia NS → Cloudflare `roxy`/`tom` 복구(사용자 hands-on)와 전파 확인.** 그 뒤 `foundation:destroy` 1회를 실행한다.
-6. **Fedora bootstrap destroy(사용자 host).** 필요하면 Foundation/Bootstrap 보존 연장 여부도 함께 결정한다.
-7. **사전 local 결정:** P10 Azure raw private evidence의 durable 위치 이동 여부.
+1. **Gabia NS → Cloudflare `roxy`/`tom` 복구(사용자 hands-on), 승인 직후 가장 먼저.** Azure NS·zone은 유지한 채 Cloudflare `active` 복귀와 authoritative/recursive 전파를 관측한다.
+2. **Source binding:** 이 PR merge 뒤의 `main` SHA. `P6_CAMPAIGN_APPROVAL` repository variable 갱신(GitHub mutation)도 포함한다. Window ≤10h·같은 KST 날짜, budget ≤ USD 50.
+   - Destroy마다 **`destroy_expected_state_counts`**를 승인 값으로 명시한다. 현재 관측은 `environment` 34, `foundation` 2이며, dispatch 직전 근거로 다시 확정한다.
+3. **Platform 정지와 Azure DNS `forgejo` A record exact 삭제.**
+4. **`environment:destroy` dispatch 1회.** Source guard가 다음을 확인할 때만 apply한다: fresh state list = 승인 count(34), saved plan = 그 전체 집합의 `delete`. 실패하면 재시도하지 않고 state/lock/residual을 진단한다.
+5. **Environment RG의 Terraform 외 residual exact-ID 삭제.** Smart Detection action group·alert rule이 실제로 남은 경우에 한한다.
+6. **`foundation:destroy` dispatch 1회.** 1번 DNS gate(Cloudflare `active` 포함)가 확인된 뒤, 승인 count 2로 실행한다.
+7. **Fedora bootstrap destroy(사용자 host).** Terraform **1.16.7** binary를 먼저 준비하고, 최신 local state(serial 13 기준 재확인)로 실행한다. DNS gate가 Foundation/Bootstrap 기한(2026-11-09 00:33 KST) 안에 끝나지 않으면 보존 연장 여부도 함께 결정한다.
 
-권장: 1–4를 Environment 기한 전 같은 window에서 진행한다. 5–6은 DNS 전파 확인에 맞춰 별도 window로 둔다. 보존 하루마다 약 ₩30k가 들므로 environment teardown을 미룰 근거는 없다.
+권장 순서: 승인 직후 1을 시작한다. 같은 window에서 2–5를 Environment 기한(2026-11-08 10:30 KST) 전에 끝낸다. 6–7은 DNS 확인 뒤에 한다. 보존 하루마다 약 ₩30k가 들므로 environment teardown을 미룰 근거는 없다.

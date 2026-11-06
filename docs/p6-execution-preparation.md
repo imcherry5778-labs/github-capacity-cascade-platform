@@ -175,6 +175,14 @@ Approval의 `allowed_operations`와 `prerequisite_evidence`는 다음 순서로 
 | `foundation:destroy` | environment cleanup 및 residual inventory, Gabia 대체 authoritative DNS 복구/전파 확인, KV soft-delete 처리 |
 
 `apply`/`destroy`는 각 dispatch 안에서 fresh plan을 만들고 그 saved plan만 apply한다(`destroy`는 `plan -destroy`).
+`destroy`는 approval의 `destroy_expected_state_counts`(stack별 양의 정수)를 요구한다.
+saved plan 뒤 apply 전에 fresh `terraform state list`를 실행하며, 다음 중 하나라도 어긋나면 apply하지 않는다.
+
+- live state 집합은 중복 없이 source address 안에 있어야 하고, 승인 count와 같아야 한다.
+- plan은 applyable·complete·non-errored여야 한다.
+- 그 전체 live 집합을 managed `["delete"]`로만 지워야 한다(누락·추가·중복·no-op·replace 없음).
+
+([P11-W1](p11-regression-final-evidence.md))
 별도 plan dispatch의 plan 파일은 재사용하지 않는다. 승인된 inputs에 대한 fresh plan/apply를 함께 승인해야 하며,
 새 diff가 별도 검토를 요구하면 dispatch하지 않는다. Plan binary/JSON은 private temp directory에서만 취급하고
 로그에는 source address/action만 출력한다. Workflow는 계획의 비용/리소스 안전성을 대신 승인하지 않는다.
