@@ -202,8 +202,15 @@ def node(name, cpu='3860m', memory='12Gi', ready=True, taints=()):
             'status': {'allocatable': {'cpu': cpu, 'memory': memory}, 'conditions': [{'type': 'Ready', 'status': 'True' if ready else 'False'}]}}
 
 
+def ingress_pod(uid='i1'):
+    """An actual ingress replica as `get pods -A` returns it (no requests: headroom unchanged)."""
+    return {'metadata': {'name': 'ingress-' + uid, 'uid': uid, 'namespace': az.INGRESS_NS, 'labels': dict(t8.identity()['ingress_selector'])},
+            'spec': {'nodeName': 'n1', 'containers': []}, 'status': {'phase': 'Running'}}
+
+
 def running(node_name, cpu, memory):
-    return {'spec': {'nodeName': node_name, 'containers': [{'resources': {'requests': {'cpu': cpu, 'memory': memory}}}]}, 'status': {'phase': 'Running'}}
+    return {'metadata': {'namespace': 'forgejo', 'labels': {}},
+            'spec': {'nodeName': node_name, 'containers': [{'resources': {'requests': {'cpu': cpu, 'memory': memory}}}]}, 'status': {'phase': 'Running'}}
 
 
 class AdmissionTests(unittest.TestCase):
@@ -448,13 +455,14 @@ class PreflightTests(unittest.TestCase):
         def kubectl(a):
             reads.append(tuple(a))
             if a[:2] == ['auth', 'can-i']:
-                return 'no' if (a[2], a[3], a[5] if len(a) > 5 else None) in denied else 'yes'
+                if a[3] == 'pods' and a[4:] == []: return 'no'          # namespace-defaulted question, not the cluster-wide read
+                return 'no' if (a[2], a[3], a[5] if a[4:5] == ['-n'] else None) in denied else 'yes'
             if fail and fail in a: raise subprocess.CalledProcessError(1, 'kubectl')
             a = a[2:] if a[:1] == ['-n'] else a
             if a[:3] == ['get', 'namespace', 'kube-system']: return identity['cluster_uid']
             if a[:2] == ['get', 'namespace'] or a[:2] == ['get', 'authorizationpolicy']: return ''
             if a[:2] == ['get', 'nodes']: return json.dumps({'items': base['capacity']['nodes']})
-            if a[:3] == ['get', 'pods', '-A']: return json.dumps({'items': base['capacity']['pods']})
+            if a[:3] == ['get', 'pods', '-A']: return json.dumps({'items': base['capacity']['pods'] + [ingress_pod()]})
             if a[:2] == ['get', 'pods']: return json.dumps({'items': [{'metadata': {'name': 'ingress-0', 'uid': 'i1'}}]})
             if a[:2] == ['get', 'configmap']: return json.dumps(base['mesh'])
             if a[0] == 'exec': return json.dumps(ingress_listeners() if 'listeners' in a[-1] else ingress_routes())
@@ -483,12 +491,16 @@ class PreflightTests(unittest.TestCase):
         exec_ingress = ('create', 'pods/exec', az.INGRESS_NS)
         obs, errors, reads, verdict = self.collect()
         self.assertEqual((errors, verdict['status']), ({}, 'ready-for-approval-request'))
-        # The observed live shape: only the ingress exec can-i denied. Every read still happens and is used as observed.
+        can_i = [r[2:] for r in reads if r[:2] == ('auth', 'can-i')]
+        self.assertIn(('list', 'pods', '-A'), can_i); self.assertIn(('create', 'namespaces'), can_i)   # -A only for the cluster-wide Pod read
+        # The observed live shape: AKS SAR says no for the ingress exec, yet the guarded GET succeeds on every replica.
         obs, errors, reads, verdict = self.collect(denied={exec_ingress})
         self.assertEqual(errors, {}); self.assertTrue(all(obs[k] is not None for k in obs))
         self.assertEqual(obs['cluster_uid'], manifest()['identity']['cluster_uid']); self.assertNotIn('cluster_uid', obs['cluster'])
         self.assertTrue(any(r[2:3] == ('exec',) for r in reads))
-        self.assertEqual(verdict['blockers'], ['kubernetes-read-rbac'])                       # the denied can-i is never a PASS
+        self.assertEqual((verdict['status'], verdict['facts']['read_access_missing']), ('ready-for-approval-request', []))
+        self.assertEqual((verdict['facts']['read_access_sar_denied'], verdict['facts']['read_access_proven_by_operation']),
+                         ([list(exec_ingress)], [list(exec_ingress)]))                                   # the negative SAR trace is kept
         everything = set(az.READ_ACCESS) | set(az.CAMPAIGN_ACCESS)
         obs, errors, reads, verdict = self.collect(denied=everything)
         self.assertEqual((errors, sorted(verdict['blockers'])), ({}, ['campaign-rbac-decision', 'kubernetes-read-rbac']))
@@ -500,8 +512,41 @@ class PreflightTests(unittest.TestCase):
             obs, errors, reads, verdict = self.collect(denied={exec_ingress}, fail=token)
             self.assertEqual((obs[name], errors), (None, {name: 'CalledProcessError'}), token)
             self.assertTrue(all(obs[k] is not None for k in obs if k != name), token)
-            self.assertEqual(sorted(verdict['blockers']), sorted(['kubernetes-read-rbac', code]), token)
+            # Without the actual GET (or the replica inventory it is checked against) the denied SAR stands.
+            self.assertEqual(sorted(verdict['blockers']), sorted([code] + (['kubernetes-read-rbac'] if name in {'ingress', 'capacity'} else [])), token)
             self.assertNotIn('cluster-identity', verdict['blockers'], token)
+
+    def test_ingress_exec_sar_denial_needs_the_actual_get_on_every_replica(self):
+        key = '|'.join(map(str, az.INGRESS_EXEC))
+        def obs(change=lambda o: None, sar=False):
+            o = observations(); o['access']['read'][key] = sar
+            o['capacity']['pods'].append(ingress_pod()); change(o); return o
+        verdict = lambda o: az.preflight_verdict(manifest(), o, PRICE, NOW)
+        result = verdict(obs())
+        self.assertEqual((result['status'], result['facts']['read_access_missing']), ('ready-for-approval-request', []))
+        self.assertEqual(result['facts']['read_access_sar_denied'], [list(az.INGRESS_EXEC)])
+        self.assertEqual(verdict(obs(sar=True))['facts']['read_access_proven_by_operation'], [])    # an allowed SAR needs no proof
+        second = lambda o: o['capacity']['pods'].append(ingress_pod('i2'))
+        for name, change in (('GET failed', lambda o: o.update(ingress=None)), ('Pod read failed', lambda o: o.update(capacity=None)),
+                             ('empty ingress', lambda o: o.update(ingress=[])), ('empty dump', lambda o: o['ingress'][0].update(listeners={})),
+                             ('malformed dump', lambda o: o['ingress'][0].update(routes=None)), ('partial entry', lambda o: o['ingress'][0].pop('routes')),
+                             ('missing replica', second),
+                             ('duplicate replica', lambda o: o['ingress'].append(copy.deepcopy(o['ingress'][0]))),
+                             ('other Pod', lambda o: o['ingress'][0].update(uid='i9')),
+                             ('namespace mismatch', lambda o: o['capacity']['pods'][-1]['metadata'].update(namespace='forgejo')),
+                             ('selector mismatch', lambda o: o['capacity']['pods'][-1]['metadata'].update(labels={})),
+                             ('Pod without metadata', lambda o: o['capacity']['pods'][-1].pop('metadata'))):
+            result = verdict(obs(change))
+            self.assertIn('kubernetes-read-rbac', result['blockers'], name)
+            self.assertEqual(result['facts']['read_access_missing'], [list(az.INGRESS_EXEC)], name)
+            self.assertEqual(result['facts']['read_access_proven_by_operation'], [], name)
+        # Two replicas both answering is a proof; operation proof never covers another read or any campaign verb.
+        both = obs(lambda o: (second(o), o['ingress'].append(dict(copy.deepcopy(o['ingress'][0]), uid='i2'))))
+        self.assertEqual(verdict(both)['facts']['read_access_missing'], [])
+        other = obs(lambda o: o['access']['read'].update({'list|pods|None': False}))
+        self.assertEqual(verdict(other)['facts']['read_access_missing'], [['list', 'pods', None]])
+        campaign = obs(lambda o: o['access']['campaign'].update({'create|pods/exec|' + az.NS: False}))
+        self.assertEqual(verdict(campaign)['blockers'], ['campaign-rbac-decision'])
 
     def test_every_failed_or_missing_observation_blocks(self):
         def edit(path, value):

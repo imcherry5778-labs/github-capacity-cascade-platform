@@ -401,6 +401,28 @@ SECTION_SHAPES = {
 }
 
 
+# AKS (Azure RBAC) SelfSubjectAccessReview answers `no` for this read although the same identity's guarded read-only
+# `pilot-agent request GET` exec succeeds on every ingress replica, over WebSocket and SPDY (live 2026-11-06). For this
+# one diagnostic read only, that actual successful GET is the proof; the denied SAR stays in the facts. Campaign verbs
+# (CAMPAIGN_ACCESS) never take operation proof.
+INGRESS_EXEC = ('create', 'pods/exec', INGRESS_NS)
+
+
+def ingress_exec_proven(obs, identity):
+    """Every actual ingress replica (from the independent all-namespaces Pod read) returned both admin dumps."""
+    ingress, capacity = obs.get('ingress'), obs.get('capacity')
+    if ingress is None or capacity is None or not (SECTION_SHAPES['ingress'](ingress) and SECTION_SHAPES['capacity'](capacity)):
+        return False
+    try:
+        replicas = [p['metadata']['uid'] for p in capacity['pods'] if p['metadata']['namespace'] == INGRESS_NS and
+                    all(p['metadata']['labels'].get(k) == v for k, v in identity['ingress_selector'].items())]
+    except (KeyError, TypeError, AttributeError):
+        return False
+    uids = [i['uid'] for i in ingress]
+    return bool(replicas) and len(set(replicas)) == len(replicas) and sorted(uids) == sorted(replicas) and \
+        all(type(i[k]) is dict and i[k] for i in ingress for k in ('listeners', 'routes'))
+
+
 def preflight_verdict(value, obs, price, now):
     """Fail-closed readiness of the *approval request*, never an approval.
 
@@ -424,9 +446,13 @@ def preflight_verdict(value, obs, price, now):
         except (ValueError, KeyError, TypeError, IndexError, AttributeError):
             need('malformed:' + name, False)
     def access(a):
-        missing = [list(k) for k in READ_ACCESS if a['read'].get('|'.join(map(str, k))) is not True]
+        denied = [k for k in READ_ACCESS if a['read'].get('|'.join(map(str, k))) is not True]
+        proven = [k for k in denied if k == INGRESS_EXEC and ingress_exec_proven(obs, identity)]
+        missing = [list(k) for k in denied if k not in proven]
         need('kubernetes-read-rbac', not missing)
         facts['read_access_missing'] = missing
+        facts['read_access_sar_denied'] = [list(k) for k in denied]
+        facts['read_access_proven_by_operation'] = [list(k) for k in proven]
         facts['campaign_access_missing'] = [list(k) for k in CAMPAIGN_ACCESS if a['campaign'].get('|'.join(map(str, k))) is not True]
         need('campaign-rbac-decision', not facts['campaign_access_missing'])
     def cluster(c):
@@ -520,7 +546,8 @@ class Preflight:
         return json.loads(self.k(*args).stdout)
 
     def can(self, verb, resource, namespace):
-        args = ('auth', 'can-i', verb, resource) + (('-n', namespace) if namespace else ())
+        # A cluster-wide Pod read (`get pods -A`) is the all-namespaces question; without -A, can-i asks the kubeconfig's namespace.
+        args = ('auth', 'can-i', verb, resource) + (('-n', namespace) if namespace else ('-A',) if resource == 'pods' else ())
         return self.k(*args, check=False).stdout.strip() == 'yes'
 
     def collect(self):
