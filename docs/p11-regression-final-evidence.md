@@ -1,6 +1,8 @@
 # P11 — Regression & Final Evidence
 
-상태: **P11-W1 cost-free regression + teardown read-only preflight + destroy guard source 교정 / W2(Azure finalization) 미승인·미실행 / P11 acceptance 미완료**.
+상태: **P11 Core 완료(승인 범위 한정) — W1 cost-free regression·read-only preflight·destroy guard([PR #60](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/60)) + W2 Azure finalization 실행 완료.** Project 소유 Azure resource는 모두 제거됐지만 Environment Terraform destroy run은 **FAILED**로 보존하며 PASS로 주장하지 않는다. 최종 결과는 [§6](#6-w2-final-result-2026-11-07-kst)이 authority다. P12는 진행하지 않았다.
+
+§1–§5는 W1 작성 시점(2026-11-06, source `3e732bb`)의 기록이다. 특히 §3–§5의 inventory·blocker·승인 요청은 **historical W1 snapshot**이며 current live 상태가 아니다. 그 안의 "이 PR"은 PR #60을 뜻한다.
 
 W1은 Azure·DNS·GitHub setting mutation, Terraform plan/apply/destroy, 유료 실행, credential·RBAC 확대, 데이터 삭제·백업을 하지 않았다.
 기준 source는 clean synced `main` `3e732bb8330d450f1a479dd14bfd688da1e6a3b4`이며 tree `46d618b8…`는 [PR #59](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/59) exact HEAD `8715c0eb`의 tree와 같다.
@@ -71,6 +73,8 @@ Evidence 보존 관련 관측:
 - **IaC 동결:** `00b603f..3e732bb` 사이 `infra/terraform`, `scripts/azure-execution.py`, `.github/workflows/azure-execution.yml` diff가 없다. Terraform source는 마지막 성공 dispatch와 같다. `scripts/azure-execution.py`는 이 PR에서 destroy guard만 추가한다(§3 Terraform state).
 
 ## 3. W2 teardown preflight (read-only)
+
+> Historical W1 snapshot(2026-11-06 ~08:20–08:40Z). 아래 resource·RBAC·DNS·state 수치는 teardown 전 상태이며 current live 상태가 아니다. 최종 결과는 §6.
 
 ### Inventory (MEASURED, 2026-11-06 ~08:25Z)
 
@@ -165,6 +169,8 @@ Gabia 전환이 1–2일 걸리면 Foundation/Bootstrap 기한 안에 DNS gate�
 
 ## 4. Gap 분류
 
+> Historical W1 snapshot. 아래 blocker는 W2에서 해소됐다(§6). 1.16.7 binary는 Fedora에서 pinned·checksum 검증 후 사용했고, Cloudflare zone은 `active`로 복귀했다.
+
 **P11 acceptance blocker:**
 
 1. Azure lifecycle 미종료(W2 승인 필요)
@@ -179,6 +185,8 @@ Gabia 전환이 1–2일 걸리면 Foundation/Bootstrap 기한 안에 DNS gate�
 
 ## 5. W2 승인 요청 (사용자 결정)
 
+> Historical W1 snapshot. 실제 승인·실행과 그 결과는 PR #60 comment와 §6에 있다.
+
 Go 조건을 만족하는 W2는 다음을 **명시적으로** 승인받아야 한다. W1의 read-only 결과는 승인이 아니다.
 
 1. **Gabia NS → Cloudflare `roxy`/`tom` 복구(사용자 hands-on), 승인 직후 가장 먼저.** Azure NS·zone은 유지한 채 Cloudflare `active` 복귀와 authoritative/recursive 전파를 관측한다.
@@ -191,3 +199,36 @@ Go 조건을 만족하는 W2는 다음을 **명시적으로** 승인받아야 �
 7. **Fedora bootstrap destroy(사용자 host).** Terraform **1.16.7** binary를 먼저 준비하고, 최신 local state(serial 13 기준 재확인)로 실행한다. DNS gate가 Foundation/Bootstrap 기한(2026-11-09 00:33 KST) 안에 끝나지 않으면 보존 연장 여부도 함께 결정한다.
 
 권장 순서: 승인 직후 1을 시작한다. 같은 window에서 2–5를 Environment 기한(2026-11-08 10:30 KST) 전에 끝낸다. 6–7은 DNS 확인 뒤에 한다. 보존 하루마다 약 ₩30k가 들므로 environment teardown을 미룰 근거는 없다.
+
+## 6. W2 final result (2026-11-07 KST)
+
+Final operational source는 merged `main` `0c78d0d82dd8c84a17382e4d3806a54a489025ab`(PR #60)다. 상세 실측과 판정 authority는 PR #60 comment다. 여기서는 결과만 요약하고 log를 반복하지 않는다.
+
+- [Final independent gate](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/60#issuecomment-6691695074)
+- [Stale state backend exception](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/60#issuecomment-6691507680)
+- [Foundation destroy result](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/60#issuecomment-6691483700)
+- [Environment destroy failure + residual cleanup](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/60#issuecomment-6690610889)
+
+| 단계 | 결과 (MEASURED) |
+| --- | --- |
+| DNS | Azure zone `forgejo` A exact 삭제. Gabia delegation을 Cloudflare `roxy`/`tom`으로 복구했고 Cloudflare zone은 **ACTIVE**다. Public resolver에 `forgejo` A가 없다. |
+| `environment:destroy` | Run [42253781737](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/actions/runs/42253781737) **FAILED**. 소비됐고 재시도하지 않았다. 33/34 삭제, remote state에 `azurerm_monitor_workspace.this` 1개가 남았다. AMW는 사용자가 별도로 요청한 exact-ID ARM DELETE로 나중에 제거했고, Smart Detection residual 2개도 exact-ID로 삭제했다. **PASS가 아니다.** |
+| `foundation:destroy` | Run [42264345423](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/actions/runs/42264345423) **SUCCESS**. Guard가 fresh state 2 = 승인 count를 확인했고 exact 2 delete(`azurerm_dns_zone.project`, `azurerm_key_vault.project`), 최종 state 0. |
+| Bootstrap | Fedora original checkout·original local state로 pinned Terraform 1.16.7을 사용했다. Saved plan은 exact 12 delete였고 apply 1회 SUCCESS. 최종 local state 0 instance, serial 26, mode 0600. Project RG 3개 모두 absent. |
+| Approval | `P6_CAMPAIGN_APPROVAL`은 disabled, `allowed_operations=[]`. |
+
+Stale Environment state의 처분:
+
+- 실패 run이 remote state에 남긴 `azurerm_monitor_workspace.this`는 ARM·RP·Resource Graph에서 absent로 확인된 resource의 stale pointer였다.
+- 이 state는 **documented exception**으로, 승인된 Bootstrap teardown이 owned state storage account를 삭제하면서 함께 폐기됐다. `terraform state rm`이나 추가 Terraform dispatch는 쓰지 않았다.
+- 따라서 Environment Terraform state가 Terraform으로 비워졌다거나 Environment destroy가 PASS했다고 주장하지 않는다.
+
+Final inventory와 boundary:
+
+- Subscription에는 범위 밖 `NetworkWatcherRG`(Azure 자동 생성 resource 2)만 남았다. 수정하지 않았다.
+- Role assignment는 baseline `Owner` 2뿐이다. Bootstrap CI identity·FIC·RBAC와 state backend는 제거됐다.
+- Key Vault는 soft-deleted 상태이며 scheduled purge는 2026-11-13이다. 조기 purge는 하지 않았다.
+- P10 private raw(80 + 59 files)는 primary checkout의 ignored `.tmp/`에 보존돼 있다(§1). 공개하지 않는다.
+- 최종 Cost Management invoice는 **UNKNOWN**이다. §3의 cost는 추정치이며 청구 확정액이 아니다.
+- 기존 limitation은 그대로다. P7 tracing은 not verified, P10은 one controlled pair이며 statistical proof가 아니다.
+- 보존 기한 연장, 추가 유료 실행, P12 진입은 없었다.
