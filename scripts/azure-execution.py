@@ -41,6 +41,7 @@ PLAN_FAILURE_CODES = frozenset({
     "CHANGE_STRUCTURE", "UNKNOWN_VALUES", "REPLACEMENT_IMPORT", "RESOURCE_IDENTITY", "RESOURCE_ID",
     "POSTGRESQL_ACTION", "PASSWORD_VERSION", "PASSWORD_PERSISTED", "RESOURCE_ACTION", "ATTRIBUTE_DIFF",
     "RESOURCE_INVENTORY", "OUTPUT_STRUCTURE", "OUTPUT_CHANGE", "PLAN_CHECKS",
+    "STATE_INVENTORY", "DESTROY_SET", "DESTROY_ACTION",
 })
 
 
@@ -107,6 +108,12 @@ def validate(approval, config, env, now):
             all(item in {f"{s}:{o}" for s in ("foundation", "environment")
                          for o in ("plan", "apply", "destroy")} for item in operations),
             "operation is not approved")
+    if operation == "destroy":
+        # Destroy binds the exact number of managed state objects the approver expects to delete.
+        counts = approval.get("destroy_expected_state_counts")
+        require(isinstance(counts, dict) and set(counts) <= {"foundation", "environment"} and stack in counts and
+                all(type(count) is int and count > 0 for count in counts.values()),
+                "destroy requires an approved expected state resource count")
     if "plan_policy" in approval:
         require(approval["plan_policy"] == ROTATION_POLICY and stack == "environment" and
                 operation in ("plan", "apply") and
@@ -350,8 +357,28 @@ def stable_identity(change):
                 for key, value in before.items()) and before == after)
 
 
-def validate_plan(approval, stack, operation, plan, addresses):
+def validate_destroy(approval, stack, plan, addresses, state):
+    """The saved destroy plan must delete exactly the fresh live state set, at the approved count."""
+    plan_require(isinstance(state, list) and all(isinstance(address, str) for address in state), "STATE_INVENTORY")
+    live = set(state)
+    plan_require(len(live) == len(state) and live <= addresses and
+                 len(live) == approval["destroy_expected_state_counts"][stack], "STATE_INVENTORY")
+    plan_require(isinstance(plan, dict) and plan.get("applyable") is True and plan.get("complete") is True and
+                 plan.get("errored") is False, "PLAN_STATUS")
+    changes = plan.get("resource_changes")
+    plan_require(isinstance(changes, list) and all(isinstance(change, dict) for change in changes), "RESOURCE_CHANGES")
+    planned = [change.get("address") for change in changes]
+    plan_require(len(set(planned)) == len(planned) and set(planned) == live and
+                 all(change.get("mode") == "managed" for change in changes), "DESTROY_SET")
+    plan_require(all(isinstance(change.get("change"), dict) and change["change"].get("actions") == ["delete"]
+                     for change in changes), "DESTROY_ACTION")
+
+
+def validate_plan(approval, stack, operation, plan, addresses, state=None):
     """Inspect the private JSON of the very saved plan passed to apply; never echo values."""
+    if operation == "destroy":
+        validate_destroy(approval, stack, plan, addresses, state)
+        return
     rotation = approval.get("plan_policy") == ROTATION_POLICY
     plan_require(isinstance(plan, dict) and
             isinstance(plan.get("resource_changes", None if rotation else []), list), "RESOURCE_CHANGES")
@@ -522,9 +549,11 @@ def execute(approval, config):
                 plan.append("-destroy")
             run(*plan)
             plan_json = run("show", "-json", str(work / "execution.tfplan"))
+            # Fresh live inventory immediately before the destroy guard and apply (names only, never printed).
+            state = run("state", "list").decode().splitlines() if operation == "destroy" else None
             try:
                 changes = json.loads(plan_json)
-                validate_plan(approval, stack, operation, changes, addresses)
+                validate_plan(approval, stack, operation, changes, addresses, state)
             except Exception as error:
                 # Only fixed codes and source-allowlisted addresses cross this boundary.
                 # Never stringify an unexpected exception (including JSON/provider payloads).

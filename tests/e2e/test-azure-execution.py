@@ -30,6 +30,17 @@ class FixedDateTime(dt.datetime):
         return NOW.astimezone(tz) if tz else NOW.replace(tzinfo=None)
 
 
+def declared(stack):
+    text = "\n".join(p.read_text() for p in (ROOT / "infra/terraform" / stack).glob("*.tf"))
+    return sorted(f"{kind}.{name}" for kind, name in re.findall(r'^resource "([^"]+)" "([^"]+)"', text, re.M))
+
+
+def destroy_plan(addresses, actions=("delete",)):
+    return {"format_version": "1.2", "applyable": True, "complete": True, "errored": False,
+            "resource_changes": [{"address": a, "mode": "managed", "change": {"actions": list(actions)}}
+                                 for a in addresses]}
+
+
 def fixture():
     identity = "00000000-0000-0000-0000-000000000001"
     config = {"backend": {"storage_account_name": "teststate123", "container_name": "tfstate",
@@ -51,7 +62,8 @@ def fixture():
                                        for o in ("plan", "apply", "destroy")],
                 "prerequisite_evidence": {f"{s}:{o}": "https://example.test/predecessor"
                                           for s in ("foundation", "environment")
-                                          for o in ("plan", "apply", "destroy")}}
+                                          for o in ("plan", "apply", "destroy")},
+                "destroy_expected_state_counts": {s: len(declared(s)) for s in ("foundation", "environment")}}
     env = {"PATH": os.environ["PATH"], "GITHUB_ACTIONS": "true", "GITHUB_EVENT_NAME": "workflow_dispatch",
            "GITHUB_REF": "refs/heads/main", "GITHUB_REPOSITORY": execution.REPOSITORY,
            "GITHUB_RUN_ATTEMPT": "1", "P6_SOURCE_SHA": SOURCE, "GITHUB_SHA": SOURCE,
@@ -349,7 +361,10 @@ class CommandIsolationTest(unittest.TestCase):
                         body = json.dumps({"resource_changes": [{"address": "azurerm_dns_zone.project",
                                            "change": {"actions": ["no-op"], "before": c, "after": c}}]}).encode() \
                             if command[2] == "show" and stack == "foundation" else b'{"resource_changes": []}'
-                        if command[2] != "show":
+                        if operation == "destroy" and command[2] in ("show", "state"):
+                            body = json.dumps(destroy_plan(declared(stack))).encode() if command[2] == "show" \
+                                else "\n".join(declared(stack)).encode()
+                        elif command[2] != "show":
                             body = json.dumps(c).encode() + e.get("P6_POSTGRESQL_ADMINISTRATOR_PASSWORD", "").encode()
                         return subprocess.CompletedProcess(command, 0, body, b"")
 
@@ -363,6 +378,7 @@ class CommandIsolationTest(unittest.TestCase):
                         self.assertNotIn(value, output.getvalue() + errors.getvalue())
                     names = [call[0] for call in calls]
                     self.assertEqual(names, ["init", "validate", "plan", "show"] +
+                                     (["state"] if operation == "destroy" else []) +
                                      (["apply"] if operation != "plan" else []) + ["state"])
                     self.assertEqual("-destroy" in calls[2], operation == "destroy")
                     self.assertFalse(any("-auto-approve" in call for call in calls))
@@ -378,6 +394,8 @@ class CommandIsolationTest(unittest.TestCase):
         for stack in ("foundation", "environment"):
             for operation in ("plan", "apply", "destroy"):
                 for label, plan, allowed in cases:
+                    if operation == "destroy":
+                        allowed = False  # an empty/malformed destroy plan never matches a non-empty live state
                     with self.subTest(stack=stack, operation=operation, changes=label):
                         approval, config, env = fixture()
                         env.update(P6_STACK=stack, P6_OPERATION=operation)
@@ -398,9 +416,11 @@ class CommandIsolationTest(unittest.TestCase):
                             else:
                                 with self.assertRaises(execution.PlanGuardError) as refused:
                                     execution.execute(approval, config)
-                                self.assertEqual(refused.exception.code, "RESOURCE_CHANGES")
+                                self.assertEqual(refused.exception.code,
+                                                 "STATE_INVENTORY" if operation == "destroy" else "RESOURCE_CHANGES")
                         applied = allowed and operation != "plan"
                         self.assertEqual([call[0] for call in calls], ["init", "validate", "plan", "show"] +
+                                         (["state"] if operation == "destroy" else []) +
                                          (["apply"] if applied else []) + ["state"])
                         saved = next(arg.removeprefix("-out=") for arg in calls[2] if arg.startswith("-out="))
                         self.assertEqual(calls[3], ["show", "-json", saved])
@@ -505,6 +525,85 @@ def rotation_fixture():
                 "postgresql": {"actions": ["no-op"], "before": {"id": "dummy"},
                                "after": {"id": "dummy"}, "after_unknown": False}}}
     return approval, config, env, plan, addresses
+
+
+class DestroyGuardTest(unittest.TestCase):
+    def test_destroy_requires_an_explicit_expected_state_count(self):
+        a, c, e = fixture()
+        e.update(P6_STACK="environment", P6_OPERATION="destroy")
+        self.assertEqual(execution.validate(a, c, e, NOW), ("environment", "destroy"))
+        self.assertEqual(execution.validate({k: v for k, v in a.items() if k != "destroy_expected_state_counts"},
+                                            c, e | {"P6_OPERATION": "plan"}, NOW), ("environment", "plan"))
+        for counts in (None, [], {}, {"foundation": 2}, {"environment": 0}, {"environment": True},
+                       {"environment": "34"}, {"environment": 34.0}, {"environment": 34, "bootstrap": 12}):
+            with self.subTest(counts=counts), self.assertRaises(ValueError):
+                execution.validate(a | {"destroy_expected_state_counts": counts}, c, e, NOW)
+        with self.assertRaises(ValueError):
+            execution.validate({k: v for k, v in a.items() if k != "destroy_expected_state_counts"}, c, e, NOW)
+
+    def test_saved_destroy_plan_must_delete_exactly_the_fresh_state_at_the_approved_count(self):
+        a, _, _ = fixture()
+        for stack in ("foundation", "environment"):
+            live = declared(stack)
+            source = set(live)
+            execution.validate_plan(a, stack, "destroy", destroy_plan(live), source, list(live))
+            other = [x for x in declared("foundation" if stack == "environment" else "environment")]
+            cases = [
+                ("state missing", destroy_plan(live), None, "STATE_INVENTORY"),
+                ("state empty", {"format_version": "1.2", "applyable": False, "complete": True, "errored": False},
+                 [], "STATE_INVENTORY"),
+                ("count below approval", destroy_plan(live[1:]), live[1:], "STATE_INVENTORY"),
+                ("duplicate state", destroy_plan(live), live + live[:1], "STATE_INVENTORY"),
+                ("state outside source", destroy_plan(live), live[1:] + other[:1], "STATE_INVENTORY"),
+                ("incomplete plan", destroy_plan(live) | {"complete": False}, live, "PLAN_STATUS"),
+                ("non-object plan", [], live, "PLAN_STATUS"),
+                ("errored plan", destroy_plan(live) | {"errored": True}, live, "PLAN_STATUS"),
+                ("omitted changes", {k: v for k, v in destroy_plan(live).items() if k != "resource_changes"},
+                 live, "RESOURCE_CHANGES"),
+                ("partial", destroy_plan(live[1:]), live, "DESTROY_SET"),
+                ("extra", destroy_plan(live + other[:1]), live, "DESTROY_SET"),
+                ("duplicate change", destroy_plan(live + live[:1]), live, "DESTROY_SET"),
+                ("data mode", {**destroy_plan(live), "resource_changes": [
+                    dict(r, mode="data") if i == 0 else r for i, r in enumerate(destroy_plan(live)["resource_changes"])]},
+                 live, "DESTROY_SET"),
+                ("no-op", {**destroy_plan(live), "resource_changes": destroy_plan(live)["resource_changes"][1:] +
+                           destroy_plan(live[:1], ("no-op",))["resource_changes"]}, live, "DESTROY_ACTION"),
+                ("replace", destroy_plan(live, ("delete", "create")), live, "DESTROY_ACTION"),
+            ]
+            for label, plan, state, code in cases:
+                with self.subTest(stack=stack, case=label), self.assertRaises(execution.PlanGuardError) as refused:
+                    execution.validate_plan(a, stack, "destroy", plan, source, state)
+                self.assertEqual(refused.exception.code, code)
+                self.assertIn(code, execution.PLAN_FAILURE_CODES)
+                self.assertIsNone(refused.exception.address)
+
+    def test_mismatched_live_state_refuses_before_apply_without_echoing_state(self):
+        clock = patch.object(execution.dt, "datetime", FixedDateTime)
+        clock.start()
+        self.addCleanup(clock.stop)
+        a, c, e = fixture()
+        e.update(P6_STACK="environment", P6_OPERATION="destroy")
+        live = declared("environment")
+        calls = []
+
+        def fake(command, **kwargs):
+            calls.append(command[2])
+            if command[2] == "show":
+                return subprocess.CompletedProcess(command, 0, json.dumps(destroy_plan(live)).encode(), b"")
+            if command[2] == "state":  # one live object vanished after planning
+                return subprocess.CompletedProcess(command, 0, "\n".join(live[1:]).encode(), b"")
+            return subprocess.CompletedProcess(command, 0, b"", b"")
+
+        output, errors = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(output), contextlib.redirect_stderr(errors), \
+             patch.dict(os.environ, e, clear=True), patch.object(execution, "check_source"), \
+             patch.object(execution.subprocess, "run", side_effect=fake), \
+             self.assertRaises(execution.PlanGuardError) as refused:
+            execution.execute(a, c)
+        self.assertEqual(refused.exception.code, "STATE_INVENTORY")
+        self.assertEqual(calls, ["init", "validate", "plan", "show", "state", "state"])
+        self.assertIn("plan guard refused: STATE_INVENTORY", errors.getvalue())
+        self.assertNotIn("planned:", output.getvalue())
 
 
 class RotationTest(unittest.TestCase):
