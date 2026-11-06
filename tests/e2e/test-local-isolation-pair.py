@@ -304,6 +304,22 @@ class PairTests(unittest.TestCase):
         self.assertTrue(pair.guards_from(shots, (91.0, 100.0), sentinels, False, facts)['ingress']['competing_bottleneck'])
         self.assertTrue(pair.guards_from(shots, (91.0, 100.0), sentinels, True, facts | {'native_auth': False})['tls_native_auth']['competing_bottleneck'])
 
+    def test_haproxy_snapshot_rejects_a_ring_that_moved_around_the_counters(self):
+        # CI 42189313574: a probe row logged between the ring and stats execs skewed frontend vs ring by one.
+        rings = iter(['r0', 'r1', 'r1', 'r1'])
+        def kube(*args):
+            return next(rings) if 'show events p10' in args[-1] else 'x'
+        saved = pair.haproxy_pod, pair.gate.kube, m.parse_ring, m.parse_haproxy_info, m.parse_haproxy_stats
+        try:
+            pair.haproxy_pod, pair.gate.kube = (lambda: ('haproxy-0', 'id')), kube
+            m.parse_ring, m.parse_haproxy_info, m.parse_haproxy_stats = (lambda s: [s]), (lambda s: {}), (lambda s: {})
+            self.assertEqual(pair.haproxy_snapshot()['ring'], ['r1'])
+            rings = iter(['a', 'b', 'c', 'd', 'e', 'f'])
+            with self.assertRaisesRegex(ValueError, 'ring changed'):
+                pair.haproxy_snapshot()
+        finally:
+            pair.haproxy_pod, pair.gate.kube, m.parse_ring, m.parse_haproxy_info, m.parse_haproxy_stats = saved
+
     def test_expected_log_counts_ignore_connections_that_carried_no_request(self):
         probe = m.parse_ring(t10.PROBE_ROW)[0]
         rows = [t10.ring_row('critical', 200, 'shared', 1), t10.ring_row('bulk', 503, 'shared', 2), probe, t10.ring_row('bulk', 200, 'shared', 3)]

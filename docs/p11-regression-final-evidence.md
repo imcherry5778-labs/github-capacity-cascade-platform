@@ -57,6 +57,10 @@ Evidence 보존 관련 관측:
 - **Focused local (Mac, Python 3.15):** offline suite 15개를 실행했다.
   - 13개 PASS: operation-results, azure-operations(GNU `stat` shim), azure-cascade, critical-bulk-isolation, local-isolation-pair, azure-isolation, azure-mitigation(skip 3), recovery, upgrade, shared-gate, saturation, ci-change-impact, azure-execution
   - 2개는 Mac host 도구 부재로 실행되지 않았다: `local-bootstrap-diagnostics`(`flock`), `bootstrap-state-protection`(`gpg`). Source regression이 아니며 위 CI에서 PASS했다.
+- **Regression gate flake (CI, 교정):** 이 PR 첫 HEAD `0f1378a`(docs-only)의 Local run [42189313574](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/actions/runs/42189313574)이 P10 Local pair의 shared arm에서 `HAProxy frontend vs ring`으로 실패했다(owned restore `restored=true`).
+  - 원인: `local-isolation-pair.py` snapshot이 ring과 frontend stats를 별도 `kubectl exec`로 읽는다. Kubelet probe `400/CR` 1건이 before ring read와 stats read 사이에 기록돼 window ring이 counter delta보다 1 row 많았다(`req_tot` 771 vs ring 772, `hrsp_4xx` 12 vs 13). `main`에 잠재한 측정 race이며 docs diff와 무관하다.
+  - 교정: counter 앞뒤 ring이 같을 때만 snapshot을 채택한다(최대 3회, 아니면 fail closed). Validator 조건은 바꾸지 않았다.
+  - 같은 패턴은 `azure-isolation.py` snapshot에도 있다. W2에는 Azure campaign이 없으므로 수정하지 않고 limitation으로 남긴다.
 - **IaC 동결:** `00b603f..3e732bb` 사이 `infra/terraform`, `scripts/azure-execution.py`, `.github/workflows/azure-execution.yml` diff가 없다. Destroy가 쓸 Terraform source·gate는 마지막 성공 dispatch와 같다.
 
 ## 3. W2 teardown preflight (read-only)
@@ -144,7 +148,7 @@ Gabia 전환이 1–2일 걸리면 Foundation/Bootstrap 기한 안에 DNS gate�
 
 **Unknown, W2 실행 전에 확인할 것:** Fedora state·도구, Cloudflare zone 상태, Gabia 권한·처리 시간, Smart Detection residual 실제 여부.
 
-**Blocker 아님:** Local CI artifact 만료(gate 재생성 가능), Mac host 도구 부재, `eastus` Network Watcher(범위 밖).
+**Blocker 아님:** `azure-isolation.py` 동일 snapshot race(재실행 계획 없음), Local CI artifact 만료(gate 재생성 가능), Mac host 도구 부재, `eastus` Network Watcher(범위 밖).
 
 ## 5. W2 승인 요청 (사용자 결정)
 

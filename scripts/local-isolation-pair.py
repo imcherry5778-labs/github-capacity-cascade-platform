@@ -428,9 +428,16 @@ def haproxy_pod():
 def haproxy_snapshot():
     name, _ = haproxy_pod()
     def run(*command): return gate.kube('-n', NS, 'exec', name, '-c', 'haproxy', '--', *command)
-    return {'ring': m.parse_ring(run('sh', '-c', 'echo "show events p10" | nc -w 2 127.0.0.1 8405')),
-            'info': m.parse_haproxy_info(run('sh', '-c', 'echo "show info" | nc -w 2 127.0.0.1 8405')),
-            'stats': m.parse_haproxy_stats(run('wget', '-qO-', 'http://127.0.0.1:8404/stats;csv'))}
+    def ring(): return m.parse_ring(run('sh', '-c', 'echo "show events p10" | nc -w 2 127.0.0.1 8405'))
+    # Separate execs are not atomic: a kubelet probe logged between the ring and stats reads skews
+    # frontend counters by one row. Accept only a snapshot whose ring is unchanged around the counters.
+    for _ in range(3):
+        first = ring()
+        info = m.parse_haproxy_info(run('sh', '-c', 'echo "show info" | nc -w 2 127.0.0.1 8405'))
+        stats = m.parse_haproxy_stats(run('wget', '-qO-', 'http://127.0.0.1:8404/stats;csv'))
+        if ring() == first:
+            return {'ring': first, 'info': info, 'stats': stats}
+    raise ValueError('HAProxy ring changed during every counter snapshot')
 
 
 def proxy_rows(pod):
