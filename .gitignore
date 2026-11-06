@@ -49,3 +49,7 @@ results/raw/
 results/**/raw/
 results/local/
 artifacts/
+
+# Python bytecode
+__pycache__/
+*.py[co]
