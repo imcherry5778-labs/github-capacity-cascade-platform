@@ -1,6 +1,6 @@
 # P10 — Critical/Bulk operation isolation (첫 implementation)
 
-상태: **source 구현(P10-W1) + Local 2-pool paired harness와 managed collector 계약(P10-W2, source-only) + Azure pre-paid source gate(P10-W3, source-only) / cost-free 검증 범위는 [evidence](evidence/p10-source-20261105/README.md)와 exact-head CI artifact 참조 / Azure 미실행 / P10 acceptance 미완료**.
+상태: **source 구현(P10-W1) + Local 2-pool paired harness와 managed collector 계약(P10-W2, source-only) + Azure pre-paid source gate(P10-W3, source-only) / cost-free 검증 범위는 [evidence](evidence/p10-source-20261105/README.md)와 exact-head CI artifact 참조 / Azure measured-only campaign `p10nov06b`(main `3e732bb`) positive, [기록](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/59#issuecomment-6679609883) / [P10 독립 acceptance PASS](https://github.com/imcherry5778-labs/github-capacity-cascade-platform/pull/59#issuecomment-6679708980)(one pair, fixture operation 한정) / 이전 `p10nov06`은 consumed·observation-insufficient로 보존**.
 W1 baseline `58fae6f105bd5bc28e2c85e05a138f6cb3e4ed03`에서 시작했고 W2는 merged PR52 `ab77792`에서 시작했다. [P8 incident](incidents/p8-controlled-cascade.md),
 [P9 Campaign32](evidence/p9-mitigation-thirty-second-20261105/README.md)의 negative/valid accounting과 raw는 변경하지 않는다.
 P9의 실행 승인·budget·counter를 재사용하지 않는다.
