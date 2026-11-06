@@ -229,6 +229,6 @@ Final inventory와 boundary:
 - Role assignment는 baseline `Owner` 2뿐이다. Bootstrap CI identity·FIC·RBAC와 state backend는 제거됐다.
 - Key Vault는 soft-deleted 상태이며 scheduled purge는 2026-11-13이다. 조기 purge는 하지 않았다.
 - P10 private raw(80 + 59 files)는 primary checkout의 ignored `.tmp/`에 보존돼 있다(§1). 공개하지 않는다.
-- 최종 Cost Management invoice는 **UNKNOWN**이다. §3의 cost는 추정치이며 청구 확정액이 아니다.
+- 최종 Cost Management invoice는 **UNKNOWN**이다. §3의 누적 ActualCost는 당시 Cost Management 조회치이고 하루 유지비는 추정치다. 최종 청구 확정액은 아니다.
 - 기존 limitation은 그대로다. P7 tracing은 not verified, P10은 one controlled pair이며 statistical proof가 아니다.
 - 보존 기한 연장, 추가 유료 실행, P12 진입은 없었다.
