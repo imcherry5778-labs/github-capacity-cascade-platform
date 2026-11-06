@@ -101,8 +101,8 @@ def manifest(value):
 
 
 def run_seconds(v):
-    """Demand + drain + managed telemetry tail (scrape + ingestion) for one fault run."""
-    return v['duration_seconds'] + v['drain_seconds'] + v['scrape_seconds'] + v['ingestion_seconds']
+    """Pre-window managed readiness (<= scrape + ingestion) + demand + drain + managed telemetry tail (scrape + ingestion)."""
+    return v['duration_seconds'] + v['drain_seconds'] + 2 * (v['scrape_seconds'] + v['ingestion_seconds'])
 
 
 def total_seconds(v):
@@ -364,6 +364,26 @@ def amw_preflight(fetch, cluster):
     """Stable `up` scrape plus the campaign's own five-query P10 path (never a scalar/instant union)."""
     return {'up': fetch('/api/v1/query', {'query': 'up{cluster=%s,namespace="forgejo"}' % json.dumps(cluster)}),
             'p10': m.poll_managed(fetch, m.managed_selectors(NS, cluster), m.MANAGED_LOOKBACK_SECONDS)['data']}
+
+
+def await_managed_scrape(observe, after, timeout, interval, clock=time.monotonic, wait=time.sleep, healthy=lambda: True):
+    """Bounded wait, before the window, for one complete managed scrape of every actual target Pod sampled after `after`.
+
+    A fresh arm's sidecars expose no inbound stats until warm-up, so the first poll need not hold a scrape that brackets
+    the window start. `observe()` is the managed_rows() projection; absent/partial series raise ValueError and stay a
+    gap, never a value. No sample is synthesized: timeout (scrape + ingestion) or an unhealthy monitor fails closed.
+    """
+    deadline, reason = clock() + timeout, 'no managed poll yet'
+    while True:
+        try:
+            fresh = [r for r in observe() if min(t['sample_at'] for t in r['targets']) >= after]
+            if fresh:
+                return fresh[0]
+            reason = 'no complete post-warm-up scrape yet'
+        except ValueError as exc:
+            reason = str(exc)[:120]
+        require(healthy() and clock() < deadline, 'no complete post-warm-up managed scrape before the window: ' + reason)
+        wait(interval)
 
 
 def restoration_verdict(state):
@@ -939,6 +959,7 @@ class Campaign:
                 time.sleep(.2)
             # Not measured: routing/native auth through the arm, then every target's inbound stats exist.
             warm = pair.Run.warm_up(self, targets, fetch)
+            warmed_at = time.monotonic()   # every target's inbound stats exist from here
             self.checkpoint('warm-up', arm=arm, step=phase, **warm)
             hp = self.rt.pod(NS, 'app=haproxy')
             haproxy_image = next(c['imageID'] for c in hp['status']['containerStatuses'] if c['name'] == 'haproxy')
@@ -975,6 +996,12 @@ class Campaign:
             while not (len(sampler.rows) >= 4 and snapshots and sentinels and polls):
                 require(time.monotonic() < deadline and not errors, 'monitors did not start before the window')
                 time.sleep(.1)
+            # The managed window start must be bracketed by an actual scrape: wait (not measured) for a complete one.
+            pods = [{'name': t['name'], 'uid': t['uid'], 'pool': t['pool']} for t in targets]
+            ready = await_managed_scrape(lambda: managed_rows(self.value, list(polls), pods, {'start': clock_start, 'end': m.clock_pair()}),
+                                         warmed_at, v['scrape_seconds'] + v['ingestion_seconds'], v['scrape_seconds'] / 3,
+                                         clock=time.monotonic, wait=time.sleep, healthy=lambda: not errors and all(f.alive() for f in forwards))
+            self.checkpoint('managed-ready', arm=arm, step=phase, scrape_age_seconds=round(time.monotonic() - ready['sample_at'], 3))
             before = self.haproxy_snapshot()
             logs_before = self.log_counts(targets, since)
             requests_before = dict(self.client.counts)
@@ -1002,7 +1029,6 @@ class Campaign:
                 time.sleep(1)
             after_at = time.monotonic()
             # Managed tail: scrape + ingestion at most; stop early once a drained-boundary sample is visible.
-            pods = [{'name': t['name'], 'uid': t['uid'], 'pool': t['pool']} for t in targets]
             tail = time.monotonic() + v['scrape_seconds'] + v['ingestion_seconds']
             while time.monotonic() < tail:
                 try:

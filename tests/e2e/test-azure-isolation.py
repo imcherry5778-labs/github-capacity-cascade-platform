@@ -43,7 +43,7 @@ def approval(value):
 class BindingTests(unittest.TestCase):
     def test_manifest_binds_unchanged_candidate_fixture_and_amw_identity(self):
         az.manifest(manifest())
-        self.assertEqual((az.run_seconds(manifest()['plan']), az.total_seconds(manifest()['plan'])), (210, 3840))
+        self.assertEqual((az.run_seconds(manifest()['plan']), az.total_seconds(manifest()['plan'])), (285, 4140))
         for change in (lambda v: v['plan'].update(duration_seconds=60), lambda v: v['plan'].update(protection_fraction=.9),
                        lambda v: v.update(extra=1), lambda v: v['fixture'].update(issue=0),
                        lambda v: v['prometheus'].update(endpoint='http://amw.koreacentral.prometheus.monitor.azure.com'),
@@ -56,8 +56,8 @@ class BindingTests(unittest.TestCase):
         value = manifest()
         with mock.patch.dict(os.environ, {'P10_AZURE_APPROVED': SHA}):
             az.approval_gate(value, approval(value), False, NOW)
-            az.approval_gate(value, approval(value), False, az.DEADLINE - timedelta(seconds=3841))
-            cases = {'reserve': (approval(value), False, az.DEADLINE - timedelta(seconds=3840)),
+            az.approval_gate(value, approval(value), False, az.DEADLINE - timedelta(seconds=4141))
+            cases = {'reserve': (approval(value), False, az.DEADLINE - timedelta(seconds=4140)),
                      'used ledger': (approval(value), True, NOW)}
             for key, change in {'approved': False, 'source_sha': 'b' * 40, 'manifest_sha256': 'c' * 64, 'frozen_plan_sha256': None,
                                 'approval_url': 'https://example.com/approval', 'limits': dict(az.LIMITS, fault_runs=5)}.items():
@@ -81,8 +81,8 @@ class BindingTests(unittest.TestCase):
         with self.assertRaises(ValueError): az.step_gate(value, [], 'measured', 'shared', NOW)           # before healthy
         with self.assertRaises(ValueError): az.step_gate(value, [row('healthy', 'shared') | {'source_sha': 'b' * 40}], 'setup', 'shared', NOW)
         healthy = [row('healthy', 'shared')]
-        az.step_gate(value, healthy, 'measured', 'shared', az.DEADLINE - timedelta(seconds=2011))
-        with self.assertRaises(ValueError): az.step_gate(value, healthy, 'measured', 'shared', az.DEADLINE - timedelta(seconds=2010))
+        az.step_gate(value, healthy, 'measured', 'shared', az.DEADLINE - timedelta(seconds=2086))
+        with self.assertRaises(ValueError): az.step_gate(value, healthy, 'measured', 'shared', az.DEADLINE - timedelta(seconds=2085))
         with self.assertRaises(ValueError): az.step_gate(value, [], 'teardown', 'shared', NOW)
 
     def test_ledger_is_exclusive_and_records_before_the_action(self):
@@ -337,6 +337,44 @@ class EvidenceTests(unittest.TestCase):
             for bad in (rotated, scaled):
                 with self.assertRaises(ValueError): az.azure_observation(expected['targets'], {}, {}, before, bad, {})
 
+    def test_window_waits_for_a_complete_post_warm_up_managed_scrape(self):
+        pods = [{'name': 'ext-authz-critical-a', 'uid': 'u0', 'pool': 'critical'}, {'name': 'ext-authz-bulk-b', 'uid': 'u1', 'pool': 'bulk'}]
+        counter = lambda uid, key, t: 7 if key == 'upstream_rq_total' and t >= 0 else 0
+        poll = lambda stamps, at, **kw: {'at': at, 'data': t10.prometheus(pods, stamps, counter, namespace=az.NS, **kw)}
+        def run(sequence, healthy=lambda: True):
+            # `sequence[i]` = the polls visible at the i-th observation; observing past the end repeats the last one.
+            clock, seen = FakeTime(), []
+            def observe():
+                polls = sequence[min(len(seen), len(sequence) - 1)]; seen.append(clock.now)
+                return az.managed_rows(manifest(), polls, pods, t10.CLOCK)
+            row = az.await_managed_scrape(observe, after=10.0, timeout=75, interval=5, clock=clock.monotonic, wait=clock.sleep, healthy=healthy)
+            return row, seen
+        # Fresh isolated Pods: no series, then one Pod only, then a complete post-warm-up scrape of both.
+        late = [[], [poll({'u0': [11], 'u1': []}, 12)], [poll({'u0': [11], 'u1': [12]}, 25)]]
+        row, seen = run(late)
+        self.assertEqual((len(seen), {t['uid']: t['pool'] for t in row['targets']}), (3, {'u0': 'critical', 'u1': 'bulk'}))
+        self.assertTrue(all(t['sample_at'] >= 10 for t in row['targets']))
+        self.assertEqual({t['uid']: t['stats']['upstream_rq_total'] for t in row['targets']}, {'u0': 7, 'u1': 7})   # actual values, no reset/zero
+        # Warmed shared Pods: older complete scrapes never satisfy the wait; the first post-warm-up one does.
+        old = poll({'u0': [-20, -5], 'u1': [-19, -4]}, 2)
+        row, _ = run([[old], [old, poll({'u0': [-20, -5, 10], 'u1': [-19, -4, 11]}, 20)]])
+        self.assertEqual(min(t['sample_at'] for t in row['targets']), 10.0)
+        # Fail closed (never a row): stale only (delayed ingestion), one Pod fresh, partial series, unexpected series, unhealthy monitor.
+        for name, sequence in (('stale only', [[old]]), ('one Pod fresh', [[poll({'u0': [-5, 12], 'u1': [-4]}, 20)]]),
+                               ('partial', [[poll({'u0': [12], 'u1': [12]}, 20, metric=('ext-authz-bulk-b', 'upstream_rq_total'))]]),
+                               ('no series', [[]])):
+            with self.assertRaises(ValueError, msg=name) as raised: run(sequence)
+            self.assertIn('no complete post-warm-up managed scrape before the window', str(raised.exception), name)
+        foreign = poll({'u0': [12], 'u1': [12]}, 20)
+        for series in foreign['data']['data']['result']: series['metric']['cluster'] = 'other-aks'
+        with self.assertRaises(ValueError): run([[foreign]])
+        clock = FakeTime()
+        with self.assertRaises(ValueError):
+            az.await_managed_scrape(lambda: [], 10.0, 75, 5, clock=clock.monotonic, wait=clock.sleep)
+        self.assertTrue(75 <= clock.now <= 80)                                                         # bounded by scrape + ingestion
+        with self.assertRaises(ValueError):
+            run(late, healthy=lambda: False)
+
     def test_amw_rows_are_scoped_to_the_campaign_cluster_label(self):
         pods = [{'name': 'ext-authz-shared-a', 'uid': 'u0', 'pool': 'shared'}, {'name': 'ext-authz-shared-b', 'uid': 'u1', 'pool': 'shared'}]
         stamps = {'u0': [0, 15, 30], 'u1': [1, 16, 31]}
@@ -404,7 +442,7 @@ class PreflightTests(unittest.TestCase):
     def test_ready_is_only_a_request_readiness_with_unknown_budget(self):
         result = az.preflight_verdict(manifest(), observations(), PRICE, NOW)
         self.assertEqual((result['status'], result['blockers']), ('ready-for-approval-request', []))
-        self.assertEqual(result['facts']['cost']['existing_shared_node_hold_usd'], round(2 * 3840 / 3600 * .236, 4))
+        self.assertEqual(result['facts']['cost']['existing_shared_node_hold_usd'], round(2 * 4140 / 3600 * .236, 4))
         self.assertEqual(result['facts']['cost']['budget_and_headroom'], 'UNKNOWN')
         self.assertIn('budget (UNKNOWN)', result['decisions_required'])
 
@@ -1026,7 +1064,11 @@ class MeasureSmokeTests(unittest.TestCase):
                       'proxy_retries_sha256', 'sentinel_sha256', 'confounder_policy_sha256')}
         invariants.update(stable_revision=value['identity']['stable_revision'], haproxy_image_id='sha256:x', haproxy_processes=1, haproxy_threads=1, haproxy_maxconn=256)
         pods = [{'name': t['name'], 'uid': t['uid']} for t in ts]
-        fetch_amw = t10.amw(lambda: t10.prometheus(pods, {t['uid']: [0] for t in ts}, lambda uid, key, t: 0, namespace=az.NS))
+        def fetch_amw(path, params):
+            # AMW evaluated at the pinned query time: each poll sees one scrape of both Pods one second before it.
+            data = t10.prometheus(pods, {t['uid']: [float(params['time']) - 1001] for t in ts}, lambda uid, key, t: 0, namespace=az.NS)
+            data['data']['result'] = [r for r in data['data']['result'] if r['metric']['__name__'] == params['query'].split('{', 1)[0]]
+            return data
         rt = mock.Mock()
         rt.pod.side_effect = lambda ns, selector: {'metadata': {'name': 'p', 'uid': 'stable'}, 'status': {'containerStatuses': [{'name': 'haproxy', 'imageID': 'sha256:x'}]}}
         c = object.__new__(az.Campaign)
@@ -1054,6 +1096,13 @@ class MeasureSmokeTests(unittest.TestCase):
         self.assertFalse((run / 'run.json').exists())
         self.assertEqual([r['step'] for r in c.ledger.rows()], ['healthy', 'measured'])
         self.assertEqual((len(forwards), all(f.stopped for f in forwards)), (3, True))
+        checkpoints = [json.loads(line) for line in (directory / 'checkpoints.jsonl').read_text().splitlines()]
+        phases = [c['phase'] for c in checkpoints]
+        self.assertLess(phases.index('managed-ready'), phases.index('window-start'))     # waited before the window origin
+        self.assertLess(phases.index('warm-up'), phases.index('managed-ready'))
+        ready = checkpoints[phases.index('managed-ready')]
+        self.assertTrue(0 <= ready['scrape_age_seconds'] <= v['scrape_seconds'] + v['ingestion_seconds'])   # an actual fresh scrape
+        self.assertTrue(any(poll['at'] <= checkpoints[phases.index('window-start')]['monotonic'] for poll in raw['managed_polls']))
 
 
 class HealthySmokeTests(unittest.TestCase):
